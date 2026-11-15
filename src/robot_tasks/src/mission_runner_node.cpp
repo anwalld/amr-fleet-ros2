@@ -142,6 +142,7 @@
 #include "robot_tasks/submit_order_behavior_tree.hpp"
 #include "robot_tasks/submit_order_router.hpp"
 #include "robot_tasks/traffic_reservation.hpp"
+#include "robot_tasks/traffic_service.hpp"
 #include "robot_tasks/workflow_control.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -468,6 +469,7 @@ class MissionRunnerNode final : public rclcpp::Node {
                 const std::shared_ptr<robot_interfaces_mission::srv::ListStationRoutes::Request>,
                 std::shared_ptr<robot_interfaces_mission::srv::ListStationRoutes::Response>
                     response) { ListStationRoutes(response); });
+    traffic_service_ = std::make_unique<robot_tasks::TrafficService>(this, context_);
     v2_block_station_route_srv_ =
         create_service<robot_interfaces_mission::srv::BlockStationRoute>(
             "/v2/block_station_route",
@@ -1774,7 +1776,7 @@ class MissionRunnerNode final : public rclcpp::Node {
       context_.route_locks.erase(decision.resource_id);
     }
     if (!decision.release_mission_id.empty()) {
-      ReleaseRouteLocksForMission(decision.release_mission_id);
+      traffic_service_->ReleaseRouteLocksForMission(decision.release_mission_id);
     }
     response->success = decision.success;
     response->message = decision.message;
@@ -4137,7 +4139,7 @@ class MissionRunnerNode final : public rclcpp::Node {
       return;
     }
     std::string route_lock_message;
-    if (!ReserveRouteLocksForMission(
+    if (!traffic_service_->ReserveRouteLocksForMission(
             profile->mission_id, gate.route_lock_ids, &route_lock_message)) {
       response->success = false;
       response->mission_id = profile->mission_id;
@@ -4936,21 +4938,6 @@ class MissionRunnerNode final : public rclcpp::Node {
     return robot_tasks::RouteLockId(from, to);
   }
 
-  std::vector<std::string> BuildRouteLockIds(const std::vector<std::string>& station_path) const {
-    return robot_tasks::BuildRouteLockIds(station_path, context_.traffic_intersection_locks_enabled);
-  }
-
-  bool ReserveRouteLocksForMission(
-      const std::string& mission_id, const std::vector<std::string>& route_lock_ids,
-      std::string* message) {
-    return robot_tasks::ReserveRouteLocksForMission(
-        context_.route_locks, context_.route_locks_by_mission, mission_id, route_lock_ids, message);
-  }
-
-  void ReleaseRouteLocksForMission(const std::string& mission_id) {
-    robot_tasks::ReleaseRouteLocksForMission(context_.route_locks, context_.route_locks_by_mission, mission_id);
-  }
-
   void SortMissionQueue() {
     robot_tasks::SortMissionQueue(mission_queue_);
   }
@@ -5544,7 +5531,7 @@ class MissionRunnerNode final : public rclcpp::Node {
     if (result_decision.release_all_resources) {
       ReleaseAllResourcesForMission(completed_mission_id);
     } else if (result_decision.release_route_locks) {
-      ReleaseRouteLocksForMission(completed_mission_id);
+      traffic_service_->ReleaseRouteLocksForMission(completed_mission_id);
     }
 
     if (result_decision.probe_docking_contact_failure) {
@@ -5944,6 +5931,7 @@ class MissionRunnerNode final : public rclcpp::Node {
   }
 
   robot_tasks::MissionContext context_;
+  std::unique_ptr<robot_tasks::TrafficService> traffic_service_;
   std::string mission_file_;
   std::string dock_mission_file_;
   std::string facility_file_;

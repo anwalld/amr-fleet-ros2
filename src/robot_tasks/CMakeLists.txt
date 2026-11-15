@@ -86,7 +86,9 @@ add_executable(navigate_sequence_server_node src/navigate_sequence_server_node.c
 ament_target_dependencies(navigate_sequence_server_node
   rclcpp rclcpp_action geometry_msgs nav_msgs nav2_msgs std_msgs std_srvs robot_interfaces robot_interfaces_core)
 
-add_executable(mission_runner_node src/mission_runner_node.cpp)
+add_executable(mission_runner_node
+  src/mission_runner_node.cpp
+  src/traffic_service.cpp)
 target_link_libraries(mission_runner_node robot_tasks_mission_profile robot_tasks_behavior_trees)
 ament_target_dependencies(mission_runner_node
   ament_index_cpp rclcpp rclcpp_action geometry_msgs nav_msgs nav2_msgs std_srvs robot_interfaces robot_interfaces_business robot_interfaces_facility robot_interfaces_fleet robot_interfaces_mission robot_interfaces_navigation robot_navigation)

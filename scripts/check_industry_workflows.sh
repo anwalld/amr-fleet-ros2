@@ -7,6 +7,9 @@ wait_service_type /v2/list_scenario_workflows "robot_interfaces_business/srv/Lis
 wait_submit_order 10 /tmp/robot_industry_workflow_submit.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_industry_workflow_events.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 ros2 service call /v2/list_scenario_workflows robot_interfaces_business/srv/ListScenarioWorkflows \
   "{scenario_id: ''}" \
   | rg "warehouse|manufacturing|hospital|office|hotel|laboratory|campus|inbound_crossdock|line_replenishment_loop|pharmacy_lab_round|workplace_services_round|guest_amenity_round|sample_processing_round|mail_distribution_round"
@@ -24,7 +27,7 @@ run_workflow() {
     | rg "accepted=True|${expected_first}|${expected_second}"
 
   for mission_id in "${expected_first}" "${expected_second}"; do
-    local deadline=$((SECONDS + 45))
+    local deadline=$((SECONDS + 90))
     local out_file="/tmp/robot_industry_workflow_${mission_id}.out"
     while true; do
       ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \

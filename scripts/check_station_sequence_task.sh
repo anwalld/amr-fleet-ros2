@@ -8,6 +8,9 @@ wait_submit_order 10 /tmp/robot_station_sequence_submit.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_station_sequence_events.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_station_sequence_state_topic.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 ros2 service call /v2/estimate_station_sequence robot_interfaces_mission/srv/EstimateStationSequence \
   "{station_ids: [receiving, storage_a, packing, dock], nominal_speed_mps: 0.5, battery_voltage: 24.5}" \
   | rg "success=True|estimate_station_sequence|waypoint_count=4|distance_m=3.9|battery_sufficient=True"
@@ -20,7 +23,7 @@ call_submit_order sequence_alpha station_sequence 35 \
 seen_first=false
 seen_second=false
 seen_third=false
-deadline=$((SECONDS + 45))
+deadline=$((SECONDS + 180))
 while true; do
   state="$(
     ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \

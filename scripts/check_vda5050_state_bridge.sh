@@ -54,7 +54,10 @@ start_bg mission_runner ros2 launch robot_tasks mission_runner.launch.py \
 wait_service_type /v2/submit_order "robot_interfaces_business/srv/SubmitOrder" 10 /tmp/robot_vda_bridge_submit.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_vda_bridge_events.err
 
-python3 "${SCRIPT_DIR}/vda5050_file_bridge.py" "${order_json}" "${state_json}" 45
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_bg station_auto_confirm station_auto_confirm_loop acceptance_tote "${tmp_dir}/auto_confirm.log"
+
+python3 "${SCRIPT_DIR}/vda5050_file_bridge.py" "${order_json}" "${state_json}" 90
 python3 -m json.tool "${state_json}" >/dev/null
 rg '"order_id": "bridge_alpha"|"mission_id": "station_order_vda5050_bridge_alpha"|"state": "FINISHED"' "${state_json}"
 

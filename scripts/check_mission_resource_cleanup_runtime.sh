@@ -40,7 +40,7 @@ start_bg() {
 wait_finished_event() {
   local mission_id="$1"
   local event_file="${LOG_DIR}/${mission_id}_finished_event.out"
-  local deadline=$((SECONDS + 45))
+  local deadline=$((SECONDS + 90))
   while true; do
     ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission_id}}" \
@@ -95,6 +95,9 @@ wait_service_type /v2/list_facility_resources \
   "robot_interfaces_facility/srv/ListFacilityResources" 20 "${LOG_DIR}/wait_facility_list.err"
 wait_service_type /v2/list_mission_events \
   "robot_interfaces_mission/srv/ListMissionEvents" 20 "${LOG_DIR}/wait_events.err"
+
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_bg station_auto_confirm station_auto_confirm_loop acceptance_tote "${LOG_DIR}/auto_confirm.log"
 
 ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
   "{order_id: cleanup_route_alpha, order_type: station_transport, priority: 35, payload_json: 'pickup_station=receiving;dropoff_station=storage_a;start_if_idle=false;preempt_current=false', tags: [runtime_smoke, resource_cleanup]}" \

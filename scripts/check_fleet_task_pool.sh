@@ -7,6 +7,9 @@ wait_service_type /v2/list_fleet_robots "robot_interfaces_fleet/srv/ListFleetRob
 wait_submit_order 10 /tmp/robot_fleet_task.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_fleet_state_topic.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 ros2 service call /v2/list_fleet_robots robot_interfaces_fleet/srv/ListFleetRobots \
   "{capability: station_transport, include_disabled: false}" \
   | rg "success=True|robot_1|station_transport"
@@ -17,7 +20,7 @@ call_submit_order alpha fleet_station 45 \
   | rg "accepted=True|station_order_fleet_alpha"
 
 seen_task=false
-deadline=$((SECONDS + 25))
+deadline=$((SECONDS + 90))
 while true; do
   active_goal="$(
     ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \

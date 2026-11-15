@@ -7,6 +7,9 @@ wait_service_type /v2/list_scenario_workflows "robot_interfaces_business/srv/Lis
 wait_submit_order 10 /tmp/robot_more_workflows_submit.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_more_workflows_events.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 ros2 service call /v2/list_scenario_workflows robot_interfaces_business/srv/ListScenarioWorkflows \
   "{scenario_id: ''}" \
   | rg "retail|restaurant|library|airport|factory_qc|store_restock_and_recovery|service_and_dish_return|returns_and_floor_round|security_and_gate_supply|sample_and_rework_loop"
@@ -44,7 +47,7 @@ check_workflow() {
     done
   }
 
-  wait_finished "${first_mission}" 75 || {
+  wait_finished "${first_mission}" 120 || {
     echo "workflow first mission did not finish: ${scenario_id}/${workflow_id}/${first_mission}" >&2
     exit 1
   }

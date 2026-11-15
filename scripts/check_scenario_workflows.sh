@@ -7,6 +7,9 @@ wait_service_type /v2/list_scenario_workflows "robot_interfaces_business/srv/Lis
 wait_submit_order 10 /tmp/robot_scenario_workflow_submit.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_scenario_workflow_state_topic.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 ros2 service call /v2/list_scenario_workflows robot_interfaces_business/srv/ListScenarioWorkflows \
   "{scenario_id: warehouse}" \
   | rg "success=True|inbound_crossdock|inbound_to_storage,storage_to_packing"
@@ -18,7 +21,7 @@ call_submit_order workflow_alpha scenario_workflow 0 \
 
 seen_first=false
 seen_second=false
-deadline=$((SECONDS + 40))
+deadline=$((SECONDS + 180))
 while true; do
   active_goal="$(
     ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \

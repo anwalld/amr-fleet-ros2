@@ -8,6 +8,9 @@ wait_submit_order 10 /tmp/robot_scenario_facility_submit.err
 wait_service_type /v2/list_facility_resources "robot_interfaces_facility/srv/ListFacilityResources" 10 /tmp/robot_scenario_facility_list.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_scenario_facility_events.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
   "{scenario_id: warehouse}" \
   | rg "open_receiving_door|facility_action|receiving_door|open|inbound_to_storage|station_transport"
@@ -18,7 +21,7 @@ call_submit_order facility_workflow_alpha scenario_workflow 0 \
   | rg "accepted=True|facility_action_facility_workflow_alpha_step_1|station_order_fleet_facility_workflow_alpha_step_2"
 
 for mission_id in facility_action_facility_workflow_alpha_step_1 station_order_fleet_facility_workflow_alpha_step_2; do
-  deadline=$((SECONDS + 45))
+  deadline=$((SECONDS + 90))
   out_file="/tmp/robot_scenario_facility_${mission_id}.out"
   while true; do
     ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \

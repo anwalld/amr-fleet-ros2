@@ -7,6 +7,9 @@ wait_service_type /v2/get_operator_snapshot "robot_interfaces_business/srv/GetOp
 wait_submit_order 10 /tmp/robot_operator_snapshot_submit.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_operator_snapshot_events.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 5}" \
   | rg "success=True|operator snapshot|fleet_robot_ids=\\[|facility_resource_ids=\\[|business_types=\\["
 
@@ -16,7 +19,7 @@ call_submit_order operator_alpha business 0 \
   | rg "accepted=True|warehouse|door_assisted_inbound"
 
 for mission in facility_action_business_operator_alpha_step_1 station_order_fleet_business_operator_alpha_step_2; do
-  deadline=$((SECONDS + 45))
+  deadline=$((SECONDS + 90))
   while true; do
     if ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission}}" \

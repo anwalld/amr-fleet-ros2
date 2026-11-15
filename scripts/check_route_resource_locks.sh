@@ -7,6 +7,9 @@ wait_submit_order 10 /tmp/robot_route_lock_submit.err
 wait_service_type /v2/cancel_queued_mission "robot_interfaces_mission/srv/CancelQueuedMission" 10 /tmp/robot_route_lock_cancel.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_route_lock_events.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 call_submit_order route_lock_a station_transport 10 \
   "pickup_station=receiving;dropoff_station=storage_a;start_if_idle=false;preempt_current=false" \
   station_transport_order \
@@ -26,7 +29,7 @@ call_submit_order route_lock_b station_transport 10 \
   station_transport_order \
   | rg "accepted=True|station_order_route_lock_b"
 
-deadline=$((SECONDS + 35))
+deadline=$((SECONDS + 90))
 while true; do
   if ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 80, state_filter: FINISHED, mission_id_filter: station_order_route_lock_b}" \

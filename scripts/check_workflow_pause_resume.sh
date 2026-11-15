@@ -10,6 +10,9 @@ wait_service_type /v2/get_workflow_status "robot_interfaces_business/srv/GetWork
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_workflow_pause_events.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_workflow_pause_state_topic.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 call_submit_order pause_alpha scenario_workflow 30 \
   "scenario_id=warehouse;workflow_id=inbound_crossdock;order_id=pause_alpha;start_if_idle=false;preempt_current=false" \
   scenario_workflow \
@@ -28,7 +31,7 @@ ros2 service call /v2/resume_workflow robot_interfaces_business/srv/ResumeWorkfl
   | rg "success=True|active_resume_requested=False|station_order_fleet_pause_alpha_step_1|station_order_fleet_pause_alpha_step_2"
 
 for mission in station_order_fleet_pause_alpha_step_1 station_order_fleet_pause_alpha_step_2; do
-  deadline=$((SECONDS + 35))
+  deadline=$((SECONDS + 90))
   while true; do
     if ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission}}" \

@@ -8,6 +8,9 @@ wait_service_type /v2/update_fleet_robot_state "robot_interfaces_fleet/srv/Updat
 wait_submit_order 10 /tmp/robot_fleet_runtime_submit.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_fleet_runtime_state_topic.err
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_station_auto_confirm
+
 ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
   "{robot_id: robot_2, enabled: true, state: available, battery_voltage: 25.2, current_station_id: receiving, update_enabled: false, update_state: true, update_battery_voltage: true, update_current_station_id: true}" \
   | rg "success=True|robot_2|state='available'|battery_voltage=25\\.2|current_station_id='receiving'"
@@ -31,7 +34,7 @@ call_submit_order runtime_local fleet_station 45 \
   | rg "accepted=True|station_order_fleet_runtime_local"
 
 seen_task=false
-deadline=$((SECONDS + 25))
+deadline=$((SECONDS + 90))
 while true; do
   active_goal="$(
     ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \

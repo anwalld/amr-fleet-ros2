@@ -17,7 +17,7 @@ set -u
 RESULTS_DIR="${1:-${ROOT_DIR}/src/robot_experiments/results}"
 BUSINESS_TYPE="${2:-warehouse_inbound}"
 ORDER_ID="${3:-business_kpi_alpha}"
-TIMEOUT_SEC="${4:-60}"
+TIMEOUT_SEC="${4:-120}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 ISO_STAMP="$(date -Iseconds)"
 CSV_FILE="${RESULTS_DIR}/business_order_${BUSINESS_TYPE}_${ORDER_ID}_${STAMP}.csv"
@@ -54,6 +54,9 @@ start_bg mission_runner ros2 launch robot_tasks mission_runner.launch.py \
 
 wait_submit_order 20 "${LOG_DIR}/wait_business_order.err"
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 20 "${LOG_DIR}/wait_events.err"
+
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_bg station_auto_confirm station_auto_confirm_loop acceptance_tote "${LOG_DIR}/auto_confirm.log"
 
 SUBMIT_OUT="${LOG_DIR}/submit_order_business.out"
 call_submit_order "${ORDER_ID}" business 0 \

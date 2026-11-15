@@ -117,3 +117,71 @@ wait_lifecycle_active() {
     sleep 1
   done
 }
+
+# ---------------------------------------------------------------------------
+# 站点运输的装卸确认
+#
+# 上游提交 fb9e36e 起，站点运输任务到取货站后停在 WAIT_LOAD 等上货确认，到卸货站后
+# 停在 WAIT_UNLOAD 等卸货确认（演示编排器 amr_sim_demo_director_node 会自己发确认）。
+# 验收脚本里没人发确认，任务会一直停在 WAIT_LOAD 直到超时。下面的后台确认器代替人工：
+# 轮询 /mission_runner/state，看到 WAIT_LOAD / WAIT_UNLOAD 就按消息里的站点名调用
+# /v2/confirm_load / /v2/confirm_unload。确认被拒（例如刚确认过、状态还没刷新）只记日志。
+#
+# 用法：
+#   start_station_auto_confirm            # 启动；若脚本没有 EXIT trap，会自动注册一个停止它
+#   stop_station_auto_confirm             # 手动停止
+#   station_auto_confirm_loop <payload_id> <log_file>
+#                                         # 自带 cleanup/PIDS 的脚本可以直接 start_bg 这个函数
+# 环境变量：STATION_AUTO_CONFIRM_PAYLOAD（默认 acceptance_tote）、STATION_AUTO_CONFIRM_LOG。
+# ---------------------------------------------------------------------------
+
+STATION_AUTO_CONFIRM_PID=""
+
+station_auto_confirm_loop() {
+  local payload_id="${1:-acceptance_tote}"
+  local log_file="${2:-/tmp/robot_station_auto_confirm.log}"
+  local sample state message station
+  while true; do
+    sample="$(timeout 5s ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState 2>/dev/null || true)"
+    state="$(sed -n 's/^state: *//p' <<<"${sample}" | tr -d "'\"" | head -n 1)"
+    message="$(sed -n 's/^message: *//p' <<<"${sample}" | head -n 1)"
+    case "${state}" in
+      WAIT_LOAD)
+        station="$(sed -n 's/.*pickup station \([A-Za-z0-9_]*\).*/\1/p' <<<"${message}")"
+        if [[ -n "${station}" ]]; then
+          echo "[auto_confirm $(date +%T)] WAIT_LOAD at ${station} -> confirm_load" >>"${log_file}"
+          ros2 service call /v2/confirm_load robot_interfaces_facility/srv/ConfirmLoad \
+            "{payload_id: ${payload_id}, weight_kg: 8.5, station_id: ${station}}" >>"${log_file}" 2>&1 || true
+        fi
+        ;;
+      WAIT_UNLOAD)
+        station="$(sed -n 's/.*dropoff station \([A-Za-z0-9_]*\).*/\1/p' <<<"${message}")"
+        if [[ -n "${station}" ]]; then
+          echo "[auto_confirm $(date +%T)] WAIT_UNLOAD at ${station} -> confirm_unload" >>"${log_file}"
+          ros2 service call /v2/confirm_unload robot_interfaces_facility/srv/ConfirmUnload \
+            "{payload_id: ${payload_id}, station_id: ${station}}" >>"${log_file}" 2>&1 || true
+        fi
+        ;;
+    esac
+    sleep 0.5
+  done
+}
+
+stop_station_auto_confirm() {
+  if [[ -n "${STATION_AUTO_CONFIRM_PID}" ]] && kill -0 "${STATION_AUTO_CONFIRM_PID}" 2>/dev/null; then
+    kill "${STATION_AUTO_CONFIRM_PID}" 2>/dev/null || true
+    wait "${STATION_AUTO_CONFIRM_PID}" 2>/dev/null || true
+  fi
+  STATION_AUTO_CONFIRM_PID=""
+}
+
+start_station_auto_confirm() {
+  local payload_id="${STATION_AUTO_CONFIRM_PAYLOAD:-acceptance_tote}"
+  local log_file="${STATION_AUTO_CONFIRM_LOG:-/tmp/robot_station_auto_confirm.log}"
+  : >"${log_file}"
+  station_auto_confirm_loop "${payload_id}" "${log_file}" &
+  STATION_AUTO_CONFIRM_PID=$!
+  if [[ -z "$(trap -p EXIT)" ]]; then
+    trap stop_station_auto_confirm EXIT
+  fi
+}

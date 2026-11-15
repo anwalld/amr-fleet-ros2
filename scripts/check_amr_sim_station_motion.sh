@@ -73,6 +73,9 @@ wait_service_type /v2/submit_order \
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 30 \
   "${LOG_DIR}/wait_events.err"
 
+# 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
+start_bg station_auto_confirm station_auto_confirm_loop acceptance_tote "${LOG_DIR}/auto_confirm.log"
+
 start_x="$(read_odom_field pose.pose.position.x)"
 start_y="$(read_odom_field pose.pose.position.y)"
 

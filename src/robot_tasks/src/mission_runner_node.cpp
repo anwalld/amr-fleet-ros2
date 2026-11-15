@@ -113,6 +113,7 @@
 #include "robot_tasks/fleet_runtime_state.hpp"
 #include "robot_tasks/fulfillment_workflow.hpp"
 #include "robot_tasks/mission_charging_workflow.hpp"
+#include "robot_tasks/mission_context.hpp"
 #include "robot_tasks/mission_event_log.hpp"
 #include "robot_tasks/mission_estimator.hpp"
 #include "robot_tasks/mission_localization_workflow.hpp"
@@ -132,6 +133,7 @@
 #include "robot_tasks/operator_snapshot.hpp"
 #include "robot_tasks/payload_workflow.hpp"
 #include "robot_tasks/queued_mission_start_behavior_tree.hpp"
+#include "robot_tasks/sanitize_id.hpp"
 #include "robot_tasks/scenario_catalog.hpp"
 #include "robot_tasks/station_confirmation_workflow.hpp"
 #include "robot_tasks/station_sequence_workflow.hpp"
@@ -148,6 +150,7 @@ using namespace std::chrono_literals;
 using NavigateSequence = robot_interfaces::action::NavigateSequence;
 using GoalHandleNavigateSequence = rclcpp_action::ClientGoalHandle<NavigateSequence>;
 using ComputePathToPose = nav2_msgs::action::ComputePathToPose;
+using robot_tasks::SanitizeId;
 
 namespace {
 
@@ -178,20 +181,6 @@ double PathLength(const nav_msgs::msg::Path& path) {
     distance_m += std::hypot(current.x - previous.x, current.y - previous.y);
   }
   return distance_m;
-}
-
-std::string SanitizeId(const std::string& value) {
-  std::string result;
-  result.reserve(value.size());
-  for (const char ch : value) {
-    const auto uch = static_cast<unsigned char>(ch);
-    if (std::isalnum(uch) || ch == '_' || ch == '-') {
-      result.push_back(ch);
-    } else {
-      result.push_back('_');
-    }
-  }
-  return result;
 }
 
 robot_tasks::MissionActionResultCode ToMissionActionResultCode(
@@ -241,7 +230,7 @@ class MissionRunnerNode final : public rclcpp::Node {
     mission_file_ = declare_parameter<std::string>("mission_file", default_mission_file.string());
     dock_mission_file_ =
         declare_parameter<std::string>("dock_mission_file", default_dock_mission_file.string());
-    station_file_ = declare_parameter<std::string>("station_file", default_station_file.string());
+    context_.station_file = declare_parameter<std::string>("station_file", default_station_file.string());
     facility_file_ =
         declare_parameter<std::string>("facility_file", default_facility_file.string());
     dock_file_ = declare_parameter<std::string>("dock_file", default_dock_file.string());
@@ -295,7 +284,7 @@ class MissionRunnerNode final : public rclcpp::Node {
         declare_parameter<bool>("preflight_require_station_route", true);
     preflight_default_speed_limit_mps_ =
         declare_parameter<double>("preflight_default_speed_limit_mps", 0.6);
-    traffic_intersection_locks_enabled_ =
+    context_.traffic_intersection_locks_enabled =
         declare_parameter<bool>("traffic_intersection_locks_enabled", true);
     payload_capacity_kg_ = declare_parameter<double>("payload_capacity_kg", 30.0);
     top_module_type_ = declare_parameter<std::string>("top_module_type", "manual_load");
@@ -1702,10 +1691,10 @@ class MissionRunnerNode final : public rclcpp::Node {
 
   template <typename ResponseT>
   void ListStationRoutes(const std::shared_ptr<ResponseT>& response) {
-    const auto catalog = robot_tasks::LoadStationCatalog(station_file_);
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!catalog.has_value()) {
       response->success = false;
-      response->message = "failed to load station catalog: " + station_file_;
+      response->message = "failed to load station catalog: " + context_.station_file;
       return;
     }
     const auto projection = robot_tasks::BuildStationRouteListProjection(*catalog);
@@ -1725,10 +1714,10 @@ class MissionRunnerNode final : public rclcpp::Node {
     const auto from = SanitizeId(request->from_station);
     const auto to = SanitizeId(request->to_station);
     const auto lock_id = RouteLockId(from, to);
-    const auto catalog = robot_tasks::LoadStationCatalog(station_file_);
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!catalog.has_value()) {
       response->success = false;
-      response->message = "failed to load station catalog: " + station_file_;
+      response->message = "failed to load station catalog: " + context_.station_file;
       response->resource_id = lock_id;
       return;
     }
@@ -1739,9 +1728,9 @@ class MissionRunnerNode final : public rclcpp::Node {
             robot_tasks::FindStation(*catalog, from) != nullptr &&
                 robot_tasks::FindStation(*catalog, to) != nullptr,
             robot_tasks::FindRoutePath(*catalog, from, to).has_value()},
-        route_locks_);
+        context_.route_locks);
     if (decision.mutate_state) {
-      route_locks_[decision.resource_id] = decision.owner_id;
+      context_.route_locks[decision.resource_id] = decision.owner_id;
     }
     response->success = decision.success;
     response->message = decision.message;
@@ -1754,9 +1743,9 @@ class MissionRunnerNode final : public rclcpp::Node {
       const std::shared_ptr<ResponseT>& response) {
     const auto from = SanitizeId(request->from_station);
     const auto to = SanitizeId(request->to_station);
-    const auto decision = robot_tasks::PlanTrafficUnblock(from, to, route_locks_);
+    const auto decision = robot_tasks::PlanTrafficUnblock(from, to, context_.route_locks);
     if (decision.mutate_state) {
-      route_locks_.erase(decision.resource_id);
+      context_.route_locks.erase(decision.resource_id);
     }
     response->success = decision.success;
     response->message = decision.message;
@@ -1766,8 +1755,8 @@ class MissionRunnerNode final : public rclcpp::Node {
   template <typename ResponseT>
   void ListTrafficReservations(const std::shared_ptr<ResponseT>& response) const {
     response->success = true;
-    response->message = "loaded " + std::to_string(route_locks_.size()) + " traffic reservation(s)";
-    for (const auto& [resource_id, owner_id] : route_locks_) {
+    response->message = "loaded " + std::to_string(context_.route_locks.size()) + " traffic reservation(s)";
+    for (const auto& [resource_id, owner_id] : context_.route_locks) {
       response->resource_ids.push_back(resource_id);
       response->owner_ids.push_back(owner_id);
       response->reservation_types.push_back(
@@ -1780,9 +1769,9 @@ class MissionRunnerNode final : public rclcpp::Node {
       const std::shared_ptr<RequestT>& request,
       const std::shared_ptr<ResponseT>& response) {
     const auto decision =
-        robot_tasks::PlanTrafficReservationClear(request->resource_id, route_locks_);
+        robot_tasks::PlanTrafficReservationClear(request->resource_id, context_.route_locks);
     if (decision.erase_resource) {
-      route_locks_.erase(decision.resource_id);
+      context_.route_locks.erase(decision.resource_id);
     }
     if (!decision.release_mission_id.empty()) {
       ReleaseRouteLocksForMission(decision.release_mission_id);
@@ -1795,7 +1784,7 @@ class MissionRunnerNode final : public rclcpp::Node {
   template <typename ResponseT>
   void DetectTrafficDeadlock(const std::shared_ptr<ResponseT>& response) const {
     response->success = true;
-    const auto decision = robot_tasks::PlanTrafficDeadlockDetection(route_locks_);
+    const auto decision = robot_tasks::PlanTrafficDeadlockDetection(context_.route_locks);
     response->deadlocked = decision.deadlocked;
     response->mission_ids = decision.mission_ids;
     response->conflict_resource_ids = decision.conflict_resource_ids;
@@ -1869,10 +1858,10 @@ class MissionRunnerNode final : public rclcpp::Node {
     }
     std::optional<robot_tasks::StationCatalog> stations;
     if (request->update_current_station_id) {
-      stations = robot_tasks::LoadStationCatalog(station_file_);
+      stations = robot_tasks::LoadStationCatalog(context_.station_file);
       if (!stations.has_value()) {
         response->success = false;
-        response->message = "failed to load station catalog: " + station_file_;
+        response->message = "failed to load station catalog: " + context_.station_file;
         return;
       }
     }
@@ -1926,10 +1915,10 @@ class MissionRunnerNode final : public rclcpp::Node {
     if (!catalog.has_value()) {
       return std::nullopt;
     }
-    const auto stations = robot_tasks::LoadStationCatalog(station_file_);
+    const auto stations = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!stations.has_value()) {
       if (message != nullptr) {
-        *message = "failed to load station catalog: " + station_file_;
+        *message = "failed to load station catalog: " + context_.station_file;
       }
       return std::nullopt;
     }
@@ -2810,11 +2799,11 @@ class MissionRunnerNode final : public rclcpp::Node {
     std::string message;
     const auto docks = LoadDocks(&message);
     const auto facilities = LoadFacilities(&message);
-    const auto stations = robot_tasks::LoadStationCatalog(station_file_);
+    const auto stations = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!docks.has_value() || !facilities.has_value() || !stations.has_value()) {
       response->success = false;
       response->message = docks.has_value() && facilities.has_value()
-                              ? "failed to load station catalog: " + station_file_
+                              ? "failed to load station catalog: " + context_.station_file
                               : message;
       response->queue_size = static_cast<int>(mission_queue_.size());
       return;
@@ -3304,10 +3293,10 @@ class MissionRunnerNode final : public rclcpp::Node {
   void SetInitialPoseFromStation(
       const std::shared_ptr<RequestT>& request, const std::shared_ptr<ResponseT>& response) {
     const auto station_id = SanitizeId(request->station_id);
-    const auto stations = robot_tasks::LoadStationCatalog(station_file_);
+    const auto stations = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!stations.has_value()) {
       response->success = false;
-      response->message = "failed to load station catalog: " + station_file_;
+      response->message = "failed to load station catalog: " + context_.station_file;
       response->station_id = station_id;
       response->state = localization_state_;
       response->localized = localization_localized_;
@@ -3485,10 +3474,10 @@ class MissionRunnerNode final : public rclcpp::Node {
       response->queue_size = static_cast<int>(mission_queue_.size());
       return;
     }
-    const auto stations = robot_tasks::LoadStationCatalog(station_file_);
+    const auto stations = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!stations.has_value()) {
       response->success = false;
-      response->message = "failed to load station catalog: " + station_file_;
+      response->message = "failed to load station catalog: " + context_.station_file;
       response->queue_size = static_cast<int>(mission_queue_.size());
       return;
     }
@@ -3556,7 +3545,7 @@ class MissionRunnerNode final : public rclcpp::Node {
     if (confirmation_id.empty()) {
       confirmation_id = "station_confirm_" + station_id + "_" + action;
     }
-    const auto stations = robot_tasks::LoadStationCatalog(station_file_);
+    const auto stations = robot_tasks::LoadStationCatalog(context_.station_file);
     const auto station_known =
         stations.has_value() && robot_tasks::FindStation(*stations, station_id) != nullptr;
     robot_tasks::StationConfirmationRequest workflow_request;
@@ -4101,7 +4090,7 @@ class MissionRunnerNode final : public rclcpp::Node {
       response->queue_size = static_cast<int>(mission_queue_.size());
       return;
     }
-    const auto catalog = robot_tasks::LoadStationCatalog(station_file_);
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!catalog.has_value()) {
       const auto gate = robot_tasks::PlanStationTransportSubmitGate(
           robot_tasks::StationTransportSubmitGateRequest{
@@ -4119,7 +4108,7 @@ class MissionRunnerNode final : public rclcpp::Node {
     const auto gate = robot_tasks::PlanStationTransportSubmitGate(
         robot_tasks::StationTransportSubmitGateRequest{
             profile->mission_id, false, true, preflight,
-            route_path, traffic_intersection_locks_enabled_});
+            route_path, context_.traffic_intersection_locks_enabled});
     if (!gate.accepted) {
       response->success = false;
       response->mission_id = gate.mission_id;
@@ -4303,10 +4292,10 @@ class MissionRunnerNode final : public rclcpp::Node {
     if (!profile.has_value()) {
       return;
     }
-    const auto catalog = robot_tasks::LoadStationCatalog(station_file_);
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!catalog.has_value()) {
       response->success = false;
-      response->message = "failed to load station catalog: " + station_file_;
+      response->message = "failed to load station catalog: " + context_.station_file;
       return;
     }
     FillStationEstimateResponse(
@@ -4318,10 +4307,10 @@ class MissionRunnerNode final : public rclcpp::Node {
   void SubmitStationSequenceTask(
       const std::shared_ptr<RequestT>& request,
       const std::shared_ptr<ResponseT>& response) {
-    const auto catalog = robot_tasks::LoadStationCatalog(station_file_);
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!catalog.has_value()) {
       response->success = false;
-      response->message = "failed to load station catalog: " + station_file_;
+      response->message = "failed to load station catalog: " + context_.station_file;
       response->queue_size = static_cast<int>(mission_queue_.size());
       return;
     }
@@ -4376,10 +4365,10 @@ class MissionRunnerNode final : public rclcpp::Node {
   void EstimateStationSequence(
       const std::shared_ptr<RequestT>& request,
       const std::shared_ptr<ResponseT>& response) {
-    const auto catalog = robot_tasks::LoadStationCatalog(station_file_);
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!catalog.has_value()) {
       response->success = false;
-      response->message = "failed to load station catalog: " + station_file_;
+      response->message = "failed to load station catalog: " + context_.station_file;
       return;
     }
 
@@ -4451,12 +4440,12 @@ class MissionRunnerNode final : public rclcpp::Node {
       response->queue_size = static_cast<int>(mission_queue_.size());
       return;
     }
-    const auto stations = robot_tasks::LoadStationCatalog(station_file_);
+    const auto stations = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!stations.has_value()) {
       const auto gate = robot_tasks::PlanChargingRequestGate(
           robot_tasks::ChargingRequestGateRequest{
               "", charger->id, charger->station_id, false,
-              "failed to load station catalog: " + station_file_});
+              "failed to load station catalog: " + context_.station_file});
       response->success = false;
       response->charger_id = gate.charger_id;
       response->message = gate.message;
@@ -4784,11 +4773,11 @@ class MissionRunnerNode final : public rclcpp::Node {
   template <typename ResponseT>
   std::optional<robot_tasks::StationCatalog> LoadStations(
       const std::shared_ptr<ResponseT>& response) {
-    const auto catalog = robot_tasks::LoadStationCatalog(station_file_);
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!catalog.has_value()) {
       if (response != nullptr) {
         response->success = false;
-        response->message = "failed to load station catalog: " + station_file_;
+        response->message = "failed to load station catalog: " + context_.station_file;
       }
       return std::nullopt;
     }
@@ -4799,10 +4788,10 @@ class MissionRunnerNode final : public rclcpp::Node {
   std::optional<robot_tasks::MissionProfile> CreateStationTransportOrderProfile(
       const RequestT& request,
       const std::shared_ptr<ResponseT>& response) {
-    const auto catalog = robot_tasks::LoadStationCatalog(station_file_);
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!catalog.has_value()) {
       response->success = false;
-      response->message = "failed to load station catalog: " + station_file_;
+      response->message = "failed to load station catalog: " + context_.station_file;
       return std::nullopt;
     }
 
@@ -4839,10 +4828,10 @@ class MissionRunnerNode final : public rclcpp::Node {
   std::optional<robot_tasks::MissionProfile> CreateStationEstimateProfile(
       const RequestT& request,
       const std::shared_ptr<ResponseT>& response) {
-    const auto catalog = robot_tasks::LoadStationCatalog(station_file_);
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
     if (!catalog.has_value()) {
       response->success = false;
-      response->message = "failed to load station catalog: " + station_file_;
+      response->message = "failed to load station catalog: " + context_.station_file;
       return std::nullopt;
     }
 
@@ -4948,18 +4937,18 @@ class MissionRunnerNode final : public rclcpp::Node {
   }
 
   std::vector<std::string> BuildRouteLockIds(const std::vector<std::string>& station_path) const {
-    return robot_tasks::BuildRouteLockIds(station_path, traffic_intersection_locks_enabled_);
+    return robot_tasks::BuildRouteLockIds(station_path, context_.traffic_intersection_locks_enabled);
   }
 
   bool ReserveRouteLocksForMission(
       const std::string& mission_id, const std::vector<std::string>& route_lock_ids,
       std::string* message) {
     return robot_tasks::ReserveRouteLocksForMission(
-        route_locks_, route_locks_by_mission_, mission_id, route_lock_ids, message);
+        context_.route_locks, context_.route_locks_by_mission, mission_id, route_lock_ids, message);
   }
 
   void ReleaseRouteLocksForMission(const std::string& mission_id) {
-    robot_tasks::ReleaseRouteLocksForMission(route_locks_, route_locks_by_mission_, mission_id);
+    robot_tasks::ReleaseRouteLocksForMission(context_.route_locks, context_.route_locks_by_mission, mission_id);
   }
 
   void SortMissionQueue() {
@@ -5712,8 +5701,8 @@ class MissionRunnerNode final : public rclcpp::Node {
   void ReleaseAllResourcesForMission(const std::string& mission_id) {
     robot_tasks::TickMissionResourceCleanupBehaviorTree(
         robot_tasks::MissionResourceCleanupBehaviorTreeInput{
-            facility_reservations_, facility_resource_by_mission_, route_locks_,
-            route_locks_by_mission_, mission_id});
+            facility_reservations_, facility_resource_by_mission_, context_.route_locks,
+            context_.route_locks_by_mission, mission_id});
   }
 
   void CompleteDockingMission(const std::string& mission_id) {
@@ -5954,9 +5943,9 @@ class MissionRunnerNode final : public rclcpp::Node {
     safety_state_pub_->publish(state);
   }
 
+  robot_tasks::MissionContext context_;
   std::string mission_file_;
   std::string dock_mission_file_;
-  std::string station_file_;
   std::string facility_file_;
   std::string dock_file_;
   std::string fleet_file_;
@@ -6045,7 +6034,6 @@ class MissionRunnerNode final : public rclcpp::Node {
   bool safety_obstacle_blocked_ = false;
   bool safety_obstacle_pause_on_blockage_ = true;
   bool safety_blockage_paused_mission_ = false;
-  bool traffic_intersection_locks_enabled_ = true;
   std::optional<robot_tasks::MissionProfile> profile_;
   std::vector<QueuedMission> mission_queue_;
   std::unordered_map<std::string, StationTransportExecutionRecord>
@@ -6061,8 +6049,6 @@ class MissionRunnerNode final : public rclcpp::Node {
   std::unordered_map<std::string, FulfillmentOrder> fulfillment_orders_;
   robot_tasks::DockingStateMap dock_states_;
   robot_tasks::DockingMissionMap dock_by_mission_;
-  robot_tasks::RouteLockMap route_locks_;
-  robot_tasks::RouteLockReservationMap route_locks_by_mission_;
   GoalHandleNavigateSequence::SharedPtr current_goal_handle_;
   rclcpp_action::Client<NavigateSequence>::SharedPtr action_client_;
   rclcpp::Node::SharedPtr nav2_path_node_;

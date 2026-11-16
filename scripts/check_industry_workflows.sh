@@ -30,7 +30,9 @@ run_workflow() {
     local deadline=$((SECONDS + 90))
     local out_file="/tmp/robot_industry_workflow_${mission_id}.out"
     while true; do
-      ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+      # 加超时：负载高时 DDS 偶尔丢服务应答（任务中枢日志 "failed to send response ...
+      # (timeout)"），不加超时这一次调用会一直挂住直到用例超时。
+      timeout 15s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
         "{limit: 5, state_filter: FINISHED, mission_id_filter: ${mission_id}}" \
         >"${out_file}" || true
       if rg "success=True" "${out_file}" >/dev/null && rg "states=\\['FINISHED'\\]" "${out_file}" >/dev/null; then

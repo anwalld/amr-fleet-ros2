@@ -32,7 +32,8 @@ check_workflow() {
     local deadline=$((SECONDS + timeout_sec))
     local out_file="/tmp/robot_more_workflows_${mission_id}.out"
     while true; do
-      ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+      # 加超时：负载高时 DDS 偶尔丢服务应答，不加超时一次调用会一直挂到用例超时。
+      timeout 15s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
         "{limit: 100, state_filter: FINISHED, mission_id_filter: ${mission_id}}" \
         >"${out_file}" 2>/tmp/robot_more_workflows_events.err || true
       if rg "mission_ids=\\['${mission_id}'\\]" "${out_file}" >/dev/null &&

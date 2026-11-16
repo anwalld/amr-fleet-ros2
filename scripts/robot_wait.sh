@@ -126,6 +126,8 @@ wait_lifecycle_active() {
 # 验收脚本里没人发确认，任务会一直停在 WAIT_LOAD 直到超时。下面的后台确认器代替人工：
 # 轮询 /mission_runner/state，看到 WAIT_LOAD / WAIT_UNLOAD 就按消息里的站点名调用
 # /v2/confirm_load / /v2/confirm_unload。确认被拒（例如刚确认过、状态还没刷新）只记日志。
+# 确认调用带 10 秒超时：负载高时 DDS 偶尔丢服务应答，不加超时确认器会永远卡在那一次调用上，
+# 之后的装卸都没人确认（M2 全量验收里 workflow_pause_resume 一次失败的原因）。
 #
 # 用法：
 #   start_station_auto_confirm            # 启动；若脚本没有 EXIT trap，会自动注册一个停止它
@@ -150,7 +152,7 @@ station_auto_confirm_loop() {
         station="$(sed -n 's/.*pickup station \([A-Za-z0-9_]*\).*/\1/p' <<<"${message}")"
         if [[ -n "${station}" ]]; then
           echo "[auto_confirm $(date +%T)] WAIT_LOAD at ${station} -> confirm_load" >>"${log_file}"
-          ros2 service call /v2/confirm_load robot_interfaces_facility/srv/ConfirmLoad \
+          timeout 10s ros2 service call /v2/confirm_load robot_interfaces_facility/srv/ConfirmLoad \
             "{payload_id: ${payload_id}, weight_kg: 8.5, station_id: ${station}}" >>"${log_file}" 2>&1 || true
         fi
         ;;
@@ -158,7 +160,7 @@ station_auto_confirm_loop() {
         station="$(sed -n 's/.*dropoff station \([A-Za-z0-9_]*\).*/\1/p' <<<"${message}")"
         if [[ -n "${station}" ]]; then
           echo "[auto_confirm $(date +%T)] WAIT_UNLOAD at ${station} -> confirm_unload" >>"${log_file}"
-          ros2 service call /v2/confirm_unload robot_interfaces_facility/srv/ConfirmUnload \
+          timeout 10s ros2 service call /v2/confirm_unload robot_interfaces_facility/srv/ConfirmUnload \
             "{payload_id: ${payload_id}, station_id: ${station}}" >>"${log_file}" 2>&1 || true
         fi
         ;;

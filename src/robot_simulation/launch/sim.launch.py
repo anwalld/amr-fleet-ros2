@@ -290,10 +290,13 @@ def generate_launch_description():
             ),
             Node(
                 package="robot_simulation",
-                executable="robot2_fleet_demo_driver_node",
+                executable="fleet_robot_agent_node",
+                name="robot2_fleet_demo_driver_node",
                 condition=IfCondition(enable_robot2_fleet_demo_driver),
                 parameters=[
                     {
+                        # 两车 Gazebo 场景保持原行为：跟随车队状态里的站点点到点直开。
+                        "mode": "follow_fleet_station",
                         "use_sim_time": True,
                         "cmd_vel_topic": "/robot_2/cmd_vel",
                         "odom_topic": "/robot_2/odom",

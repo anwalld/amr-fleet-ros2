@@ -71,6 +71,7 @@
 #include "robot_interfaces_fleet/srv/submit_fleet_station_task.hpp"
 #include "robot_interfaces_fleet/srv/update_fleet_robot_state.hpp"
 #include "robot_interfaces_fleet/srv/update_remote_task_state.hpp"
+#include "robot_interfaces_fleet/srv/list_remote_tasks.hpp"
 #include "robot_interfaces_mission/srv/cancel_queued_mission.hpp"
 #include "robot_interfaces_mission/srv/cancel_station_order_batch.hpp"
 #include "robot_interfaces_mission/srv/enqueue_mission.hpp"
@@ -232,6 +233,8 @@ class MissionRunnerNode final : public rclcpp::Node {
         declare_parameter<std::string>("facility_file", default_facility_file.string());
     dock_file_ = declare_parameter<std::string>("dock_file", default_dock_file.string());
     fleet_file_ = declare_parameter<std::string>("fleet_file", default_fleet_file.string());
+    // M2：车队文件里有 6 台，只加载前 fleet_size 台（<=0 表示全部）。默认 2 与旧行为一致。
+    fleet_size_ = declare_parameter<int>("fleet_size", 2);
     scenario_file_ =
         declare_parameter<std::string>("scenario_file", default_scenario_file.string());
     business_order_file_ = declare_parameter<std::string>(
@@ -511,6 +514,14 @@ class MissionRunnerNode final : public rclcpp::Node {
                     request,
                 std::shared_ptr<robot_interfaces_fleet::srv::UpdateRemoteTaskState::Response>
                     response) { UpdateRemoteTaskState(request, response); });
+    v2_list_remote_tasks_srv_ =
+        create_service<robot_interfaces_fleet::srv::ListRemoteTasks>(
+            "/v2/list_remote_tasks",
+            [this](
+                const std::shared_ptr<robot_interfaces_fleet::srv::ListRemoteTasks::Request>
+                    request,
+                std::shared_ptr<robot_interfaces_fleet::srv::ListRemoteTasks::Response>
+                    response) { ListRemoteTasks(request, response); });
     v2_preview_fleet_station_task_srv_ =
         create_service<robot_interfaces_fleet::srv::PreviewFleetStationTask>(
             "/v2/preview_fleet_station_task",
@@ -1691,6 +1702,7 @@ class MissionRunnerNode final : public rclcpp::Node {
 
   std::optional<robot_tasks::FleetCatalog> LoadFleet(std::string* message) const {
     auto catalog = robot_tasks::LoadFleetCatalog(fleet_file_);
+    TruncateFleet(catalog);
     if (!catalog.has_value()) {
       if (message != nullptr) {
         *message = "failed to load fleet catalog: " + fleet_file_;
@@ -1747,6 +1759,7 @@ class MissionRunnerNode final : public rclcpp::Node {
     const auto robot_id = SanitizeId(request->robot_id);
     response->robot_id = robot_id;
     auto base_catalog = robot_tasks::LoadFleetCatalog(fleet_file_);
+    TruncateFleet(base_catalog);
     if (!base_catalog.has_value()) {
       response->success = false;
       response->message = "failed to load fleet catalog: " + fleet_file_;
@@ -1801,6 +1814,42 @@ class MissionRunnerNode final : public rclcpp::Node {
     response->assigned_robot_id = decision.task.assigned_robot_id;
     response->state = decision.task.state;
     response->message = decision.response_message;
+  }
+
+  void TruncateFleet(std::optional<robot_tasks::FleetCatalog>& catalog) const {
+    if (catalog.has_value() && fleet_size_ > 0 &&
+        catalog->robots.size() > static_cast<std::size_t>(fleet_size_)) {
+      catalog->robots.resize(static_cast<std::size_t>(fleet_size_));
+    }
+  }
+
+  void ListRemoteTasks(
+      const std::shared_ptr<robot_interfaces_fleet::srv::ListRemoteTasks::Request>& request,
+      const std::shared_ptr<robot_interfaces_fleet::srv::ListRemoteTasks::Response>& response)
+      const {
+    const auto robot_filter = SanitizeId(request->robot_id);
+    const auto state_filter = SanitizeId(request->state);
+    std::vector<const RemoteTaskState*> tasks;
+    for (const auto& item : remote_tasks_) {
+      if ((!robot_filter.empty() && item.second.assigned_robot_id != robot_filter) ||
+          (!state_filter.empty() && item.second.state != state_filter)) {
+        continue;
+      }
+      tasks.push_back(&item.second);
+    }
+    std::sort(tasks.begin(), tasks.end(), [](const auto* a, const auto* b) {
+      return a->task_id < b->task_id;
+    });
+    for (const auto* task : tasks) {
+      response->task_ids.push_back(task->task_id);
+      response->assigned_robot_ids.push_back(task->assigned_robot_id);
+      response->pickup_stations.push_back(task->pickup_station);
+      response->dropoff_stations.push_back(task->dropoff_station);
+      response->priorities.push_back(task->priority);
+      response->states.push_back(task->state);
+    }
+    response->success = true;
+    response->message = "loaded " + std::to_string(tasks.size()) + " remote task(s)";
   }
 
   std::optional<robot_tasks::FleetRobotTaskScore> SelectFleetStationTaskCandidate(
@@ -1891,7 +1940,8 @@ class MissionRunnerNode final : public rclcpp::Node {
     const auto dispatch_decision = robot_tasks::PlanFleetStationTaskDispatch(
         robot_tasks::FleetStationTaskDispatchRequest{
             task_id, selected_robot_id, robot_id_, request->pickup_station,
-            request->dropoff_station, current_state_, selected_score->total_distance_m},
+            request->dropoff_station, current_state_, selected_score->total_distance_m,
+            request->priority},
         remote_tasks_);
     if (!dispatch_decision.success) {
       response->success = false;
@@ -6076,6 +6126,7 @@ class MissionRunnerNode final : public rclcpp::Node {
   std::string facility_file_;
   std::string dock_file_;
   std::string fleet_file_;
+  int fleet_size_ = 2;
   std::string scenario_file_;
   std::string business_order_file_;
   std::string robot_id_;
@@ -6229,6 +6280,8 @@ class MissionRunnerNode final : public rclcpp::Node {
       v2_list_fleet_robots_srv_;
   rclcpp::Service<robot_interfaces_fleet::srv::UpdateFleetRobotState>::SharedPtr
       v2_update_fleet_robot_state_srv_;
+  rclcpp::Service<robot_interfaces_fleet::srv::ListRemoteTasks>::SharedPtr
+      v2_list_remote_tasks_srv_;
   rclcpp::Service<robot_interfaces_fleet::srv::UpdateRemoteTaskState>::SharedPtr
       v2_update_remote_task_state_srv_;
   rclcpp::Service<robot_interfaces_fleet::srv::PreviewFleetStationTask>::SharedPtr

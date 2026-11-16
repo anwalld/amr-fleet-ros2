@@ -220,6 +220,7 @@ FleetStationTaskDispatchDecision PlanFleetStationTaskDispatch(
       "DISPATCHED_REMOTE",
       "dispatched remote fleet task " + request.task_id + " to " +
           request.assigned_robot_id};
+  decision.remote_task.priority = request.priority;
   decision.mission_id = "remote_fleet_task_" + request.task_id;
   decision.response_message =
       decision.remote_task.message + " estimated_total_distance_m=" +

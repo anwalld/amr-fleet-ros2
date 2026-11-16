@@ -61,14 +61,16 @@ ament_target_dependencies(amr_sim_gazebo_entity_bridge_node
   ros_gz_interfaces
   std_msgs)
 
-add_executable(robot2_fleet_demo_driver_node src/robot2_fleet_demo_driver_node.cpp)
-ament_target_dependencies(robot2_fleet_demo_driver_node
+# M2：原 robot2_fleet_demo_driver_node 改造成通用车队代理（两种模式，见源文件开头）。
+add_executable(fleet_robot_agent_node src/fleet_robot_agent_node.cpp)
+ament_target_dependencies(fleet_robot_agent_node
   geometry_msgs
   nav_msgs
   rclcpp
   robot_interfaces
   robot_interfaces_fleet
-  robot_interfaces_mission)
+  robot_interfaces_mission
+  std_msgs)
 
 add_executable(gazebo_odom_tf_node src/gazebo_odom_tf_node.cpp)
 target_link_libraries(gazebo_odom_tf_node robot_simulation_planar_odometry)
@@ -87,7 +89,7 @@ install(TARGETS
   amr_sim_visualizer_node
   amr_sim_demo_director_node
   amr_sim_gazebo_entity_bridge_node
-  robot2_fleet_demo_driver_node
+  fleet_robot_agent_node
   gazebo_odom_tf_node
   gazebo_unpause_node
   DESTINATION lib/${PROJECT_NAME})

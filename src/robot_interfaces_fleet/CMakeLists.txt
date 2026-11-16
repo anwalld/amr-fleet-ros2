@@ -14,6 +14,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/UpdateRemoteTaskState.srv"
   "srv/PreviewFleetStationTask.srv"
   "srv/SubmitFleetStationTask.srv"
+  "srv/ListRemoteTasks.srv"
   DEPENDENCIES std_msgs geometry_msgs nav_msgs sensor_msgs
 )
 

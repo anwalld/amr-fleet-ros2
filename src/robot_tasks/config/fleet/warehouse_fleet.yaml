@@ -1,3 +1,6 @@
+# 车队配置。M2 扩到 6 台；任务中枢只加载前 fleet_size 台（启动参数，默认 2，
+# 与 M1 及以前的两车行为一致）。robot_3..6 只在多机压测里由 fleet_robot_agent_node 驱动，
+# 代理启动时会用 /v2/update_fleet_robot_state 把自己的当前站点改成实际起点。
 robots:
   - id: robot_1
     enabled: true
@@ -13,3 +16,31 @@ robots:
     max_payload_kg: 20.0
     current_station_id: dock
     capabilities: transport,station_transport,hospital
+  - id: robot_3
+    enabled: true
+    state: available
+    battery_voltage: 24.0
+    max_payload_kg: 30.0
+    current_station_id: dock
+    capabilities: transport,station_transport
+  - id: robot_4
+    enabled: true
+    state: available
+    battery_voltage: 24.0
+    max_payload_kg: 30.0
+    current_station_id: dock
+    capabilities: transport,station_transport
+  - id: robot_5
+    enabled: true
+    state: available
+    battery_voltage: 24.0
+    max_payload_kg: 30.0
+    current_station_id: dock
+    capabilities: transport,station_transport
+  - id: robot_6
+    enabled: true
+    state: available
+    battery_voltage: 24.0
+    max_payload_kg: 30.0
+    current_station_id: dock
+    capabilities: transport,station_transport

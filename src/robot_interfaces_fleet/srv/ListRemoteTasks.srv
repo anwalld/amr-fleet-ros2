@@ -1,0 +1,13 @@
+# M2：列出派给远端车辆（由 fleet_robot_agent_node 驱动）的车队任务，代理据此领取自己的任务。
+# robot_id / state 为空表示不过滤。
+string robot_id
+string state
+---
+bool success
+string message
+string[] task_ids
+string[] assigned_robot_ids
+string[] pickup_stations
+string[] dropoff_stations
+int32[] priorities
+string[] states

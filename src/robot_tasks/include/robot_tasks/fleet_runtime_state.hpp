@@ -63,6 +63,7 @@ struct RemoteFleetTaskState {
   std::string dropoff_station;
   std::string state = "DISPATCHED_REMOTE";
   std::string message;
+  int priority = 0;
 };
 
 using RemoteFleetTaskMap = std::unordered_map<std::string, RemoteFleetTaskState>;
@@ -94,6 +95,7 @@ struct FleetStationTaskDispatchRequest {
   std::string dropoff_station;
   std::string previous_mission_state;
   double estimated_total_distance_m = 0.0;
+  int priority = 0;
 };
 
 struct FleetStationTaskDispatchDecision {

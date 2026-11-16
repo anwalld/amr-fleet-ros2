@@ -1,0 +1,190 @@
+# 车间路网（M2 多机压测用）：16 个站点，全部单向边。
+#
+# 外环 9 站（逆时针）：jn_sw → receiving → jn_s → jn_se → assembly → jn_n → packing → jn_nw → storage → jn_sw
+# 横穿：jn_s → machining → jn_n，与外环下半段 + 左半段组成第二条环（8 站）。
+# 6 个避让 / 停车位 park_1..6 是与外环某条边平行的单向支路（比直走长，最短路不会借道），
+# 每台车空闲时回自己的停车位，不堵外环。
+# 最短有向环 8 站 > 车数 6：滚动申请下“每车占一个站等下一个站”的循环等待不可能形成。
+# 站点间距最小 4.24 m（≥ 3 m）。工作站：receiving、machining、assembly、packing、storage。
+frame_id: map
+stations:
+  - id: jn_sw
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+  - id: receiving
+    x: 6.0
+    y: 0.0
+    yaw: 0.0
+  - id: jn_s
+    x: 12.0
+    y: 0.0
+    yaw: 0.0
+  - id: jn_se
+    x: 18.0
+    y: 0.0
+    yaw: 1.57
+  - id: assembly
+    x: 18.0
+    y: 12.0
+    yaw: 3.14
+  - id: jn_n
+    x: 12.0
+    y: 12.0
+    yaw: 3.14
+  - id: packing
+    x: 6.0
+    y: 12.0
+    yaw: 3.14
+  - id: jn_nw
+    x: 0.0
+    y: 12.0
+    yaw: -1.57
+  - id: storage
+    x: 0.0
+    y: 6.0
+    yaw: -1.57
+  - id: machining
+    x: 12.0
+    y: 6.0
+    yaw: 1.57
+  - id: park_1
+    x: 3.0
+    y: -3.0
+    yaw: 0.0
+  - id: park_2
+    x: 15.0
+    y: -3.0
+    yaw: 0.0
+  - id: park_3
+    x: 21.0
+    y: 6.0
+    yaw: 1.57
+  - id: park_4
+    x: 15.0
+    y: 15.0
+    yaw: 3.14
+  - id: park_5
+    x: 3.0
+    y: 15.0
+    yaw: 3.14
+  - id: park_6
+    x: -3.0
+    y: 9.0
+    yaw: -1.57
+edges:
+  - from: jn_sw
+    to: receiving
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: receiving
+    to: jn_s
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_s
+    to: jn_se
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_se
+    to: assembly
+    distance_m: 12.00
+    bidirectional: false
+    enabled: true
+  - from: assembly
+    to: jn_n
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_n
+    to: packing
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: packing
+    to: jn_nw
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_nw
+    to: storage
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: storage
+    to: jn_sw
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_s
+    to: machining
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: machining
+    to: jn_n
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_sw
+    to: park_1
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_1
+    to: receiving
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: jn_s
+    to: park_2
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_2
+    to: jn_se
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: jn_se
+    to: park_3
+    distance_m: 6.71
+    bidirectional: false
+    enabled: true
+  - from: park_3
+    to: assembly
+    distance_m: 6.71
+    bidirectional: false
+    enabled: true
+  - from: assembly
+    to: park_4
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_4
+    to: jn_n
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: packing
+    to: park_5
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_5
+    to: jn_nw
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: jn_nw
+    to: park_6
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_6
+    to: storage
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true

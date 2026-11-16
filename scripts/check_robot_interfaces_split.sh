@@ -6,7 +6,9 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 LEGACY_PACKAGE="robot_interfaces"
 LEGACY_REMAINING_INTERFACE_COUNT=10
-TARGET_INTERFACE_COUNT=94
+# M2 新增 5 个：mission 的 RequestRouteSegment/ReleaseRouteSegment/TrafficGrant/TrafficState，
+# fleet 的 ListRemoteTasks。
+TARGET_INTERFACE_COUNT=99
 NEW_PACKAGES=(
   robot_interfaces_core
   robot_interfaces_navigation

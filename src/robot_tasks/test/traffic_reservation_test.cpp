@@ -290,4 +290,253 @@ TEST(TrafficReservationTest, ReleaseRouteLocksForMission_OrphanOwnedLocks_AreRem
   EXPECT_EQ(route_locks["route_node:packing"], "mission_b");
 }
 
+// ---------------------------------------------------------------------------
+// M2 滚动申请 + 等待队列
+// ---------------------------------------------------------------------------
+
+namespace {
+
+RouteSegmentRequest SegmentRequest(
+    const std::string& robot_id, const std::string& from, const std::string& to,
+    const int priority = 0) {
+  RouteSegmentRequest request;
+  request.robot_id = robot_id;
+  request.from_station = from;
+  request.to_station = to;
+  request.priority = priority;
+  request.resource_ids = BuildRouteSegmentResourceIds(from, to, true);
+  return request;
+}
+
+}  // namespace
+
+TEST(RouteSegmentTest, BuildRouteSegmentResourceIds_EdgeAndNextNode) {
+  EXPECT_EQ(
+      BuildRouteSegmentResourceIds("receiving", "storage_a", true),
+      (std::vector<std::string>{"route_edge:receiving__storage_a", "route_node:storage_a"}));
+  EXPECT_EQ(
+      BuildRouteSegmentResourceIds("receiving", "storage_a", false),
+      (std::vector<std::string>{"route_edge:receiving__storage_a"}));
+  EXPECT_EQ(
+      BuildRouteSegmentResourceIds("", "dock", true),
+      (std::vector<std::string>{"route_node:dock"}));
+}
+
+TEST(RouteSegmentTest, Request_FreeResources_Granted) {
+  RouteLockMap locks;
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+
+  const auto decision =
+      PlanRouteSegmentRequest(SegmentRequest("robot_1", "receiving", "storage_a"), locks, queues, &seq);
+
+  EXPECT_TRUE(decision.granted);
+  EXPECT_FALSE(decision.queued);
+  EXPECT_EQ(locks["route_edge:receiving__storage_a"], "robot_1");
+  EXPECT_EQ(locks["route_node:storage_a"], "robot_1");
+  EXPECT_TRUE(queues.empty());
+}
+
+TEST(RouteSegmentTest, Request_AlreadyOwnedBySameRobot_Granted) {
+  RouteLockMap locks{{"route_node:storage_a", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+
+  const auto decision =
+      PlanRouteSegmentRequest(SegmentRequest("robot_1", "receiving", "storage_a"), locks, queues, &seq);
+
+  EXPECT_TRUE(decision.granted);
+}
+
+TEST(RouteSegmentTest, Request_OccupiedResource_Queued) {
+  RouteLockMap locks{{"route_node:storage_a", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+
+  const auto decision =
+      PlanRouteSegmentRequest(SegmentRequest("robot_2", "packing", "storage_a"), locks, queues, &seq);
+
+  EXPECT_FALSE(decision.granted);
+  EXPECT_TRUE(decision.queued);
+  EXPECT_EQ(decision.blocking_resource_ids, (std::vector<std::string>{"route_node:storage_a"}));
+  EXPECT_EQ(decision.blocking_owner_ids, (std::vector<std::string>{"robot_1"}));
+  // 拿不到的那组资源一个都不锁。
+  EXPECT_EQ(locks.count("route_edge:packing__storage_a"), 0U);
+  ASSERT_EQ(queues["route_node:storage_a"].size(), 1U);
+  EXPECT_EQ(queues["route_node:storage_a"][0].robot_id, "robot_2");
+  const auto waiter = FindRouteWaiter("robot_2", queues);
+  ASSERT_TRUE(waiter.has_value());
+  EXPECT_EQ(waiter->to_station, "storage_a");
+}
+
+TEST(RouteSegmentTest, Request_WholeRouteMode_RejectsWithoutQueue) {
+  RouteLockMap locks{{"route_node:storage_a", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  auto request = SegmentRequest("robot_2", "packing", "storage_a");
+  request.allow_queue = false;
+
+  const auto decision = PlanRouteSegmentRequest(request, locks, queues, &seq);
+
+  EXPECT_FALSE(decision.granted);
+  EXPECT_FALSE(decision.queued);
+  EXPECT_EQ(decision.message, "route resource locked: route_node:storage_a held by robot_1");
+  EXPECT_TRUE(queues.empty());
+}
+
+TEST(RouteSegmentTest, Release_GrantsQueueHead) {
+  RouteLockMap locks;
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  ASSERT_TRUE(
+      PlanRouteSegmentRequest(SegmentRequest("robot_1", "receiving", "storage_a"), locks, queues, &seq)
+          .granted);
+  ASSERT_TRUE(
+      PlanRouteSegmentRequest(SegmentRequest("robot_2", "packing", "storage_a"), locks, queues, &seq)
+          .queued);
+  ASSERT_TRUE(
+      PlanRouteSegmentRequest(SegmentRequest("robot_3", "receiving", "storage_a"), locks, queues, &seq)
+          .queued);
+
+  const auto release = PlanRouteSegmentRelease("robot_1", {}, locks, queues);
+
+  EXPECT_EQ(release.released_resource_ids.size(), 2U);
+  ASSERT_EQ(release.granted.size(), 1U);
+  EXPECT_EQ(release.granted[0].robot_id, "robot_2");
+  EXPECT_EQ(locks["route_node:storage_a"], "robot_2");
+  EXPECT_EQ(locks["route_edge:packing__storage_a"], "robot_2");
+  EXPECT_FALSE(FindRouteWaiter("robot_2", queues).has_value());
+  // robot_3 仍在等 robot_2 刚拿走的路口。
+  const auto still_waiting = FindRouteWaiter("robot_3", queues);
+  ASSERT_TRUE(still_waiting.has_value());
+}
+
+TEST(RouteSegmentTest, Release_OnlyNamedResources) {
+  RouteLockMap locks{
+      {"route_edge:receiving__storage_a", "robot_1"},
+      {"route_node:storage_a", "robot_1"},
+      {"route_node:receiving", "robot_1"}};
+  RouteWaitQueueMap queues;
+
+  const auto release =
+      PlanRouteSegmentRelease("robot_1", {"route_edge:receiving__storage_a", "route_node:receiving",
+                                          "route_node:packing"},
+                              locks, queues);
+
+  EXPECT_EQ(release.released_resource_ids.size(), 2U);
+  EXPECT_EQ(locks.size(), 1U);
+  EXPECT_EQ(locks["route_node:storage_a"], "robot_1");
+}
+
+TEST(RouteSegmentTest, Release_SkipsWaiterThatStillCannotGetAllResources) {
+  RouteLockMap locks{
+      {"route_node:storage_a", "robot_1"},
+      {"route_edge:packing__storage_a", "robot_9"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  // robot_2 要的两个资源都被占；robot_3 只要路口。
+  ASSERT_TRUE(
+      PlanRouteSegmentRequest(SegmentRequest("robot_2", "packing", "storage_a"), locks, queues, &seq)
+          .queued);
+  ASSERT_TRUE(
+      PlanRouteSegmentRequest(SegmentRequest("robot_3", "", "storage_a"), locks, queues, &seq).queued);
+
+  const auto release = PlanRouteSegmentRelease("robot_1", {}, locks, queues);
+
+  ASSERT_EQ(release.granted.size(), 1U);
+  EXPECT_EQ(release.granted[0].robot_id, "robot_3");
+  EXPECT_EQ(locks["route_node:storage_a"], "robot_3");
+  EXPECT_TRUE(FindRouteWaiter("robot_2", queues).has_value());
+}
+
+TEST(RouteSegmentTest, Queue_HigherPriorityJumpsAhead) {
+  RouteLockMap locks{{"route_node:storage_a", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  PlanRouteSegmentRequest(SegmentRequest("robot_2", "", "storage_a", 10), locks, queues, &seq);
+  PlanRouteSegmentRequest(SegmentRequest("robot_3", "", "storage_a", 50), locks, queues, &seq);
+  PlanRouteSegmentRequest(SegmentRequest("robot_4", "", "storage_a", 10), locks, queues, &seq);
+
+  const auto& queue = queues["route_node:storage_a"];
+  ASSERT_EQ(queue.size(), 3U);
+  EXPECT_EQ(queue[0].robot_id, "robot_3");
+  EXPECT_EQ(queue[1].robot_id, "robot_2");
+  EXPECT_EQ(queue[2].robot_id, "robot_4");
+
+  const auto release = PlanRouteSegmentRelease("robot_1", {}, locks, queues);
+  ASSERT_EQ(release.granted.size(), 1U);
+  EXPECT_EQ(release.granted[0].robot_id, "robot_3");
+}
+
+TEST(RouteSegmentTest, Queue_RepeatedRequestKeepsPlaceAndReplacesOldWait) {
+  RouteLockMap locks{{"route_node:storage_a", "robot_1"}, {"route_node:packing", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  PlanRouteSegmentRequest(SegmentRequest("robot_2", "", "storage_a"), locks, queues, &seq);
+  PlanRouteSegmentRequest(SegmentRequest("robot_3", "", "storage_a"), locks, queues, &seq);
+  // 重复同一申请：排位不变。
+  PlanRouteSegmentRequest(SegmentRequest("robot_2", "", "storage_a"), locks, queues, &seq);
+  EXPECT_EQ(queues["route_node:storage_a"][0].robot_id, "robot_2");
+
+  // 改申请另一组资源：旧等待被撤掉。
+  PlanRouteSegmentRequest(SegmentRequest("robot_2", "", "packing"), locks, queues, &seq);
+  ASSERT_EQ(queues["route_node:storage_a"].size(), 1U);
+  EXPECT_EQ(queues["route_node:storage_a"][0].robot_id, "robot_3");
+  ASSERT_EQ(queues["route_node:packing"].size(), 1U);
+}
+
+TEST(RouteSegmentTest, Block_RequestOnBlockedRouteNeedsReplan) {
+  RouteLockMap locks{{"route_edge:receiving__storage_a", TrafficBlockOwnerId("maintenance")}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+
+  const auto blocked =
+      PlanRouteSegmentRequest(SegmentRequest("robot_2", "receiving", "storage_a"), locks, queues, &seq);
+
+  EXPECT_FALSE(blocked.granted);
+  EXPECT_FALSE(blocked.queued);
+  EXPECT_TRUE(blocked.replan_required);
+  EXPECT_TRUE(queues.empty());
+  EXPECT_EQ(locks.count("route_node:storage_a"), 0U);
+}
+
+TEST(RouteSegmentTest, Block_QueuedWaitersMarkedForReplan) {
+  RouteLockMap locks{{"route_edge:receiving__storage_a", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  PlanRouteSegmentRequest(SegmentRequest("robot_2", "receiving", "storage_a"), locks, queues, &seq);
+  PlanRouteSegmentRequest(SegmentRequest("robot_3", "receiving", "storage_a"), locks, queues, &seq);
+
+  const auto replan = PlanRouteBlockWaiterReplan("route_edge:receiving__storage_a", queues);
+
+  ASSERT_EQ(replan.size(), 2U);
+  EXPECT_EQ(replan[0].robot_id, "robot_2");
+  EXPECT_EQ(replan[1].robot_id, "robot_3");
+  EXPECT_TRUE(queues.empty());
+}
+
+TEST(RouteSegmentTest, Withdraw_RemovesWaiterEverywhere) {
+  RouteLockMap locks{{"route_edge:receiving__storage_a", "robot_1"}, {"route_node:storage_a", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  PlanRouteSegmentRequest(SegmentRequest("robot_2", "receiving", "storage_a"), locks, queues, &seq);
+  ASSERT_EQ(queues.size(), 2U);
+
+  const auto withdrawn = WithdrawRouteWaits("robot_2", queues);
+
+  ASSERT_TRUE(withdrawn.has_value());
+  EXPECT_TRUE(queues.empty());
+  EXPECT_FALSE(WithdrawRouteWaits("robot_2", queues).has_value());
+}
+
+TEST(RouteSegmentTest, ResourcesOwnedBy_Sorted) {
+  RouteLockMap locks{
+      {"route_node:storage_a", "robot_1"},
+      {"route_edge:a__b", "robot_1"},
+      {"route_node:packing", "robot_2"}};
+  EXPECT_EQ(
+      RouteResourcesOwnedBy("robot_1", locks),
+      (std::vector<std::string>{"route_edge:a__b", "route_node:storage_a"}));
+}
+
 }  // namespace robot_tasks

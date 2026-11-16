@@ -244,3 +244,248 @@ bool ReleaseRouteLocksForMission(
 }
 
 }  // namespace robot_tasks
+
+// ---------------------------------------------------------------------------
+// M2 滚动申请 + 等待队列
+// ---------------------------------------------------------------------------
+
+namespace robot_tasks {
+namespace {
+
+bool WaiterGoesBefore(const RouteWaiter& a, const RouteWaiter& b) {
+  if (a.priority != b.priority) {
+    return a.priority > b.priority;
+  }
+  return a.sequence < b.sequence;
+}
+
+void EraseWaiter(const std::string& robot_id, RouteWaitQueueMap& wait_queues) {
+  for (auto it = wait_queues.begin(); it != wait_queues.end();) {
+    auto& queue = it->second;
+    queue.erase(
+        std::remove_if(
+            queue.begin(), queue.end(),
+            [&](const RouteWaiter& waiter) { return waiter.robot_id == robot_id; }),
+        queue.end());
+    if (queue.empty()) {
+      it = wait_queues.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+void InsertWaiterSorted(std::vector<RouteWaiter>& queue, const RouteWaiter& waiter) {
+  const auto position = std::find_if(
+      queue.begin(), queue.end(),
+      [&](const RouteWaiter& existing) { return WaiterGoesBefore(waiter, existing); });
+  queue.insert(position, waiter);
+}
+
+// 整组资源是否都空闲或已归该车所有。
+bool ResourcesAvailableFor(
+    const std::string& robot_id, const std::vector<std::string>& resource_ids,
+    const RouteLockMap& route_locks) {
+  for (const auto& resource_id : resource_ids) {
+    const auto lock = route_locks.find(resource_id);
+    if (lock != route_locks.end() && lock->second != robot_id) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::string JoinResourceIds(const std::vector<std::string>& ids) {
+  std::string joined;
+  for (std::size_t index = 0; index < ids.size(); ++index) {
+    if (index > 0) {
+      joined += ",";
+    }
+    joined += ids[index];
+  }
+  return joined;
+}
+
+}  // namespace
+
+std::vector<std::string> BuildRouteSegmentResourceIds(
+    const std::string& from_station, const std::string& to_station,
+    const bool include_intersection_locks) {
+  std::vector<std::string> resource_ids;
+  if (!from_station.empty() && from_station != to_station) {
+    resource_ids.push_back(RouteLockId(from_station, to_station));
+  }
+  if (include_intersection_locks && !to_station.empty()) {
+    resource_ids.push_back(RouteNodeLockId(to_station));
+  }
+  return resource_ids;
+}
+
+RouteSegmentDecision PlanRouteSegmentRequest(
+    const RouteSegmentRequest& request, RouteLockMap& route_locks,
+    RouteWaitQueueMap& wait_queues, std::uint64_t* next_sequence) {
+  RouteSegmentDecision decision;
+  decision.resource_ids = request.resource_ids;
+  if (request.robot_id.empty()) {
+    decision.message = "route segment request requires a robot_id";
+    return decision;
+  }
+
+  for (const auto& resource_id : request.resource_ids) {
+    const auto lock = route_locks.find(resource_id);
+    if (lock == route_locks.end() || lock->second == request.robot_id) {
+      continue;
+    }
+    decision.blocking_resource_ids.push_back(resource_id);
+    decision.blocking_owner_ids.push_back(lock->second);
+    if (IsTrafficBlockOwner(lock->second)) {
+      decision.replan_required = true;
+    }
+  }
+
+  if (decision.blocking_resource_ids.empty()) {
+    for (const auto& resource_id : request.resource_ids) {
+      route_locks[resource_id] = request.robot_id;
+    }
+    EraseWaiter(request.robot_id, wait_queues);
+    decision.granted = true;
+    decision.message = "granted " + request.robot_id + " " +
+                       request.from_station + " -> " + request.to_station + ": " +
+                       JoinResourceIds(request.resource_ids);
+    return decision;
+  }
+
+  const std::string blockers = JoinResourceIds(decision.blocking_resource_ids) + " held by " +
+                               JoinResourceIds(decision.blocking_owner_ids);
+  if (decision.replan_required) {
+    EraseWaiter(request.robot_id, wait_queues);
+    decision.message = "route blocked, replan required: " + blockers;
+    return decision;
+  }
+  if (!request.allow_queue) {
+    decision.message = "route resource locked: " + blockers;
+    return decision;
+  }
+
+  // 同一辆车只等一组资源：先撤掉旧的等待，再按优先级/到达顺序排进每个缺的资源。
+  const auto previous = FindRouteWaiter(request.robot_id, wait_queues);
+  EraseWaiter(request.robot_id, wait_queues);
+  RouteWaiter waiter;
+  waiter.robot_id = request.robot_id;
+  waiter.from_station = request.from_station;
+  waiter.to_station = request.to_station;
+  waiter.priority = request.priority;
+  waiter.resource_ids = request.resource_ids;
+  if (previous.has_value() && previous->resource_ids == request.resource_ids &&
+      previous->priority == request.priority) {
+    waiter.sequence = previous->sequence;  // 重复申请保留原来的排位
+  } else {
+    waiter.sequence = next_sequence != nullptr ? (*next_sequence)++ : 0;
+  }
+  for (const auto& resource_id : decision.blocking_resource_ids) {
+    InsertWaiterSorted(wait_queues[resource_id], waiter);
+  }
+  decision.queued = true;
+  decision.message = "queued " + request.robot_id + " for " + blockers;
+  return decision;
+}
+
+RouteSegmentReleaseDecision PlanRouteSegmentRelease(
+    const std::string& robot_id, const std::vector<std::string>& resource_ids,
+    RouteLockMap& route_locks, RouteWaitQueueMap& wait_queues) {
+  RouteSegmentReleaseDecision decision;
+  std::vector<std::string> candidates = resource_ids;
+  if (candidates.empty()) {
+    candidates = RouteResourcesOwnedBy(robot_id, route_locks);
+  }
+  for (const auto& resource_id : candidates) {
+    const auto lock = route_locks.find(resource_id);
+    if (lock != route_locks.end() && lock->second == robot_id) {
+      route_locks.erase(lock);
+      decision.released_resource_ids.push_back(resource_id);
+    }
+  }
+
+  // 收集等在这些资源上的车，按优先级、到达顺序统一排序后依次尝试授予，
+  // 保证先到的车不会因为资源遍历顺序被后到的车插队；整组资源拿不齐的跳过。
+  std::vector<RouteWaiter> candidates_to_grant;
+  for (const auto& resource_id : decision.released_resource_ids) {
+    const auto queue_it = wait_queues.find(resource_id);
+    if (queue_it == wait_queues.end()) {
+      continue;
+    }
+    for (const auto& waiter : queue_it->second) {
+      const bool seen = std::any_of(
+          candidates_to_grant.begin(), candidates_to_grant.end(),
+          [&](const RouteWaiter& other) { return other.robot_id == waiter.robot_id; });
+      if (!seen) {
+        candidates_to_grant.push_back(waiter);
+      }
+    }
+  }
+  std::sort(candidates_to_grant.begin(), candidates_to_grant.end(), WaiterGoesBefore);
+  for (const auto& waiter : candidates_to_grant) {
+    if (!ResourcesAvailableFor(waiter.robot_id, waiter.resource_ids, route_locks)) {
+      continue;
+    }
+    for (const auto& granted_id : waiter.resource_ids) {
+      route_locks[granted_id] = waiter.robot_id;
+    }
+    EraseWaiter(waiter.robot_id, wait_queues);
+    decision.granted.push_back(
+        RouteGrant{waiter.robot_id, waiter.from_station, waiter.to_station,
+                   waiter.resource_ids});
+  }
+
+  decision.message = "released " + std::to_string(decision.released_resource_ids.size()) +
+                     " resource(s) of " + robot_id + ", granted " +
+                     std::to_string(decision.granted.size()) + " waiter(s)";
+  return decision;
+}
+
+std::optional<RouteWaiter> WithdrawRouteWaits(
+    const std::string& robot_id, RouteWaitQueueMap& wait_queues) {
+  const auto waiter = FindRouteWaiter(robot_id, wait_queues);
+  EraseWaiter(robot_id, wait_queues);
+  return waiter;
+}
+
+std::vector<RouteWaiter> PlanRouteBlockWaiterReplan(
+    const std::string& resource_id, RouteWaitQueueMap& wait_queues) {
+  std::vector<RouteWaiter> affected;
+  const auto queue_it = wait_queues.find(resource_id);
+  if (queue_it == wait_queues.end()) {
+    return affected;
+  }
+  affected = queue_it->second;
+  for (const auto& waiter : affected) {
+    EraseWaiter(waiter.robot_id, wait_queues);
+  }
+  return affected;
+}
+
+std::optional<RouteWaiter> FindRouteWaiter(
+    const std::string& robot_id, const RouteWaitQueueMap& wait_queues) {
+  for (const auto& [resource_id, queue] : wait_queues) {
+    for (const auto& waiter : queue) {
+      if (waiter.robot_id == robot_id) {
+        return waiter;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+std::vector<std::string> RouteResourcesOwnedBy(
+    const std::string& robot_id, const RouteLockMap& route_locks) {
+  std::vector<std::string> owned;
+  for (const auto& [resource_id, owner_id] : route_locks) {
+    if (owner_id == robot_id) {
+      owned.push_back(resource_id);
+    }
+  }
+  std::sort(owned.begin(), owned.end());
+  return owned;
+}
+
+}  // namespace robot_tasks

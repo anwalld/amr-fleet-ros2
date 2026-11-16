@@ -4,20 +4,34 @@ on:
   push:
   pull_request:
 
+# 直接在官方 ros:jazzy 容器里跑，步骤和虚拟机上一样。
+# 之前用 ros-tooling/action-ros-ci：它要重新克隆私有仓库（需要 token），
+# 而且 v0.4 在 ubuntu-24.04 runner 上会把 HOME 污染成多行字符串，导致
+# ament_cmake 的 Python 步骤找不到 ament_package，随机炸在某个包上。
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-24.04
+    container: ros:jazzy
     steps:
       - uses: actions/checkout@v4
-      - uses: ros-tooling/setup-ros@v0.7
-        with:
-          required-ros-distributions: jazzy
-      - uses: ros-tooling/action-ros-ci@v0.4
-        with:
-          package-name: robot_interfaces robot_interfaces_core robot_interfaces_navigation robot_interfaces_mission robot_interfaces_facility robot_interfaces_fleet robot_interfaces_business robot_interfaces_site robot_description robot_bringup robot_simulation robot_navigation robot_utils robot_tasks robot_path_tracking robot_hardware robot_sensors robot_teleop robot_experiments
-          target-ros2-distro: jazzy
-          # 项目所有包都在本仓库 src/ 内，无外部源码依赖。
-          vcs-repo-file-url: ""
-          # action 会自己生成 package.repo 重新克隆被测仓库；仓库是私有的，
-          # 没有 token 时匿名 HTTPS 克隆会失败（历次 CI 都挂在这一步）。
-          import-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 安装依赖（rosdep）
+        shell: bash
+        run: |
+          apt-get update
+          rosdep update --rosdistro jazzy
+          rosdep install --from-paths src --ignore-src -y --rosdistro jazzy
+
+      - name: 编译
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          MAKEFLAGS=-j2 colcon build --symlink-install --parallel-workers 2 \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+      - name: 单元测试
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon test --parallel-workers 2
+          colcon test-result --all --verbose

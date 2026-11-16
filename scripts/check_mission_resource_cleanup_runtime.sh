@@ -77,11 +77,14 @@ assert_no_route_owner() {
 start_bg navigate_sequence_server ros2 run robot_tasks navigate_sequence_server_node --ros-args \
   -p use_nav2_action:=false \
   -p simulate_without_nav2:=true
+# 这个用例验证"任务结束释放整条路径锁"，M2 起固定用 whole_route 对照模式
+# （rolling 下车会继续占着所停站点的路口，见 check_route_resource_locks.sh）。
 start_bg mission_runner ros2 launch robot_tasks mission_runner.launch.py \
   autostart:=false \
   server_timeout_ms:=3000 \
   return_to_dock_on_low_battery:=false \
-  traffic_intersection_locks_enabled:=true
+  traffic_intersection_locks_enabled:=true \
+  traffic_reservation_mode:=whole_route
 
 wait_service_type /v2/submit_order \
   "robot_interfaces_business/srv/SubmitOrder" 20 "${LOG_DIR}/wait_submit.err"

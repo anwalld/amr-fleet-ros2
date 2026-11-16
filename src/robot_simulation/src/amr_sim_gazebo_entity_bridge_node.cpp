@@ -373,9 +373,12 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
               const std::string type =
                   i < response->reservation_types.size() ? response->reservation_types[i] : "";
               const bool is_mission = type == "mission" || owner.rfind("station_order_", 0) == 0;
+              // M2 起路权占用者是车辆号：双车路权段 = robot_1 占 receiving–storage_a、
+              // robot_2 排队后拿到 packing–storage_a（旧版按任务号 traffic_alpha/beta 判断）。
               const bool is_showcase_traffic =
                   owner.find("traffic_alpha") != std::string::npos ||
-                  owner.find("traffic_beta") != std::string::npos;
+                  owner.find("traffic_beta") != std::string::npos ||
+                  IsShowcaseAlpha(owner, route) || IsShowcaseBeta(owner, route);
               if (selected_from.empty() ||
                   (is_mission && !selected_is_mission) ||
                   (is_showcase_traffic && !selected_is_showcase_traffic)) {
@@ -395,10 +398,13 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
             traffic_owner_id_ = selected_owner;
             traffic_reservation_type_ = selected_type;
             traffic_block_visible_until_s_ = now().seconds() + kShowcaseReviewHoldSeconds;
-            if (selected_owner.find("traffic_alpha") != std::string::npos) {
+            const auto selected_route = std::make_pair(selected_from, selected_to);
+            if (selected_owner.find("traffic_alpha") != std::string::npos ||
+                IsShowcaseAlpha(selected_owner, selected_route)) {
               traffic_wait_visible_until_s_ = now().seconds() + kShowcaseReviewHoldSeconds;
             }
-            if (selected_owner.find("traffic_beta_after_release") != std::string::npos) {
+            if (selected_owner.find("traffic_beta_after_release") != std::string::npos ||
+                IsShowcaseBeta(selected_owner, selected_route)) {
               traffic_go_visible_until_s_ = now().seconds() + kShowcaseReviewHoldSeconds;
             }
             return;
@@ -693,6 +699,20 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
     const double yaw = std::atan2(to.y - from.y, to.x - from.x) + 1.57079632679;
     SendPose("traffic_route_reopen_beacon", Pose(x, y, 0.92, yaw));
     SendLabelPose("label_traffic_reopen_status", x, y, 1.28, yaw);
+  }
+
+  static bool RouteIs(
+      const std::pair<std::string, std::string>& route, const std::string& a,
+      const std::string& b) {
+    return (route.first == a && route.second == b) || (route.first == b && route.second == a);
+  }
+  static bool IsShowcaseAlpha(
+      const std::string& owner, const std::pair<std::string, std::string>& route) {
+    return owner == "robot_1" && RouteIs(route, "receiving", "storage_a");
+  }
+  static bool IsShowcaseBeta(
+      const std::string& owner, const std::pair<std::string, std::string>& route) {
+    return owner == "robot_2" && RouteIs(route, "packing", "storage_a");
   }
 
   void UpdateTrafficWaitPassPose() {

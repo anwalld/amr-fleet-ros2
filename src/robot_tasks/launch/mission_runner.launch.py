@@ -52,6 +52,7 @@ def generate_launch_description():
     preflight_require_station_route = LaunchConfiguration("preflight_require_station_route")
     preflight_default_speed_limit_mps = LaunchConfiguration("preflight_default_speed_limit_mps")
     traffic_intersection_locks_enabled = LaunchConfiguration("traffic_intersection_locks_enabled")
+    traffic_reservation_mode = LaunchConfiguration("traffic_reservation_mode")
     payload_capacity_kg = LaunchConfiguration("payload_capacity_kg")
     top_module_type = LaunchConfiguration("top_module_type")
     localization_covariance_threshold = LaunchConfiguration("localization_covariance_threshold")
@@ -131,6 +132,8 @@ def generate_launch_description():
             DeclareLaunchArgument("preflight_require_station_route", default_value="true"),
             DeclareLaunchArgument("preflight_default_speed_limit_mps", default_value="0.6"),
             DeclareLaunchArgument("traffic_intersection_locks_enabled", default_value="true"),
+            # rolling（默认）= 边走边申请、拿不到排队；whole_route = 旧行为，入队锁整条路径。
+            DeclareLaunchArgument("traffic_reservation_mode", default_value="rolling"),
             DeclareLaunchArgument("payload_capacity_kg", default_value="30.0"),
             DeclareLaunchArgument("top_module_type", default_value="manual_load"),
             DeclareLaunchArgument("localization_covariance_threshold", default_value="0.5"),
@@ -184,6 +187,7 @@ def generate_launch_description():
                         "preflight_require_station_route": preflight_require_station_route,
                         "preflight_default_speed_limit_mps": preflight_default_speed_limit_mps,
                         "traffic_intersection_locks_enabled": traffic_intersection_locks_enabled,
+                        "traffic_reservation_mode": traffic_reservation_mode,
                         "payload_capacity_kg": payload_capacity_kg,
                         "top_module_type": top_module_type,
                         "localization_covariance_threshold": localization_covariance_threshold,

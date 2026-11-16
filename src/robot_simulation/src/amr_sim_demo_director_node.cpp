@@ -1,6 +1,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
@@ -9,6 +10,8 @@
 #include "robot_interfaces_mission/srv/cancel_queued_mission.hpp"
 #include "robot_interfaces_navigation/srv/clear_obstacle_blockage.hpp"
 #include "robot_interfaces_mission/srv/clear_traffic_reservation.hpp"
+#include "robot_interfaces_mission/srv/release_route_segment.hpp"
+#include "robot_interfaces_mission/srv/request_route_segment.hpp"
 #include "robot_interfaces_facility/srv/confirm_load.hpp"
 #include "robot_interfaces_facility/srv/confirm_unload.hpp"
 #include "robot_interfaces_facility/srv/execute_top_module_action.hpp"
@@ -88,6 +91,10 @@ class AmrSimDemoDirectorNode final : public rclcpp::Node {
         create_client<robot_interfaces_business::srv::SubmitOrder>("/v2/submit_order");
     clear_traffic_client_ =
         create_client<robot_interfaces_mission::srv::ClearTrafficReservation>("/v2/clear_traffic_reservation");
+    request_route_client_ =
+        create_client<robot_interfaces_mission::srv::RequestRouteSegment>("/v2/request_route_segment");
+    release_route_client_ =
+        create_client<robot_interfaces_mission::srv::ReleaseRouteSegment>("/v2/release_route_segment");
     cancel_queued_client_ =
         create_client<robot_interfaces_mission::srv::CancelQueuedMission>("/v2/cancel_queued_mission");
     events_client_ =
@@ -172,6 +179,7 @@ class AmrSimDemoDirectorNode final : public rclcpp::Node {
            speed_client_->service_is_ready() && docking_client_->service_is_ready() &&
            dock_state_client_->service_is_ready() && undocking_client_->service_is_ready() &&
            station_order_client_->service_is_ready() && clear_traffic_client_->service_is_ready() &&
+           request_route_client_->service_is_ready() && release_route_client_->service_is_ready() &&
            cancel_queued_client_->service_is_ready() && events_client_->service_is_ready() &&
            fleet_state_client_->service_is_ready() && obstacle_client_->service_is_ready() &&
            clear_obstacle_client_->service_is_ready() &&
@@ -432,13 +440,13 @@ class AmrSimDemoDirectorNode final : public rclcpp::Node {
       case Stage::kMoveRobot2ToWait:
         return "二号车到等待点";
       case Stage::kSubmitTrafficBetaBlocked:
-        return "二号车请求被等待";
+        return "二号车进入等待队列";
       case Stage::kHoldTrafficWait:
         return "两车会车等待";
       case Stage::kReleaseTrafficAlpha:
         return "释放交通资源";
       case Stage::kCancelTrafficAlpha:
-        return "清理等待任务";
+        return "确认二号车拿到路权";
       case Stage::kSubmitTrafficBetaAfterRelease:
         return "二号车获得通行权";
       case Stage::kMoveRobot2:
@@ -448,7 +456,7 @@ class AmrSimDemoDirectorNode final : public rclcpp::Node {
       case Stage::kReleaseTrafficBeta:
         return "二号车释放路口";
       case Stage::kCancelTrafficBeta:
-        return "清理通行任务";
+        return "通行结束";
       case Stage::kRequestOpportunityCharging:
         return "机会充电";
       case Stage::kWaitOpportunityCharging:
@@ -773,10 +781,11 @@ class AmrSimDemoDirectorNode final : public rclcpp::Node {
         request, unload_client_, "confirm payload unload at storage_b");
   }
 
+  // 双车路权段（M2 滚动申请语义）：路权占用者是车辆号。
+  // 一号车占住 receiving → storage_a（路段 + storage_a 路口）；二号车申请 packing → storage_a
+  // 不再被拒，而是进入 storage_a 路口的等待队列；一号车释放后二号车自动拿到。
   void SubmitTrafficAlpha() {
-    SubmitTrafficOrder(
-        "traffic_alpha", "receiving", "storage_a", 28, false,
-        "submit alpha traffic reservation");
+    RequestRouteSegment("robot_1", "receiving", "storage_a", 28, "submit alpha traffic reservation");
   }
 
   void MoveRobot2ToWait() {
@@ -784,9 +793,8 @@ class AmrSimDemoDirectorNode final : public rclcpp::Node {
   }
 
   void SubmitTrafficBetaBlocked() {
-    SubmitTrafficOrder(
-        "traffic_beta", "storage_a", "packing", 27, false,
-        "submit blocked beta traffic request");
+    RequestRouteSegment(
+        "robot_2", "packing", "storage_a", 27, "submit beta traffic request (queues behind alpha)");
   }
 
   void HoldTrafficWait() {
@@ -796,17 +804,19 @@ class AmrSimDemoDirectorNode final : public rclcpp::Node {
   }
 
   void ReleaseTrafficAlpha() {
-    ClearTrafficReservation("route_edge:receiving__storage_a", "release alpha traffic reservation");
+    ReleaseRouteSegment(
+        "robot_1", {"route_edge:receiving__storage_a", "route_node:storage_a"},
+        "release alpha traffic reservation");
   }
 
   void CancelTrafficAlpha() {
-    CancelQueuedMission("station_order_traffic_alpha", "cancel alpha traffic queue entry");
+    // 释放时等待队列已把路口授予二号车；再申请一次只是确认（已持有 → granted）。
+    RequestRouteSegment(
+        "robot_2", "packing", "storage_a", 27, "confirm beta traffic grant after release");
   }
 
   void SubmitTrafficBetaAfterRelease() {
-    SubmitTrafficOrder(
-        "traffic_beta_after_release", "storage_a", "packing", 29, false,
-        "submit beta traffic request after release");
+    Advance();
   }
 
   void HoldTrafficPass() {
@@ -816,12 +826,64 @@ class AmrSimDemoDirectorNode final : public rclcpp::Node {
   }
 
   void ReleaseTrafficBeta() {
-    ClearTrafficReservation("route_edge:packing__storage_a", "release beta traffic reservation");
+    ReleaseRouteSegment("robot_2", {}, "release beta traffic reservation");
   }
 
   void CancelTrafficBeta() {
-    CancelQueuedMission(
-        "station_order_traffic_beta_after_release", "cancel beta traffic queue entry");
+    Advance();
+  }
+
+  void RequestRouteSegment(
+      const std::string& robot_id, const std::string& from, const std::string& to,
+      const int priority, const std::string& action_name) {
+    if (request_pending_) {
+      return;
+    }
+    auto request = std::make_shared<robot_interfaces_mission::srv::RequestRouteSegment::Request>();
+    request->robot_id = robot_id;
+    request->from_station = from;
+    request->to_station = to;
+    request->priority = priority;
+    request_pending_ = true;
+    request_route_client_->async_send_request(
+        request,
+        [this, action_name](
+            rclcpp::Client<robot_interfaces_mission::srv::RequestRouteSegment>::SharedFuture future) {
+          request_pending_ = false;
+          const auto response = future.get();
+          RCLCPP_INFO(
+              get_logger(), "AMR sim demo traffic: %s: granted=%s queued=%s: %s",
+              action_name.c_str(), response->granted ? "true" : "false",
+              response->queued ? "true" : "false", response->message.c_str());
+          Advance();
+        });
+  }
+
+  void ReleaseRouteSegment(
+      const std::string& robot_id, const std::vector<std::string>& resource_ids,
+      const std::string& action_name) {
+    if (request_pending_) {
+      return;
+    }
+    auto request = std::make_shared<robot_interfaces_mission::srv::ReleaseRouteSegment::Request>();
+    request->robot_id = robot_id;
+    request->resource_ids = resource_ids;
+    request_pending_ = true;
+    release_route_client_->async_send_request(
+        request,
+        [this, action_name](
+            rclcpp::Client<robot_interfaces_mission::srv::ReleaseRouteSegment>::SharedFuture future) {
+          request_pending_ = false;
+          const auto response = future.get();
+          std::string granted;
+          for (const auto& robot : response->granted_robot_ids) {
+            granted += (granted.empty() ? "" : ",") + robot;
+          }
+          RCLCPP_INFO(
+              get_logger(), "AMR sim demo traffic: %s: granted_to=[%s]: %s", action_name.c_str(),
+              granted.c_str(), response->message.c_str());
+          Advance();
+        });
   }
 
   void SubmitTrafficOrder(
@@ -985,6 +1047,8 @@ class AmrSimDemoDirectorNode final : public rclcpp::Node {
   rclcpp::Client<robot_interfaces_mission::srv::RequestUndocking>::SharedPtr undocking_client_;
   rclcpp::Client<robot_interfaces_business::srv::SubmitOrder>::SharedPtr station_order_client_;
   rclcpp::Client<robot_interfaces_mission::srv::ClearTrafficReservation>::SharedPtr clear_traffic_client_;
+  rclcpp::Client<robot_interfaces_mission::srv::RequestRouteSegment>::SharedPtr request_route_client_;
+  rclcpp::Client<robot_interfaces_mission::srv::ReleaseRouteSegment>::SharedPtr release_route_client_;
   rclcpp::Client<robot_interfaces_mission::srv::CancelQueuedMission>::SharedPtr cancel_queued_client_;
   rclcpp::Client<robot_interfaces_mission::srv::ListMissionEvents>::SharedPtr events_client_;
   rclcpp::Client<robot_interfaces_fleet::srv::UpdateFleetRobotState>::SharedPtr fleet_state_client_;

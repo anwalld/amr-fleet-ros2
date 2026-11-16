@@ -32,9 +32,12 @@ start_bg() {
   PIDS+=("$!")
 }
 
+# 这个用例验证"入队即锁整条路径"模式下封路、解封、清除预约的语义，
+# M2 起固定用 whole_route 对照模式（rolling 下入队不锁路）。
 start_bg mission_runner ros2 launch robot_tasks mission_runner.launch.py \
   autostart:=false \
-  return_to_dock_on_low_battery:=false
+  return_to_dock_on_low_battery:=false \
+  traffic_reservation_mode:=whole_route
 
 wait_service_type /v2/block_station_route "robot_interfaces_mission/srv/BlockStationRoute" 20 \
   "${LOG_DIR}/wait_block.err"

@@ -124,19 +124,22 @@ call_service move_main_robot /world/indoor_room/set_pose \
 rg "success=True" "${LOG_DIR}/move_main_robot.out"
 wait_model_pose "mobile_robot" "x < -3.5 && y > 3.0" 40
 
-call_submit_order traffic_alpha station_transport 28 \
-  "pickup_station=receiving;dropoff_station=storage_a;start_if_idle=false;preempt_current=false" \
-  station_transport_order >"${LOG_DIR}/alpha.out" 2>"${LOG_DIR}/alpha.err"
-rg "accepted=True" "${LOG_DIR}/alpha.out"
-rg "station_order_traffic_alpha" "${LOG_DIR}/alpha.out"
+# M2 滚动申请语义：路权占用者是车辆号；二号车申请不到不再被拒，而是排队，
+# 一号车释放后自动拿到。旧语义（whole_route）下 beta 订单入队即被拒。
+wait_service_type /v2/request_route_segment "robot_interfaces_mission/srv/RequestRouteSegment" 40 \
+  "${LOG_DIR}/wait_request_route.err"
+
+call_service traffic_alpha_seg /v2/request_route_segment \
+  robot_interfaces_mission/srv/RequestRouteSegment \
+  "{robot_id: robot_1, from_station: receiving, to_station: storage_a, priority: 28, station_path: []}"
+rg "granted=True" "${LOG_DIR}/traffic_alpha_seg.out"
 
 call_service traffic_alpha /v2/list_traffic_reservations \
   robot_interfaces_mission/srv/ListTrafficReservations "{}"
 rg "success=True" "${LOG_DIR}/traffic_alpha.out"
 rg "route_edge:receiving__storage_a" "${LOG_DIR}/traffic_alpha.out"
 rg "route_node:storage_a" "${LOG_DIR}/traffic_alpha.out"
-rg "station_order_traffic_alpha" "${LOG_DIR}/traffic_alpha.out"
-rg "mission" "${LOG_DIR}/traffic_alpha.out"
+rg "robot_1" "${LOG_DIR}/traffic_alpha.out"
 
 call_service robot2_wait /v2/update_fleet_robot_state \
   robot_interfaces_fleet/srv/UpdateFleetRobotState \
@@ -145,39 +148,26 @@ rg "success=True" "${LOG_DIR}/robot2_wait.out"
 wait_model_pose "mobile_robot_2" "x > -1.6 && x < -0.4 && y < -3.6" 120
 wait_model_pose "traffic_yield_wait_marker" "x > -1.6 && x < -0.4 && y < -3.6 && z > 0.1" 40
 
-call_submit_order traffic_beta station_transport 27 \
-  "pickup_station=storage_a;dropoff_station=packing;start_if_idle=false;preempt_current=false" \
-  station_transport_order >"${LOG_DIR}/beta_blocked.out" 2>"${LOG_DIR}/beta_blocked.err"
-rg "accepted=False" "${LOG_DIR}/beta_blocked.out"
-rg "route resource locked: route_node:storage_a by station_order_traffic_alpha" \
-  "${LOG_DIR}/beta_blocked.out"
+call_service traffic_beta_seg /v2/request_route_segment \
+  robot_interfaces_mission/srv/RequestRouteSegment \
+  "{robot_id: robot_2, from_station: packing, to_station: storage_a, priority: 27, station_path: []}"
+rg "granted=False" "${LOG_DIR}/traffic_beta_seg.out"
+rg "queued=True" "${LOG_DIR}/traffic_beta_seg.out"
+rg "route_node:storage_a" "${LOG_DIR}/traffic_beta_seg.out"
 
+# 清除一号车的路权（clear 会把该占用者的资源整体释放），等待队列把路口授予二号车。
 call_service clear_alpha /v2/clear_traffic_reservation \
   robot_interfaces_mission/srv/ClearTrafficReservation \
   "{resource_id: route_edge:receiving__storage_a}"
 rg "success=True" "${LOG_DIR}/clear_alpha.out"
-rg "station_order_traffic_alpha" "${LOG_DIR}/clear_alpha.out"
-
-call_service cancel_alpha /v2/cancel_queued_mission \
-  robot_interfaces_mission/srv/CancelQueuedMission \
-  "{mission_id: station_order_traffic_alpha, cancel_active: false}"
-rg "success=True" "${LOG_DIR}/cancel_alpha.out"
-
-call_service traffic_after_alpha /v2/list_traffic_reservations \
-  robot_interfaces_mission/srv/ListTrafficReservations "{}"
-assert_no_owner "station_order_traffic_alpha" "${LOG_DIR}/traffic_after_alpha.out"
-
-call_submit_order traffic_beta_after_release station_transport 29 \
-  "pickup_station=storage_a;dropoff_station=packing;start_if_idle=false;preempt_current=false" \
-  station_transport_order >"${LOG_DIR}/beta_after_release.out" 2>"${LOG_DIR}/beta_after_release.err"
-rg "accepted=True" "${LOG_DIR}/beta_after_release.out"
-rg "station_order_traffic_beta_after_release" "${LOG_DIR}/beta_after_release.out"
+rg "robot_1" "${LOG_DIR}/clear_alpha.out"
 
 call_service traffic_beta /v2/list_traffic_reservations \
   robot_interfaces_mission/srv/ListTrafficReservations "{}"
 rg "route_edge:packing__storage_a" "${LOG_DIR}/traffic_beta.out"
 rg "route_node:storage_a" "${LOG_DIR}/traffic_beta.out"
-rg "station_order_traffic_beta_after_release" "${LOG_DIR}/traffic_beta.out"
+rg "robot_2" "${LOG_DIR}/traffic_beta.out"
+assert_no_owner "robot_1" "${LOG_DIR}/traffic_beta.out"
 
 call_service robot2_go /v2/update_fleet_robot_state \
   robot_interfaces_fleet/srv/UpdateFleetRobotState \
@@ -186,20 +176,14 @@ rg "success=True" "${LOG_DIR}/robot2_go.out"
 wait_model_pose "traffic_release_go_marker" "x > 1.2 && x < 2.2 && y > -0.5 && y < 1.0 && z > 0.2" 40
 wait_model_pose "mobile_robot_2" "x > 1.0 && y < -0.5" 120
 
-call_service clear_beta /v2/clear_traffic_reservation \
-  robot_interfaces_mission/srv/ClearTrafficReservation \
-  "{resource_id: route_edge:packing__storage_a}"
-rg "success=True" "${LOG_DIR}/clear_beta.out"
-rg "station_order_traffic_beta_after_release" "${LOG_DIR}/clear_beta.out"
-
-call_service cancel_beta /v2/cancel_queued_mission \
-  robot_interfaces_mission/srv/CancelQueuedMission \
-  "{mission_id: station_order_traffic_beta_after_release, cancel_active: false}"
-rg "success=True" "${LOG_DIR}/cancel_beta.out"
+call_service release_beta /v2/release_route_segment \
+  robot_interfaces_mission/srv/ReleaseRouteSegment \
+  "{robot_id: robot_2, resource_ids: []}"
+rg "success=True" "${LOG_DIR}/release_beta.out"
 
 call_service traffic_final /v2/list_traffic_reservations \
   robot_interfaces_mission/srv/ListTrafficReservations "{}"
-assert_no_owner "station_order_traffic_alpha" "${LOG_DIR}/traffic_final.out"
-assert_no_owner "station_order_traffic_beta_after_release" "${LOG_DIR}/traffic_final.out"
+assert_no_owner "robot_1" "${LOG_DIR}/traffic_final.out"
+assert_no_owner "robot_2" "${LOG_DIR}/traffic_final.out"
 
 echo "two robot traffic wait passed"

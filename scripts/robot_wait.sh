@@ -185,3 +185,26 @@ start_station_auto_confirm() {
     trap stop_station_auto_confirm EXIT
   fi
 }
+
+# ---------------------------------------------------------------------------
+# M2 滚动申请：按车辆号申请 / 释放一段路的路权（/v2/request_route_segment、
+# /v2/release_route_segment）。release 的资源列表为空表示释放该车持有的全部资源。
+#   call_request_route_segment <robot_id> <from> <to> [priority]
+#   call_release_route_segment <robot_id> [resource_id...]
+# ---------------------------------------------------------------------------
+
+call_request_route_segment() {
+  local robot_id="$1"
+  local from_station="$2"
+  local to_station="$3"
+  local priority="${4:-0}"
+  ros2 service call /v2/request_route_segment robot_interfaces_mission/srv/RequestRouteSegment \
+    "{robot_id: $(yaml_single_quote "${robot_id}"), from_station: $(yaml_single_quote "${from_station}"), to_station: $(yaml_single_quote "${to_station}"), priority: ${priority}, station_path: []}"
+}
+
+call_release_route_segment() {
+  local robot_id="$1"
+  shift
+  ros2 service call /v2/release_route_segment robot_interfaces_mission/srv/ReleaseRouteSegment \
+    "{robot_id: $(yaml_single_quote "${robot_id}"), resource_ids: $(yaml_flow_list "$@")}"
+}

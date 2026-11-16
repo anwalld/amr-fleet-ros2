@@ -1,6 +1,7 @@
 #include <chrono>
 #include <cmath>
 #include <algorithm>
+#include <functional>
 #include <cctype>
 #include <cstddef>
 #include <filesystem>
@@ -282,6 +283,17 @@ class MissionRunnerNode final : public rclcpp::Node {
         declare_parameter<double>("preflight_default_speed_limit_mps", 0.6);
     context_.traffic_intersection_locks_enabled =
         declare_parameter<bool>("traffic_intersection_locks_enabled", true);
+    // M2：rolling = 边走边申请前方路段、拿不到排队（默认）；whole_route = 入队时锁整条
+    // 路径、拿不到拒绝（旧行为，对照组）。
+    context_.traffic_reservation_mode =
+        declare_parameter<std::string>("traffic_reservation_mode", "rolling");
+    if (context_.traffic_reservation_mode != "rolling" &&
+        context_.traffic_reservation_mode != "whole_route") {
+      RCLCPP_WARN(
+          get_logger(), "unknown traffic_reservation_mode '%s', using rolling",
+          context_.traffic_reservation_mode.c_str());
+      context_.traffic_reservation_mode = "rolling";
+    }
     payload_capacity_kg_ = declare_parameter<double>("payload_capacity_kg", 30.0);
     top_module_type_ = declare_parameter<std::string>("top_module_type", "manual_load");
     localization_covariance_threshold_ =
@@ -465,6 +477,16 @@ class MissionRunnerNode final : public rclcpp::Node {
                 std::shared_ptr<robot_interfaces_mission::srv::ListStationRoutes::Response>
                     response) { ListStationRoutes(response); });
     traffic_service_ = std::make_unique<robot_tasks::TrafficService>(this, context_);
+    traffic_service_->SetGrantCallback(
+        [this](const std::string& event, const robot_tasks::RouteGrant& grant) {
+          OnTrafficGrant(event, grant);
+        });
+    // rolling：被封路挡住时每秒重试一次（排队的申请由授予通知唤醒，这里也顺带重申请兜底）。
+    rolling_retry_timer_ = create_wall_timer(
+        std::chrono::seconds(1), [this]() { RetryRollingRoute(); });
+    RCLCPP_INFO(
+        get_logger(), "traffic_reservation_mode=%s",
+        context_.traffic_reservation_mode.c_str());
     v2_list_fleet_robots_srv_ =
         create_service<robot_interfaces_fleet::srv::ListFleetRobots>(
             "/v2/list_fleet_robots",
@@ -862,6 +884,12 @@ class MissionRunnerNode final : public rclcpp::Node {
     robot_tasks::StationTransportRuntimeState state;
     robot_tasks::MissionProfile pickup_profile;
     robot_tasks::MissionProfile dropoff_profile;
+    // rolling：当前这一程（取货 / 卸货）的站点路径，leg_path[0] 是出发站（可能为空 =
+    // 位置未知，直接开往下一站）；leg_index 指向下一个要去的站。
+    int priority = 0;
+    std::vector<std::string> leg_path;
+    std::size_t leg_index = 1;
+    bool waiting_route = false;
   };
 
   struct StationTransportDispatchContext {
@@ -4004,17 +4032,22 @@ class MissionRunnerNode final : public rclcpp::Node {
       response->queue_size = static_cast<int>(mission_queue_.size());
       return;
     }
-    std::string route_lock_message;
-    if (!traffic_service_->ReserveRouteLocksForMission(
-            profile->mission_id, gate.route_lock_ids, &route_lock_message)) {
-      response->success = false;
-      response->mission_id = profile->mission_id;
-      response->message = "station transport route lock rejected: " + route_lock_message;
-      response->queue_size = static_cast<int>(mission_queue_.size());
-      return;
+    // whole_route（旧行为）：入队时锁整条路径，拿不到就拒绝。
+    // rolling：入队只校验路径存在（上面的 gate），不锁；执行时按边申请。
+    if (!traffic_service_->Rolling()) {
+      std::string route_lock_message;
+      if (!traffic_service_->ReserveRouteLocksForMission(
+              profile->mission_id, gate.route_lock_ids, &route_lock_message)) {
+        response->success = false;
+        response->mission_id = profile->mission_id;
+        response->message = "station transport route lock rejected: " + route_lock_message;
+        response->queue_size = static_cast<int>(mission_queue_.size());
+        return;
+      }
     }
 
     StationTransportExecutionRecord execution;
+    execution.priority = request->priority;
     execution.state.mission_id = profile->mission_id;
     execution.state.pickup_station_id = stations->pickup.id;
     execution.state.dropoff_station_id = stations->dropoff.id;
@@ -5050,6 +5083,11 @@ class MissionRunnerNode final : public rclcpp::Node {
   void FinishStationTransportTerminal(
       const std::string& mission_id, const std::string& state,
       const std::string& message, const bool mission_succeeded) {
+    if (traffic_service_->Rolling()) {
+      // 车停在哪就继续占着哪个路口，其余（排队、身后的路段）全部放掉。
+      traffic_service_->WithdrawRouteWaits(robot_id_);
+      ReleaseRobotRouteExceptCurrent();
+    }
     active_station_transport_id_.clear();
     cancellation_requested_ = false;
     paused_ = false;
@@ -5134,12 +5172,22 @@ class MissionRunnerNode final : public rclcpp::Node {
     }
   }
 
+  using StationTransportResultHandler =
+      std::function<void(bool succeeded, bool canceled, const std::string& message)>;
+
   void SendStationTransportGoal(
       const NavigateSequence::Goal& goal,
-      const StationTransportDispatchContext& context) {
+      const StationTransportDispatchContext& context,
+      StationTransportResultHandler on_result = nullptr) {
+    if (!on_result) {
+      on_result = [this, context](
+                      const bool succeeded, const bool canceled, const std::string& message) {
+        HandleStationTransportNavigationResult(context, succeeded, canceled, message);
+      };
+    }
     auto options = rclcpp_action::Client<NavigateSequence>::SendGoalOptions();
     options.goal_response_callback =
-        [this, context](GoalHandleNavigateSequence::SharedPtr goal_handle) {
+        [this, context, on_result](GoalHandleNavigateSequence::SharedPtr goal_handle) {
           if (!MatchesActiveStationTransportContext(context)) {
             if (goal_handle) {
               action_client_->async_cancel_goal(goal_handle);
@@ -5147,8 +5195,8 @@ class MissionRunnerNode final : public rclcpp::Node {
             return;
           }
           if (!goal_handle) {
-            HandleStationTransportNavigationResult(
-                context, false, cancellation_requested_,
+            on_result(
+                false, cancellation_requested_,
                 "navigate sequence rejected station transport leg");
             return;
           }
@@ -5169,7 +5217,7 @@ class MissionRunnerNode final : public rclcpp::Node {
               true);
         };
     options.result_callback =
-        [this, context](const GoalHandleNavigateSequence::WrappedResult& result) {
+        [this, context, on_result](const GoalHandleNavigateSequence::WrappedResult& result) {
           if (!MatchesActiveStationTransportContext(context)) {
             return;
           }
@@ -5179,9 +5227,7 @@ class MissionRunnerNode final : public rclcpp::Node {
           const bool canceled =
               result.code == rclcpp_action::ResultCode::CANCELED ||
               cancellation_requested_;
-          HandleStationTransportNavigationResult(
-              context, succeeded, canceled,
-              result.result ? result.result->message : "");
+          on_result(succeeded, canceled, result.result ? result.result->message : "");
         };
     options.feedback_callback =
         [this, context](
@@ -5256,6 +5302,21 @@ class MissionRunnerNode final : public rclcpp::Node {
       return false;
     }
 
+    if (traffic_service_->Rolling()) {
+      const std::string target = leg == robot_tasks::StationTransportLeg::kPickup
+                                     ? it->second.state.pickup_station_id
+                                     : it->second.state.dropoff_station_id;
+      it->second.leg_path = PlanRollingLegPath(target);
+      it->second.leg_index = 1;
+      it->second.waiting_route = false;
+      active_rolling_context_ = context;
+      AdvanceRollingSegment(context);
+      if (message != nullptr) {
+        *message = transition.message;
+      }
+      return true;
+    }
+
     NavigateSequence::Goal goal;
     goal.loop = false;
     for (const auto& waypoint : profile_->waypoints) {
@@ -5267,6 +5328,218 @@ class MissionRunnerNode final : public rclcpp::Node {
       *message = transition.message;
     }
     return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // M2 rolling：站点运输按边派发
+  //
+  // 每一程（到取货站 / 到卸货站）沿站点路径一条边一个 NavigateSequence 目标：
+  // 申请到“这条边 + 下一个路口”才发目标；拿不到就进 WAIT_ROUTE 等授予通知；
+  // 到达后释放身后的边和上一个路口，再申请下一条边。路权占用者是车辆号 robot_id_。
+  // ---------------------------------------------------------------------------
+
+  void EnsureRollingStationKnown() {
+    if (!rolling_station_id_.empty()) {
+      return;
+    }
+    std::string ignored;
+    const auto fleet = LoadFleet(&ignored);
+    if (!fleet.has_value()) {
+      return;
+    }
+    const auto* robot = robot_tasks::FindFleetRobot(*fleet, robot_id_);
+    if (robot != nullptr) {
+      rolling_station_id_ = robot->current_station_id;
+    }
+  }
+
+  // 把被封的路段从目录里摘掉后再找路，用于重新规划。
+  std::optional<std::vector<std::string>> FindRouteAvoidingBlocks(
+      const robot_tasks::StationCatalog& catalog, const std::string& from,
+      const std::string& to) const {
+    auto filtered = catalog;
+    for (auto& edge : filtered.edges) {
+      const auto lock = context_.route_locks.find(robot_tasks::RouteLockId(edge.from, edge.to));
+      if (lock != context_.route_locks.end() && robot_tasks::IsTrafficBlockOwner(lock->second)) {
+        edge.enabled = false;
+      }
+    }
+    return robot_tasks::FindRoutePath(filtered, from, to);
+  }
+
+  std::vector<std::string> PlanRollingLegPath(const std::string& target) {
+    EnsureRollingStationKnown();
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
+    if (catalog.has_value() && !rolling_station_id_.empty() &&
+        robot_tasks::FindStation(*catalog, rolling_station_id_) != nullptr) {
+      if (rolling_station_id_ == target) {
+        return {target};
+      }
+      auto route = FindRouteAvoidingBlocks(*catalog, rolling_station_id_, target);
+      if (!route.has_value()) {
+        route = robot_tasks::FindRoutePath(*catalog, rolling_station_id_, target);
+      }
+      if (route.has_value() && route->size() >= 2U) {
+        return *route;
+      }
+    }
+    // 位置未知或不在路网上：直接开往目标，只申请目标路口。
+    return {"", target};
+  }
+
+  void AdvanceRollingSegment(const StationTransportDispatchContext& context) {
+    if (!MatchesActiveStationTransportContext(context)) {
+      return;
+    }
+    auto& record = station_transport_executions_.at(context.mission_id);
+    if (record.leg_index >= record.leg_path.size()) {
+      record.waiting_route = false;
+      HandleStationTransportNavigationResult(
+          context, true, false, "station navigation completed");
+      return;
+    }
+    const std::string from = record.leg_path[record.leg_index - 1];
+    const std::string next = record.leg_path[record.leg_index];
+    const auto decision =
+        traffic_service_->RequestRouteSegment(robot_id_, from, next, record.priority);
+    if (decision.granted) {
+      if (record.waiting_route) {
+        RecordMissionEventFor(
+            context.mission_id, "ROUTE_GRANTED", current_state_, decision.message, true);
+      }
+      record.waiting_route = false;
+      SendRollingSegmentGoal(context, next);
+      return;
+    }
+    if (decision.queued) {
+      if (!record.waiting_route) {
+        record.waiting_route = true;
+        SetState("WAIT_ROUTE", "waiting for route " + from + " -> " + next + ": " +
+                                   decision.message, true);
+      }
+      return;
+    }
+    if (decision.replan_required) {
+      const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
+      const std::string target = record.leg_path.back();
+      if (catalog.has_value() && !from.empty()) {
+        const auto route = FindRouteAvoidingBlocks(*catalog, from, target);
+        if (route.has_value() && route->size() >= 2U &&
+            std::vector<std::string>(record.leg_path.begin() + record.leg_index - 1,
+                                     record.leg_path.end()) != *route) {
+          record.leg_path = *route;
+          record.leg_index = 1;
+          RecordMissionEventFor(
+              context.mission_id, "ROUTE_REPLANNED", current_state_,
+              "route blocked, replanned " + from + " -> " + target, true);
+          AdvanceRollingSegment(context);
+          return;
+        }
+      }
+      if (!record.waiting_route) {
+        record.waiting_route = true;
+        SetState("WAIT_ROUTE", "route blocked, waiting for unblock: " + decision.message, true);
+      }
+      return;
+    }
+    record.waiting_route = false;
+    HandleStationTransportNavigationResult(
+        context, false, false, "route segment request failed: " + decision.message);
+  }
+
+  void SendRollingSegmentGoal(
+      const StationTransportDispatchContext& context, const std::string& next) {
+    const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
+    const auto* station =
+        catalog.has_value() ? robot_tasks::FindStation(*catalog, next) : nullptr;
+    if (station == nullptr) {
+      HandleStationTransportNavigationResult(
+          context, false, false, "unknown station in rolling route: " + next);
+      return;
+    }
+    NavigateSequence::Goal goal;
+    goal.loop = false;
+    goal.goals.push_back(PoseStampedFromWaypoint(
+        robot_tasks::MissionWaypoint{station->x, station->y, station->yaw},
+        station->frame_id.empty() ? "map" : station->frame_id, now()));
+    SendStationTransportGoal(
+        goal, context,
+        [this, context, next](
+            const bool succeeded, const bool canceled, const std::string& message) {
+          OnRollingSegmentResult(context, next, succeeded, canceled, message);
+        });
+  }
+
+  void OnRollingSegmentResult(
+      const StationTransportDispatchContext& context, const std::string& next,
+      const bool succeeded, const bool canceled, const std::string& message) {
+    if (!MatchesActiveStationTransportContext(context)) {
+      return;
+    }
+    if (!succeeded) {
+      HandleStationTransportNavigationResult(context, false, canceled, message);
+      return;
+    }
+    auto& record = station_transport_executions_.at(context.mission_id);
+    const std::string previous = record.leg_path[record.leg_index - 1];
+    rolling_station_id_ = next;
+    mission_active_ = false;
+    current_goal_handle_.reset();
+    // 到达后释放身后的边和上一个路口，继续占着当前路口。
+    std::vector<std::string> behind;
+    if (!previous.empty() && previous != next) {
+      behind.push_back(robot_tasks::RouteLockId(previous, next));
+      behind.push_back(robot_tasks::RouteNodeLockId(previous));
+    }
+    if (!behind.empty()) {
+      traffic_service_->ReleaseRouteSegment(robot_id_, behind);
+    }
+    ++record.leg_index;
+    AdvanceRollingSegment(context);
+  }
+
+  void OnTrafficGrant(const std::string& event, const robot_tasks::RouteGrant& grant) {
+    if (grant.robot_id != robot_id_) {
+      return;
+    }
+    auto* transport = FindActiveStationTransport();
+    if (transport == nullptr || !transport->waiting_route ||
+        !MatchesActiveStationTransportContext(active_rolling_context_)) {
+      if (event == "granted") {
+        // 没人在等这份授予（任务已结束）：还回去，只留当前路口。
+        ReleaseRobotRouteExceptCurrent();
+      }
+      return;
+    }
+    // 授予发生在别的车释放的调用栈里，放到下一轮执行器再处理，避免重入。
+    const auto context = active_rolling_context_;
+    auto timer = std::make_shared<rclcpp::TimerBase::SharedPtr>();
+    *timer = create_wall_timer(std::chrono::milliseconds(1), [this, context, timer]() {
+      (*timer)->cancel();
+      AdvanceRollingSegment(context);
+      timer->reset();
+    });
+  }
+
+  void RetryRollingRoute() {
+    if (!traffic_service_->Rolling() || mission_active_) {
+      return;
+    }
+    const auto* transport = FindActiveStationTransport();
+    if (transport == nullptr || !transport->waiting_route) {
+      return;
+    }
+    AdvanceRollingSegment(active_rolling_context_);
+  }
+
+  void ReleaseRobotRouteExceptCurrent() {
+    auto owned = robot_tasks::RouteResourcesOwnedBy(robot_id_, context_.route_locks);
+    const auto current_node = robot_tasks::RouteNodeLockId(rolling_station_id_);
+    owned.erase(
+        std::remove(owned.begin(), owned.end(), current_node), owned.end());
+    if (!owned.empty()) {
+      traffic_service_->ReleaseRouteSegment(robot_id_, owned);
+    }
   }
 
   void DispatchMission(const std::shared_ptr<std_srvs::srv::Trigger::Response>& response,
@@ -5794,6 +6067,10 @@ class MissionRunnerNode final : public rclcpp::Node {
 
   robot_tasks::MissionContext context_;
   std::unique_ptr<robot_tasks::TrafficService> traffic_service_;
+  // rolling：任务中枢自己的车当前所在站点（空 = 未知），以及正在执行的那一程。
+  std::string rolling_station_id_;
+  StationTransportDispatchContext active_rolling_context_;
+  rclcpp::TimerBase::SharedPtr rolling_retry_timer_;
   std::string mission_file_;
   std::string dock_mission_file_;
   std::string facility_file_;

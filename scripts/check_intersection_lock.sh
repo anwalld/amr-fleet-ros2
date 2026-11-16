@@ -42,41 +42,63 @@ wait_service_type /v2/list_traffic_reservations "robot_interfaces_mission/srv/Li
 wait_service_type /v2/cancel_queued_mission "robot_interfaces_mission/srv/CancelQueuedMission" 20 \
   "${LOG_DIR}/wait_cancel.err"
 
+# M2 滚动申请语义：路口锁仍然生效，但拿不到不再拒绝，而是按车辆号排队，
+# 前车释放后自动授予队首。旧语义（whole_route）下 beta 入队时就被拒。
+
+# 1. 任务层：两单都能入队（入队只校验路径存在，不锁路）。
 call_submit_order intersection_alpha station_transport 10 \
   "pickup_station=receiving;dropoff_station=storage_a;start_if_idle=false;preempt_current=false" \
   station_transport_order \
   >"${LOG_DIR}/intersection_alpha.out"
 rg "accepted=True" "${LOG_DIR}/intersection_alpha.out"
-rg "station_order_intersection_alpha" "${LOG_DIR}/intersection_alpha.out"
 rg "queue_size=1" "${LOG_DIR}/intersection_alpha.out"
-
-ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
-  >"${LOG_DIR}/traffic.out"
-rg "success=True" "${LOG_DIR}/traffic.out"
-rg "route_node:storage_a" "${LOG_DIR}/traffic.out"
-rg "station_order_intersection_alpha" "${LOG_DIR}/traffic.out"
-rg "mission" "${LOG_DIR}/traffic.out"
 
 call_submit_order intersection_beta station_transport 10 \
   "pickup_station=storage_a;dropoff_station=packing;start_if_idle=false;preempt_current=false" \
   station_transport_order \
   >"${LOG_DIR}/intersection_beta.out"
-rg "accepted=False" "${LOG_DIR}/intersection_beta.out"
-rg "route resource locked: route_node:storage_a by station_order_intersection_alpha" \
-  "${LOG_DIR}/intersection_beta.out"
+rg "accepted=True" "${LOG_DIR}/intersection_beta.out"
+rg "queue_size=2" "${LOG_DIR}/intersection_beta.out"
 
-ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
-  "{mission_id: station_order_intersection_alpha, cancel_active: false}" \
-  >"${LOG_DIR}/cancel.out"
-rg "success=True" "${LOG_DIR}/cancel.out"
-rg "queue_size=0" "${LOG_DIR}/cancel.out"
+# 2. 路权层：alpha 车占住 receiving -> storage_a（路段 + storage_a 路口）。
+wait_service_type /v2/request_route_segment "robot_interfaces_mission/srv/RequestRouteSegment" 20 \
+  "${LOG_DIR}/wait_request.err"
+call_request_route_segment robot_alpha receiving storage_a 10 >"${LOG_DIR}/alpha_seg.out"
+rg "granted=True" "${LOG_DIR}/alpha_seg.out"
+rg "route_node:storage_a" "${LOG_DIR}/alpha_seg.out"
 
-call_submit_order intersection_beta_after_clear station_transport 10 \
-  "pickup_station=storage_a;dropoff_station=packing;start_if_idle=false;preempt_current=false" \
-  station_transport_order \
-  >"${LOG_DIR}/intersection_beta_after_clear.out"
-rg "accepted=True" "${LOG_DIR}/intersection_beta_after_clear.out"
-rg "station_order_intersection_beta_after_clear" "${LOG_DIR}/intersection_beta_after_clear.out"
-rg "queue_size=1" "${LOG_DIR}/intersection_beta_after_clear.out"
+ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+  >"${LOG_DIR}/traffic.out"
+rg "success=True" "${LOG_DIR}/traffic.out"
+rg "route_node:storage_a" "${LOG_DIR}/traffic.out"
+rg "robot_alpha" "${LOG_DIR}/traffic.out"
+
+# 3. beta 车要从 packing 开到 storage_a，路口被占 -> 排队（不是拒绝）。
+call_request_route_segment robot_beta packing storage_a 10 >"${LOG_DIR}/beta_seg.out"
+rg "granted=False" "${LOG_DIR}/beta_seg.out"
+rg "queued=True" "${LOG_DIR}/beta_seg.out"
+rg "route_node:storage_a" "${LOG_DIR}/beta_seg.out"
+rg "robot_alpha" "${LOG_DIR}/beta_seg.out"
+
+# 4. 监听授予通知，alpha 释放后 beta 自动拿到路口。
+timeout 20s ros2 topic echo --once /traffic/grants robot_interfaces_mission/msg/TrafficGrant \
+  >"${LOG_DIR}/grant.out" 2>&1 &
+grant_pid=$!
+sleep 4
+call_release_route_segment robot_alpha >"${LOG_DIR}/alpha_release.out"
+rg "success=True" "${LOG_DIR}/alpha_release.out"
+rg "granted_robot_ids=\['robot_beta'\]" "${LOG_DIR}/alpha_release.out"
+wait "${grant_pid}" || true
+rg "robot_beta" "${LOG_DIR}/grant.out"
+rg "granted" "${LOG_DIR}/grant.out"
+
+ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+  >"${LOG_DIR}/traffic_after.out"
+rg "route_node:storage_a" "${LOG_DIR}/traffic_after.out"
+rg "robot_beta" "${LOG_DIR}/traffic_after.out"
+if rg "robot_alpha" "${LOG_DIR}/traffic_after.out" >/dev/null; then
+  echo "robot_alpha still owns traffic resources after release" >&2
+  exit 1
+fi
 
 echo "intersection lock passed"

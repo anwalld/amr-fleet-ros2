@@ -321,6 +321,20 @@ std::vector<std::string> BuildRouteSegmentResourceIds(
   return resource_ids;
 }
 
+std::vector<std::string> BuildRoutePathResourceIds(
+    const std::vector<std::string>& station_path, const bool include_intersection_locks) {
+  std::vector<std::string> resource_ids;
+  for (std::size_t index = 1; index < station_path.size(); ++index) {
+    resource_ids.push_back(RouteLockId(station_path[index - 1], station_path[index]));
+  }
+  if (include_intersection_locks) {
+    for (std::size_t index = 1; index < station_path.size(); ++index) {
+      resource_ids.push_back(RouteNodeLockId(station_path[index]));
+    }
+  }
+  return resource_ids;
+}
+
 RouteSegmentDecision PlanRouteSegmentRequest(
     const RouteSegmentRequest& request, RouteLockMap& route_locks,
     RouteWaitQueueMap& wait_queues, std::uint64_t* next_sequence) {
@@ -381,6 +395,7 @@ RouteSegmentDecision PlanRouteSegmentRequest(
     waiter.sequence = previous->sequence;  // 重复申请保留原来的排位
   } else {
     waiter.sequence = next_sequence != nullptr ? (*next_sequence)++ : 0;
+    decision.newly_queued = true;
   }
   for (const auto& resource_id : decision.blocking_resource_ids) {
     InsertWaiterSorted(wait_queues[resource_id], waiter);
@@ -406,25 +421,47 @@ RouteSegmentReleaseDecision PlanRouteSegmentRelease(
     }
   }
 
-  // 收集等在这些资源上的车，按优先级、到达顺序统一排序后依次尝试授予，
+  decision.granted =
+      PlanRouteWaitGrants(decision.released_resource_ids, route_locks, wait_queues);
+
+  decision.message = "released " + std::to_string(decision.released_resource_ids.size()) +
+                     " resource(s) of " + robot_id + ", granted " +
+                     std::to_string(decision.granted.size()) + " waiter(s)";
+  return decision;
+}
+
+std::vector<RouteGrant> PlanRouteWaitGrants(
+    const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
+    RouteWaitQueueMap& wait_queues) {
+  // 收集候选等待者，按优先级、到达顺序统一排序后依次尝试授予，
   // 保证先到的车不会因为资源遍历顺序被后到的车插队；整组资源拿不齐的跳过。
-  std::vector<RouteWaiter> candidates_to_grant;
-  for (const auto& resource_id : decision.released_resource_ids) {
-    const auto queue_it = wait_queues.find(resource_id);
-    if (queue_it == wait_queues.end()) {
-      continue;
-    }
-    for (const auto& waiter : queue_it->second) {
+  std::vector<RouteWaiter> candidates;
+  const auto collect = [&](const std::vector<RouteWaiter>& queue) {
+    for (const auto& waiter : queue) {
       const bool seen = std::any_of(
-          candidates_to_grant.begin(), candidates_to_grant.end(),
+          candidates.begin(), candidates.end(),
           [&](const RouteWaiter& other) { return other.robot_id == waiter.robot_id; });
       if (!seen) {
-        candidates_to_grant.push_back(waiter);
+        candidates.push_back(waiter);
+      }
+    }
+  };
+  if (candidate_resource_ids.empty()) {
+    for (const auto& [resource_id, queue] : wait_queues) {
+      collect(queue);
+    }
+  } else {
+    for (const auto& resource_id : candidate_resource_ids) {
+      const auto queue_it = wait_queues.find(resource_id);
+      if (queue_it != wait_queues.end()) {
+        collect(queue_it->second);
       }
     }
   }
-  std::sort(candidates_to_grant.begin(), candidates_to_grant.end(), WaiterGoesBefore);
-  for (const auto& waiter : candidates_to_grant) {
+  std::sort(candidates.begin(), candidates.end(), WaiterGoesBefore);
+
+  std::vector<RouteGrant> granted;
+  for (const auto& waiter : candidates) {
     if (!ResourcesAvailableFor(waiter.robot_id, waiter.resource_ids, route_locks)) {
       continue;
     }
@@ -432,15 +469,10 @@ RouteSegmentReleaseDecision PlanRouteSegmentRelease(
       route_locks[granted_id] = waiter.robot_id;
     }
     EraseWaiter(waiter.robot_id, wait_queues);
-    decision.granted.push_back(
-        RouteGrant{waiter.robot_id, waiter.from_station, waiter.to_station,
-                   waiter.resource_ids});
+    granted.push_back(
+        RouteGrant{waiter.robot_id, waiter.from_station, waiter.to_station, waiter.resource_ids});
   }
-
-  decision.message = "released " + std::to_string(decision.released_resource_ids.size()) +
-                     " resource(s) of " + robot_id + ", granted " +
-                     std::to_string(decision.granted.size()) + " waiter(s)";
-  return decision;
+  return granted;
 }
 
 std::optional<RouteWaiter> WithdrawRouteWaits(

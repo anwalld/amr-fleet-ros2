@@ -87,6 +87,8 @@ struct RouteSegmentRequest {
 struct RouteSegmentDecision {
   bool granted = false;
   bool queued = false;
+  // 这次申请是新进队列（false = 已在队列里的重复申请，保留原排位）。
+  bool newly_queued = false;
   // 被封路挡住：不授予也不排队，申请方应重新规划。
   bool replan_required = false;
   std::vector<std::string> resource_ids;
@@ -138,6 +140,11 @@ std::vector<std::string> BuildRouteSegmentResourceIds(
     const std::string& from_station, const std::string& to_station,
     bool include_intersection_locks);
 
+// 整条路径要申请的资源：路径上的全部路段 + 除起点外的全部路口（起点路口车已持有）。
+// whole_route 对照组按这个一次申请。
+std::vector<std::string> BuildRoutePathResourceIds(
+    const std::vector<std::string>& station_path, bool include_intersection_locks);
+
 // 申请一段路。整组资源都空闲或已归该车所有 → 授予并锁上；否则按 allow_queue 排队或拒绝。
 // 同一辆车同一时刻只等一组资源：新申请会替换它先前的等待。
 // *next_sequence 用来给新等待者编号，调用后加一。
@@ -150,6 +157,12 @@ RouteSegmentDecision PlanRouteSegmentRequest(
 RouteSegmentReleaseDecision PlanRouteSegmentRelease(
     const std::string& robot_id, const std::vector<std::string>& resource_ids,
     RouteLockMap& route_locks, RouteWaitQueueMap& wait_queues);
+
+// 给等在 candidate_resource_ids 上的车（为空 = 全部等待者）按优先级、到达顺序依次
+// 尝试授予，整组拿不齐的跳过。释放、解封、清除预约后以及定时兜底时调用。
+std::vector<RouteGrant> PlanRouteWaitGrants(
+    const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
+    RouteWaitQueueMap& wait_queues);
 
 // 撤掉一辆车的全部等待（取消任务时用）。返回撤掉的等待者（若有）。
 std::optional<RouteWaiter> WithdrawRouteWaits(

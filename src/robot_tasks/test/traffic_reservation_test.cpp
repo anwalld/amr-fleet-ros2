@@ -474,8 +474,11 @@ TEST(RouteSegmentTest, Queue_RepeatedRequestKeepsPlaceAndReplacesOldWait) {
   std::uint64_t seq = 1;
   PlanRouteSegmentRequest(SegmentRequest("robot_2", "", "storage_a"), locks, queues, &seq);
   PlanRouteSegmentRequest(SegmentRequest("robot_3", "", "storage_a"), locks, queues, &seq);
-  // 重复同一申请：排位不变。
-  PlanRouteSegmentRequest(SegmentRequest("robot_2", "", "storage_a"), locks, queues, &seq);
+  // 重复同一申请：排位不变，也不算新排队。
+  const auto repeated =
+      PlanRouteSegmentRequest(SegmentRequest("robot_2", "", "storage_a"), locks, queues, &seq);
+  EXPECT_TRUE(repeated.queued);
+  EXPECT_FALSE(repeated.newly_queued);
   EXPECT_EQ(queues["route_node:storage_a"][0].robot_id, "robot_2");
 
   // 改申请另一组资源：旧等待被撤掉。
@@ -537,6 +540,33 @@ TEST(RouteSegmentTest, ResourcesOwnedBy_Sorted) {
   EXPECT_EQ(
       RouteResourcesOwnedBy("robot_1", locks),
       (std::vector<std::string>{"route_edge:a__b", "route_node:storage_a"}));
+}
+
+TEST(RouteSegmentTest, BuildRoutePathResourceIds_EdgesAndNodesExceptStart) {
+  EXPECT_EQ(
+      BuildRoutePathResourceIds({"dock", "receiving", "storage_a"}, true),
+      (std::vector<std::string>{
+          "route_edge:dock__receiving", "route_edge:receiving__storage_a",
+          "route_node:receiving", "route_node:storage_a"}));
+  EXPECT_EQ(
+      BuildRoutePathResourceIds({"dock", "receiving"}, false),
+      (std::vector<std::string>{"route_edge:dock__receiving"}));
+}
+
+TEST(RouteSegmentTest, WaitGrants_AllQueues_GrantsWaiterWhoseResourcesFreedElsewhere) {
+  RouteLockMap locks{{"route_node:storage_a", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  PlanRouteSegmentRequest(SegmentRequest("robot_2", "", "storage_a"), locks, queues, &seq);
+  // 资源被别的途径（清除预约、任务清理）删掉，没经过 PlanRouteSegmentRelease。
+  locks.erase("route_node:storage_a");
+
+  const auto granted = PlanRouteWaitGrants({}, locks, queues);
+
+  ASSERT_EQ(granted.size(), 1U);
+  EXPECT_EQ(granted[0].robot_id, "robot_2");
+  EXPECT_EQ(locks["route_node:storage_a"], "robot_2");
+  EXPECT_TRUE(queues.empty());
 }
 
 }  // namespace robot_tasks

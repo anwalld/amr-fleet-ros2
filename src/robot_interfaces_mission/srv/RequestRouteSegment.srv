@@ -1,0 +1,20 @@
+# M2 滚动申请：车辆向交通管制申请一段路的路权。
+# rolling 模式：资源 = 路段 from–to + 路口 to（from 为空表示只占路口 to）；拿不到进等待队列。
+# whole_route 模式：拿不到直接拒绝（不排队），由申请方稍后重试。
+# station_path 非空时按整条路径申请（路径上的全部路段 + 除起点外的全部路口），用于 whole_route 对照组。
+string robot_id
+string from_station
+string to_station
+int32 priority
+string[] station_path
+---
+bool success
+bool granted
+bool queued
+# 被封路挡住：不授予也不排队，申请方应换一条路。
+bool replan_required
+string[] resource_ids
+string[] blocking_resource_ids
+string[] blocking_owner_ids
+string mode
+string message

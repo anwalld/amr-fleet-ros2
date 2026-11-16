@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -8,7 +9,11 @@
 #include "robot_interfaces_mission/srv/block_station_route.hpp"
 #include "robot_interfaces_mission/srv/clear_traffic_reservation.hpp"
 #include "robot_interfaces_mission/srv/detect_traffic_deadlock.hpp"
+#include "robot_interfaces_mission/msg/traffic_grant.hpp"
+#include "robot_interfaces_mission/msg/traffic_state.hpp"
 #include "robot_interfaces_mission/srv/list_traffic_reservations.hpp"
+#include "robot_interfaces_mission/srv/release_route_segment.hpp"
+#include "robot_interfaces_mission/srv/request_route_segment.hpp"
 #include "robot_interfaces_mission/srv/unblock_station_route.hpp"
 #include "robot_tasks/mission_context.hpp"
 
@@ -20,9 +25,32 @@ namespace robot_tasks {
 // 状态存在 MissionContext 里，由单线程执行器保证访问安全，不加锁。
 // 决策逻辑仍是 traffic_reservation.hpp 的纯函数，这里只做
 // “取状态 → 调纯函数 → 写回状态 → 填响应”。
+//
+// M2 起还负责滚动申请：/v2/request_route_segment、/v2/release_route_segment 两个服务，
+// /traffic/state（1 Hz）与 /traffic/grants（授予 / 重规划通知）两个话题。
+// 任务中枢自己的车（robot_1）走同一套 C++ 接口，授予通知通过回调送回节点。
 class TrafficService {
  public:
+  // event 为 "granted" 或 "replan"。
+  using GrantCallback = std::function<void(const std::string& event, const RouteGrant& grant)>;
+
   TrafficService(rclcpp::Node* node, MissionContext& context);
+
+  bool Rolling() const { return context_.traffic_reservation_mode == "rolling"; }
+  const std::string& Mode() const { return context_.traffic_reservation_mode; }
+  void SetGrantCallback(GrantCallback callback) { grant_callback_ = std::move(callback); }
+
+  // 申请一段路（station_path 非空时按整条路径申请）。rolling 下拿不到排队，
+  // whole_route 下拿不到拒绝。会校验站点和路段存在。
+  RouteSegmentDecision RequestRouteSegment(
+      const std::string& robot_id, const std::string& from_station,
+      const std::string& to_station, int priority,
+      const std::vector<std::string>& station_path = {});
+  // resource_ids 为空 = 释放该车持有的全部资源。新授予会发 /traffic/grants 并回调。
+  RouteSegmentReleaseDecision ReleaseRouteSegment(
+      const std::string& robot_id, const std::vector<std::string>& resource_ids);
+  // 撤掉该车的等待（取消任务时）。
+  void WithdrawRouteWaits(const std::string& robot_id);
 
   std::vector<std::string> BuildRouteLockIds(const std::vector<std::string>& station_path) const;
   bool ReserveRouteLocksForMission(
@@ -50,8 +78,31 @@ class TrafficService {
       const std::shared_ptr<robot_interfaces_mission::srv::DetectTrafficDeadlock::Response>&
           response) const;
 
+  void RequestRouteSegmentService(
+      const std::shared_ptr<robot_interfaces_mission::srv::RequestRouteSegment::Request>& request,
+      const std::shared_ptr<robot_interfaces_mission::srv::RequestRouteSegment::Response>&
+          response);
+  void ReleaseRouteSegmentService(
+      const std::shared_ptr<robot_interfaces_mission::srv::ReleaseRouteSegment::Request>& request,
+      const std::shared_ptr<robot_interfaces_mission::srv::ReleaseRouteSegment::Response>&
+          response);
+  // 资源被非常规途径删掉后（解封、清除预约、任务清理），给等待者补授予。
+  void GrantWaiters(const std::vector<std::string>& candidate_resource_ids);
+  void NotifyGrant(const std::string& event, const RouteGrant& grant);
+  void PublishTrafficState();
+
   rclcpp::Node* node_;
   MissionContext& context_;
+  GrantCallback grant_callback_;
+  std::uint64_t grant_count_ = 0;
+  std::uint64_t queue_count_ = 0;
+  rclcpp::Service<robot_interfaces_mission::srv::RequestRouteSegment>::SharedPtr
+      v2_request_route_segment_srv_;
+  rclcpp::Service<robot_interfaces_mission::srv::ReleaseRouteSegment>::SharedPtr
+      v2_release_route_segment_srv_;
+  rclcpp::Publisher<robot_interfaces_mission::msg::TrafficState>::SharedPtr traffic_state_pub_;
+  rclcpp::Publisher<robot_interfaces_mission::msg::TrafficGrant>::SharedPtr traffic_grant_pub_;
+  rclcpp::TimerBase::SharedPtr traffic_timer_;
   rclcpp::Service<robot_interfaces_mission::srv::BlockStationRoute>::SharedPtr
       v2_block_station_route_srv_;
   rclcpp::Service<robot_interfaces_mission::srv::UnblockStationRoute>::SharedPtr

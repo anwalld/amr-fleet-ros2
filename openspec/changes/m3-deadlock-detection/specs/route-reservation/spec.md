@@ -54,7 +54,7 @@ whole_route 模式 SHALL 保留旧行为作为对照：申请带 `station_path` 
 - **THEN** `route_node:storage_a` 仍由 robot_1 占用，直到第二张工单也结束
 
 ### Requirement: 交通状态与授予通知话题
-系统 SHALL 以 1 Hz 发布 `/traffic/state`：模式、占用表（资源与占用者）、每个资源的等待队列（等待者、优先级、队内位置）、累计授予次数与新排队次数，以及死锁统计：累计检测次数、累计检出环数、当前等待环上的车、最近一次解除的动作（`reroute`、`backoff` 或 `pause`）、让路车与解除耗时（毫秒），最近一次与历史最大的单次检测耗时（微秒），按动作分类的累计解除次数。系统 SHALL 在 `/traffic/grants` 上发布每一次授予（`granted`）和重新规划（`replan`）通知，包含车辆号、起止站和资源。
+系统 SHALL 以 1 Hz 发布 `/traffic/state`：模式、占用表（资源与占用者）、每个资源的等待队列（等待者、优先级、队内位置）、累计授予次数与新排队次数，以及死锁统计：累计检测次数、累计检出环数、当前等待环上的车、最近一次解除的动作（`reroute`、`backoff` 或 `pause`）、让路车与解除耗时（毫秒），累计已解开环数，最近一次与历史最大的单次检测耗时（微秒），按动作分类的累计解除次数。系统 SHALL 在 `/traffic/grants` 上发布每一次授予（`granted`）和重新规划（`replan`）通知，包含车辆号、起止站和资源。
 
 #### Scenario: 状态话题反映占用与排队
 - **WHEN** robot_1 占用 `route_node:storage_a`，robot_2 在其上排队

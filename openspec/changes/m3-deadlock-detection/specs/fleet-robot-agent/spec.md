@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: 多车轻量仿真启动
-系统 SHALL 提供启动文件 `fleet_sim.launch.py`，参数 `fleet_size`（默认 6）、`network`（`workshop`、`workshop_2way` 或 `warehouse`）、`traffic_reservation_mode`、`traffic_deadlock_resolution_enabled`（默认 `true`，透传给任务中枢），拉起任务中枢（车辆号为 `dispatcher`，不在车队里）、不依赖 Nav2 的导航序列服务和 `fleet_size` 个任务代理（`robot_1` … `robot_N`），各车起点即其停车位，按路网的停车位列表依次分配。车数超过该路网停车位数时 SHALL 启动失败。
+系统 SHALL 提供启动文件 `fleet_sim.launch.py`，参数 `fleet_size`（默认 6）、`network`（`workshop`、`workshop_2way` 或 `warehouse`）、`traffic_reservation_mode`、`traffic_deadlock_resolution_enabled`（默认 `true`，透传给任务中枢）、`start_stations`（逗号分隔，覆盖各车起点），拉起任务中枢（车辆号为 `dispatcher`，不在车队里）、不依赖 Nav2 的导航序列服务和 `fleet_size` 个任务代理（`robot_1` … `robot_N`），各车起点即其停车位，按路网的停车位列表依次分配。车数超过该路网停车位数时 SHALL 启动失败。
 
 #### Scenario: 6 台车启动
 - **WHEN** 以 `fleet_size:=6 network:=workshop` 启动

@@ -58,17 +58,17 @@ M2 的补授予会跳过拿不齐整组的等待者（避免一辆车堵住整�
 **7. 解除耗时的定义。** 从检出环到"之后某次检测中这组车不再成环"之间的时间，用单调时钟。耗时精度受检测间隔约束：改道后让路车下一次申请会触发入队检测，多数情况下远小于 1 秒；最坏是靠 1 Hz 兜底发现，误差不超过 1 秒。规格里已写明这个定义。
 
 **8. 状态与统计放进 `/traffic/state`，不新开统计话题。**
-在 `TrafficState.msg` 末尾追加：`deadlock_check_count`、`deadlock_count`、`deadlock_robot_ids`（当前环上的车）、`last_resolution_action`、`last_resolution_robot_id`、`last_resolution_ms`、`last_detection_us`、`max_detection_us`、`reroute_count`、`backoff_count`、`pause_count`。压测脚本直接订阅这一个话题取死锁指标（规格已要求），调度台（M4）也只需要它。
-- `deadlocks.csv` 的逐次记录：压测脚本在 `deadlock_count` / 各解除计数变化时，从同一条状态消息里取最近一次解除写一行。1 Hz 快照下，1 秒内发生两次解除会漏记中间一次的细节（计数不会漏）；详见 Risks。
+在 `TrafficState.msg` 末尾追加：`deadlock_check_count`、`deadlock_count`、`deadlock_robot_ids`（当前环上的车）、`last_resolution_action`、`last_resolution_robot_id`、`last_resolution_ms`（-1 = 尚未解开）、`resolved_count`（累计已解开环数，实现时补的：压测按它的变化逐条记录解除）、`last_detection_us`、`max_detection_us`、`reroute_count`、`backoff_count`、`pause_count`。压测脚本直接订阅这一个话题取死锁指标（规格已要求），调度台（M4）也只需要它。
+- `deadlocks.csv` 的逐次记录：压测脚本在 `resolved_count` 变化时，从同一条状态消息里取最近一次解除（动作、让路车、耗时）写一行，环上车辆从 `/traffic/yield` 的指令里对上；兜底暂停没有"解开"时刻，按 `/traffic/yield` 的 `pause` 指令记一行。1 Hz 快照下，1 秒内发生两次解除会漏记中间一次的细节（计数不会漏）；详见 Risks。
 
 **9. `/v2/detect_traffic_deadlock` 的字段映射。** 类型不变：`deadlocked` = 当前有环；`mission_ids` = 环上车辆号（字段名是历史遗留，规格已写明）；`conflict_resource_ids` = 构成环的等待边上的资源；`conflict_station_ids` = 这些资源涉及的站点；`descriptions` 每环一条，如 `robot_1 -[route_node:B]-> robot_2 -[route_node:A]-> robot_1`。服务调用时现场检测一次，不读缓存。
-- 验收脚本 `check_traffic_deadlock_detection.sh` 的旧判定（两车各占一条通向 storage_a 的路段就报死锁）在新语义下不再成立，按规格改为：关闭解除后构造两车互等判 `deadlocked=true`，再验证"只共用站点"判 `false`。主规格里旧场景名"死锁检测报告冲突候选"被 OpenSpec 要求保留，场景内容改为新语义下的结果（不再报告）。
+- 验收脚本 `check_traffic_deadlock_detection.sh` 的旧判定（两车各占一条通向 storage_a 的路段就报死锁）在新语义下不再成立，按规格改为：关闭路口锁和死锁解除，先让两车各占一条通向 storage_a 的路段，判"只共用站点"为 `false`；再让两车各自去等对方手里的那条路段，判 `deadlocked=true`。原脚本里两张站点运输工单的入队检查与死锁无关，一并删去。主规格里旧场景名"死锁检测报告冲突候选"被 OpenSpec 要求保留，场景内容改为新语义下的结果（不再报告）。
 
-**10. 新路网 `workshop_2way`。** 复制 `workshop` 的 16 个站点和 6 个停车位，把横穿段 jn_s – machining – jn_n 改成双向，再把外环靠近停车位的两段改成双向，制造两车对向和三车成环的机会。阶段 5 的对照矩阵跑在 `workshop_2way` 上（`NETWORK=workshop_2way`）；`workshop` 不动，M2 的数字仍可复现。站点坐标沿用，间距仍 ≥ 3 米。
+**10. 新路网 `workshop_2way`。** 复制 `workshop` 的 16 个站点和 6 个停车位，把横穿段 jn_s – machining – jn_n 和外环 jn_sw – receiving、jn_n – packing 改成双向（两车对向）。实现时发现只改双向不够：剩下的最短有向环是 5 站，三车成不了环，所以再加一条单向斜边 jn_se → machining（8.49 m），和 jn_s → jn_se、machining → jn_s 组成 3 站有向环（三车成环）。阶段 5 的对照矩阵跑在 `workshop_2way` 上（`NETWORK=workshop_2way`）；`workshop` 不动，M2 的数字仍可复现。站点坐标沿用，间距仍 ≥ 3 米。
 
 **11. 压测脚本只加列不换脚本。** `run_fleet_traffic_stress.sh` 增加 `NETWORK`、`DEADLOCK_RESOLUTION` 两个环境变量透传给启动文件；死锁统计在它调用的 `fleet_traffic_stress.py` 里采（订阅 `/traffic/state` 本来就在做），写进 `state.csv` 新列、新文件 `deadlocks.csv` 和 `summary.json` 新字段。位置参数不变，夜跑和 M2 的调用都不用改。
 
-**12. 阶段 6 场景脚本。** 新增 `scripts/run_deadlock_scenarios.sh <输出目录> [遍数]`：在 `workshop_2way` 上起 2～3 台车的轻量仿真，不下随机订单，直接用路权服务把车摆成三种局面（两车对向、三车成环、环外有车等待），再通过代理下发目的地让它们自己走，订阅 `/traffic/state` 和 `/traffic/yield` 判定。每遍之间整栈重启，所有 `ros2 service call` 带 `timeout`。这是新脚本，不违反"压测不另写脚本"——它不是压测，是二开计划第 9 节阶段 6 规定的场景脚本。
+**12. 阶段 6 场景脚本。** 新增 `scripts/run_deadlock_scenarios.sh <输出目录> [遍数]`（外壳）和 `scripts/deadlock_scenarios.py`（下单与判定）：`fleet_sim` 新增参数 `start_stations`，把 2～3 台车直接摆在场景需要的站点上；每辆车下一张"取货点 = 自己所在站点"的 `fleet_station` 订单（派单按到取货点的距离选车，所以一定派给这辆车），装货停留后各车同时申请下一段，形成预期的等待环，由真实的代理执行解除。订阅 `/traffic/state` 和 `/traffic/yield` 判定。每遍之间整栈重启；服务调用都在 Python 里带超时，不用 `ros2 service call`。这是新脚本，不违反"压测不另写脚本"——它不是压测，是二开计划第 9 节阶段 6 规定的场景脚本。
 
 ## Risks / Trade-offs
 

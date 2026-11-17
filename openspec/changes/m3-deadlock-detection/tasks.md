@@ -43,14 +43,14 @@
 
 ## 8. 压测与场景脚本
 
-- [ ] 8.1 直接修改 `scripts/run_fleet_traffic_stress.sh`（不另写压测脚本）：增加环境变量 `NETWORK`（默认 workshop）、`DEADLOCK_RESOLUTION`（默认 true）透传给启动文件，结果目录写明二者；它调用的 `fleet_traffic_stress.py` 加死锁指标列：`state.csv` 加累计检出数与 reroute/backoff/pause 累计数，新增 `deadlocks.csv`（时间、环上车辆、让路车、动作、解除耗时毫秒，逐条来自 `/traffic/yield` 与 `/traffic/state`），`summary.json` 加检出次数、各解除方式次数、解除耗时均值/最大、单次检测耗时均值/最大、`network`。验证：`bash -n`、`shellcheck`（如有）、`python3 -m py_compile` 通过；指标由当晚阶段 5 产出
+- [ ] 8.1 直接修改 `scripts/run_fleet_traffic_stress.sh`（不另写压测脚本）：增加环境变量 `NETWORK`（默认 workshop）、`DEADLOCK_RESOLUTION`（默认 true）透传给启动文件，结果目录写明二者；它调用的 `fleet_traffic_stress.py` 加死锁指标列：`state.csv` 加累计检出数与 reroute/backoff/pause 累计数，新增 `deadlocks.csv`（时间、环上车辆、让路车、动作、解除耗时毫秒，逐条来自 `/traffic/yield` 与 `/traffic/state`），`summary.json` 加检出次数、各解除方式次数、解除耗时均值/最大、单次检测耗时均值/最大、`network`，键名与 `scripts/nightly.sh` 阶段 5 的 `metrics.tsv` 取值一致：`deadlocks_detected`、`deadlock_reroute`、`deadlock_backoff`、`deadlock_pause`、`resolution_ms_mean`、`resolution_ms_max`、`detection_us_mean`、`detection_us_max`。验证：`bash -n`、`shellcheck`（如有）、`python3 -m py_compile` 通过；指标由当晚阶段 5 产出
 - [ ] 8.2 新增 `scripts/run_deadlock_scenarios.sh <输出目录> [遍数]`：两车对向、三车成环、环外有车等待各跑 N 遍（默认 3），每遍整栈重启，所有 `ros2 service call` 带 `timeout`，输出 `deadlock_scenarios.tsv`（场景、遍次、是否检出、解除动作、解除耗时毫秒、结论），全部 PASS 退出 0。验证：`bash -n` 与 `shellcheck` 通过；结果由当晚阶段 6 产出
 - [ ] 8.3 按新语义改写 `scripts/check_traffic_deadlock_detection.sh`：关闭解除后构造两车互等判 `deadlocked=true`，再判只共用站点为 `false`；所有服务调用带 `timeout`。验证：`bash -n` 通过；当晚阶段 3 中 `safety:traffic_deadlock` 为 PASS
 - [ ] 8.4 `scripts/nightly.sh` 阶段 5 改为以 `NETWORK=workshop_2way` 跑 2/4/6 × whole_route/rolling 矩阵并汇总 `metrics.tsv`（含死锁列），阶段 6 调用场景脚本，不再 SKIP。验证：`bash -n` 与 `shellcheck` 通过；在虚拟机上 `DRY_RUN=1` 时阶段 5、6 不再显示 SKIP
 
 ## 9. 夜跑验收与记录
 
-- [ ] 9.1 第一夜：`scripts/nightly.sh` 全阶段跑一遍（跑前在 Mac 上执行 `caffeinate -i -w <VMware 进程号>`）。验证：次日报告中阶段 1、2 通过；阶段 6 三个场景各 3/3 PASS；阶段 5 矩阵 12 组都有 `summary.json`；阶段 3 与上一夜逐项 diff 无新增失败（`safety:traffic_deadlock` 为 PASS）。未达标项修复后并入当晚再跑，不白天重跑
+- [ ] 9.1 第一夜：`scripts/nightly.sh` 全阶段跑一遍（跑前在 Mac 上执行 `caffeinate -i -w <VMware 进程号>`）。验证：次日报告中阶段 1、2 通过；阶段 6 三个场景各 3/3 PASS；阶段 5 矩阵 6 组（2/4/6 × whole_route/rolling）都有 `summary.json`；阶段 3 与上一夜逐项 diff 无新增失败（`safety:traffic_deadlock` 为 PASS）。未达标项修复后并入当晚再跑，不白天重跑
 - [ ] 9.2 把阶段 5 对照数据（吞吐、平均等路权、死锁检出次数、解除方式与耗时、单次检测耗时）和阶段 6 结果写进 `docs/baseline/M3.md`，数字全部引用夜跑报告 `docs/baseline/nightly/<日期>.md`，不手填
 - [ ] 9.3 运行 `openspec validate m3-deadlock-detection --strict` 通过；更新交接文档的"下一步"和里程碑表
 

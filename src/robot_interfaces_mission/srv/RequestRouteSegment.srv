@@ -7,6 +7,8 @@ string from_station
 string to_station
 int32 priority
 string[] station_path
+# M3：本程目的地（可选）。用于死锁解除时判断能否改道、计算剩余路程；为空时该车只能被退避。
+string goal_station
 ---
 bool success
 bool granted

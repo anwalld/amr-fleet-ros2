@@ -41,6 +41,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ReleaseRouteSegment.srv"
   "msg/TrafficGrant.msg"
   "msg/TrafficState.msg"
+  "msg/TrafficYield.msg"
   DEPENDENCIES builtin_interfaces std_msgs geometry_msgs nav_msgs sensor_msgs
 )
 

@@ -113,13 +113,29 @@ if grep -R -n -E 'find_package\(robot_interfaces|<depend>robot_interfaces</depen
 fi
 rm -f /tmp/robot_interfaces_split_pkg_refs.$$
 
+# CI 必须编译全部新接口包。两种写法都认：
+#   1. 对整个工作区 colcon build（不带 --packages-select / --packages-up-to），且没有
+#      --packages-skip 掉其中任何一个（2026-11-16 起的容器版 CI 就是这样）；
+#   2. 带包过滤时，配置里要逐个写出这些包名（原 action-ros-ci 的 package-name 列表）。
 ci_file="${ROOT_DIR}/.github/workflows/ci.yml"
 require_file "${ci_file}"
-for package in "${NEW_PACKAGES[@]}"; do
-  grep -q "${package}" "${ci_file}" || fail "CI package-name list is missing ${package}"
-done
+grep -q "colcon build" "${ci_file}" || fail "CI does not run colcon build"
+if grep -Eq -- "--packages-(select|up-to)" "${ci_file}"; then
+  for package in "${NEW_PACKAGES[@]}"; do
+    grep -q "${package}" "${ci_file}" || fail "CI package-name list is missing ${package}"
+  done
+  ci_coverage="explicit package list"
+else
+  for package in "${NEW_PACKAGES[@]}"; do
+    if grep -E -- "--packages-skip[^#]*\b${package}\b" "${ci_file}" >/dev/null; then
+      fail "CI skips ${package}"
+    fi
+  done
+  ci_coverage="whole-workspace colcon build"
+fi
 
 echo "robot_interfaces split static check passed"
+echo "CI coverage: ${ci_coverage}"
 echo "legacy package remaining msg/action interfaces: ${legacy_count}"
 echo "target package interfaces: ${new_count}"
 for package in "${NEW_PACKAGES[@]}"; do

@@ -1,0 +1,199 @@
+# 车间路网 · 双向版（M3 死锁压测与场景用）：站点、坐标、停车位与 workshop 完全相同，
+# 改动只有两处，用来制造对向和短环：
+#
+#   1. 4 段边改为双向：横穿 jn_s – machining – jn_n，外环 jn_sw – receiving、jn_n – packing。
+#      南北两侧的车都会借道横穿，在 machining 两侧对向相遇（两车对向：一车在 jn_s 等
+#      machining，另一车在 machining 等 jn_s）。
+#   2. 新增一条单向斜边 jn_se → machining（8.49 m），与 jn_s → jn_se、machining → jn_s 组成
+#      3 站有向环：三台车分别停在 jn_s、jn_se、machining，各等下一站即成环（三车成环）。
+#      另有 5 站环 jn_s → jn_se → assembly → jn_n → machining → jn_s。
+#
+# 其余边仍为单向；6 个停车位 park_1..6 是单向支路，也是默认的避让点（未写 yield_point，
+# 按 park_ 前缀判定）。站点间距最小 4.24 m（≥ 3 m）。
+frame_id: map
+stations:
+  - id: jn_sw
+    x: 0.0
+    y: 0.0
+    yaw: 0.0
+  - id: receiving
+    x: 6.0
+    y: 0.0
+    yaw: 0.0
+  - id: jn_s
+    x: 12.0
+    y: 0.0
+    yaw: 0.0
+  - id: jn_se
+    x: 18.0
+    y: 0.0
+    yaw: 1.57
+  - id: assembly
+    x: 18.0
+    y: 12.0
+    yaw: 3.14
+  - id: jn_n
+    x: 12.0
+    y: 12.0
+    yaw: 3.14
+  - id: packing
+    x: 6.0
+    y: 12.0
+    yaw: 3.14
+  - id: jn_nw
+    x: 0.0
+    y: 12.0
+    yaw: -1.57
+  - id: storage
+    x: 0.0
+    y: 6.0
+    yaw: -1.57
+  - id: machining
+    x: 12.0
+    y: 6.0
+    yaw: 1.57
+  - id: park_1
+    x: 3.0
+    y: -3.0
+    yaw: 0.0
+  - id: park_2
+    x: 15.0
+    y: -3.0
+    yaw: 0.0
+  - id: park_3
+    x: 21.0
+    y: 6.0
+    yaw: 1.57
+  - id: park_4
+    x: 15.0
+    y: 15.0
+    yaw: 3.14
+  - id: park_5
+    x: 3.0
+    y: 15.0
+    yaw: 3.14
+  - id: park_6
+    x: -3.0
+    y: 9.0
+    yaw: -1.57
+edges:
+  - from: jn_sw
+    to: receiving
+    distance_m: 6.00
+    bidirectional: true
+    enabled: true
+  - from: receiving
+    to: jn_s
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_s
+    to: jn_se
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_se
+    to: assembly
+    distance_m: 12.00
+    bidirectional: false
+    enabled: true
+  - from: assembly
+    to: jn_n
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_n
+    to: packing
+    distance_m: 6.00
+    bidirectional: true
+    enabled: true
+  - from: packing
+    to: jn_nw
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_nw
+    to: storage
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: storage
+    to: jn_sw
+    distance_m: 6.00
+    bidirectional: false
+    enabled: true
+  - from: jn_s
+    to: machining
+    distance_m: 6.00
+    bidirectional: true
+    enabled: true
+  - from: machining
+    to: jn_n
+    distance_m: 6.00
+    bidirectional: true
+    enabled: true
+  - from: jn_sw
+    to: park_1
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_1
+    to: receiving
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: jn_s
+    to: park_2
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_2
+    to: jn_se
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: jn_se
+    to: park_3
+    distance_m: 6.71
+    bidirectional: false
+    enabled: true
+  - from: park_3
+    to: assembly
+    distance_m: 6.71
+    bidirectional: false
+    enabled: true
+  - from: assembly
+    to: park_4
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_4
+    to: jn_n
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: packing
+    to: park_5
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_5
+    to: jn_nw
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: jn_nw
+    to: park_6
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: park_6
+    to: storage
+    distance_m: 4.24
+    bidirectional: false
+    enabled: true
+  - from: jn_se
+    to: machining
+    distance_m: 8.49
+    bidirectional: false
+    enabled: true

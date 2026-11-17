@@ -11,7 +11,7 @@
 
 - [x] 2.1 运行 `openspec validate backfill-m0-m2-specs --strict`，无错误无警告
 - [x] 2.2 确认 `git diff main --stat` 只包含 `openspec/` 下的文件，没有代码、脚本或接口改动
-- [ ] 2.3 推送分支并开 PR，确认 GitHub CI（`ros2-ci`）通过
+- [x] 2.3 推送分支并开 PR，确认 GitHub CI（`ros2-ci`）通过
 
 ## Workflow follow-up
 

@@ -319,7 +319,8 @@ stage_6() {
   if [[ -f "${SDIR}/deadlock_scenarios.tsv" ]]; then
     local pass total
     total=$(tail -n +2 "${SDIR}/deadlock_scenarios.tsv" | wc -l)
-    pass=$(tail -n +2 "${SDIR}/deadlock_scenarios.tsv" | awk -F'\t' '$NF=="PASS"' | wc -l)
+    pass=$(awk -F'\t' 'NR==1 { for (i=1;i<=NF;i++) if ($i=="verdict") v=i; next }
+                         v && $v=="PASS"' "${SDIR}/deadlock_scenarios.tsv" | wc -l)
     summary "场景脚本 rc=${rc}；PASS ${pass}/${total} 遍"
     summary ""
     awk -F'\t' 'NR==1 { h="|"; s="|"; for (i=1;i<=NF;i++) { h=h" "$i" |"; s=s" --- |" } print h; print s; next }

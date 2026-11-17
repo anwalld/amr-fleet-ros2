@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# 验收用例 safety:traffic_deadlock（M3 起按等待环语义判定）。
+#   1. 两车只是共用站点、没有等待（M2 时代的"冲突候选"）：deadlocked=False。
+#   2. 关闭死锁解除后构造两车互等（各占一条路段、各等对方那条）：deadlocked=True，
+#      两车都在 mission_ids 里。
+# 所有 ros2 service call 都带 timeout：FastDDS 高负载下会丢服务应答，不带超时会挂到用例上限。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,41 +36,51 @@ start_bg() {
   PIDS+=("$!")
 }
 
+SVC_TIMEOUT="${SVC_TIMEOUT:-20}"
+
+svc() {
+  timeout --kill-after=5 "${SVC_TIMEOUT}" ros2 service call "$@"
+}
+
+request_segment() {
+  local robot_id="$1" from_station="$2" to_station="$3"
+  svc /v2/request_route_segment robot_interfaces_mission/srv/RequestRouteSegment \
+    "{robot_id: $(yaml_single_quote "${robot_id}"), from_station: $(yaml_single_quote "${from_station}"), to_station: $(yaml_single_quote "${to_station}"), priority: 10, station_path: []}"
+}
+
+detect() {
+  svc /v2/detect_traffic_deadlock robot_interfaces_mission/srv/DetectTrafficDeadlock "{}"
+}
+
+# 关闭死锁解除（只检测，等待环保持原样，便于判定）；关闭路口锁（两车可各占一条通向同一站点的路段）。
 start_bg mission_runner ros2 launch robot_tasks mission_runner.launch.py \
   autostart:=false \
   return_to_dock_on_low_battery:=false \
-  traffic_intersection_locks_enabled:=false
+  traffic_intersection_locks_enabled:=false \
+  traffic_deadlock_resolution_enabled:=false
 
 wait_submit_order 20 "${LOG_DIR}/wait_submit.err"
 wait_service_type /v2/detect_traffic_deadlock "robot_interfaces_mission/srv/DetectTrafficDeadlock" 20 \
   "${LOG_DIR}/wait_detect.err"
-
-# M2 滚动申请语义：入队不锁路，两单都能入队；冲突候选检测改看按车辆号持有的路权。
-# （等待图检测与解除是 M3 的事，这里仍是旧的"站点被两个以上占用者碰到"判定。）
-call_submit_order deadlock_alpha station_transport 10 \
-  "pickup_station=receiving;dropoff_station=storage_a;start_if_idle=false;preempt_current=false" \
-  station_transport_order \
-  >"${LOG_DIR}/deadlock_alpha.out"
-rg "accepted=True" "${LOG_DIR}/deadlock_alpha.out"
-rg "queue_size=1" "${LOG_DIR}/deadlock_alpha.out"
-
-call_submit_order deadlock_beta station_transport 10 \
-  "pickup_station=storage_a;dropoff_station=packing;start_if_idle=false;preempt_current=false" \
-  station_transport_order \
-  >"${LOG_DIR}/deadlock_beta.out"
-rg "accepted=True" "${LOG_DIR}/deadlock_beta.out"
-rg "queue_size=2" "${LOG_DIR}/deadlock_beta.out"
-
-# 路口锁关闭：两车各占一条通向 storage_a 的路段，都能拿到。
 wait_service_type /v2/request_route_segment "robot_interfaces_mission/srv/RequestRouteSegment" 20 \
   "${LOG_DIR}/wait_request.err"
-call_request_route_segment robot_alpha receiving storage_a 10 >"${LOG_DIR}/alpha_seg.out"
-rg "granted=True" "${LOG_DIR}/alpha_seg.out"
-call_request_route_segment robot_beta storage_a packing 10 >"${LOG_DIR}/beta_seg.out"
-rg "granted=True" "${LOG_DIR}/beta_seg.out"
 
-ros2 service call /v2/detect_traffic_deadlock robot_interfaces_mission/srv/DetectTrafficDeadlock "{}" \
-  >"${LOG_DIR}/deadlock_detect.out"
+# 1. 共用站点但无等待：两车各拿一条通向 storage_a 的路段，不报死锁。
+request_segment robot_alpha receiving storage_a >"${LOG_DIR}/alpha_seg.out"
+rg "granted=True" "${LOG_DIR}/alpha_seg.out"
+request_segment robot_beta packing storage_a >"${LOG_DIR}/beta_seg.out"
+rg "granted=True" "${LOG_DIR}/beta_seg.out"
+detect >"${LOG_DIR}/shared_detect.out"
+rg "success=True" "${LOG_DIR}/shared_detect.out"
+rg "deadlocked=False" "${LOG_DIR}/shared_detect.out"
+
+# 2. 两车互等：alpha 占着 receiving–storage_a 去等 beta 的 packing–storage_a，beta 反之。
+request_segment robot_alpha storage_a packing >"${LOG_DIR}/alpha_wait.out"
+rg "queued=True" "${LOG_DIR}/alpha_wait.out"
+request_segment robot_beta storage_a receiving >"${LOG_DIR}/beta_wait.out"
+rg "queued=True" "${LOG_DIR}/beta_wait.out"
+
+detect >"${LOG_DIR}/deadlock_detect.out"
 rg "success=True" "${LOG_DIR}/deadlock_detect.out"
 rg "deadlocked=True" "${LOG_DIR}/deadlock_detect.out"
 rg "robot_alpha" "${LOG_DIR}/deadlock_detect.out"

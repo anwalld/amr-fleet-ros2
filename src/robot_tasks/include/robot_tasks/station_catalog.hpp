@@ -13,6 +13,8 @@ struct Station {
   double x = 0.0;
   double y = 0.0;
   double yaw = 0.0;
+  // M3：是否避让点（站点字段 yield_point）。未写时按编号是否以 park_ 开头判断。
+  std::optional<bool> yield_point;
 };
 
 struct StationEdge {
@@ -48,6 +50,8 @@ struct StationRouteListProjection {
 
 std::optional<StationCatalog> LoadStationCatalog(const std::filesystem::path& path);
 const Station* FindStation(const StationCatalog& catalog, const std::string& id);
+// 站点是否避让点：显式 yield_point 优先，否则编号以 park_ 开头即是。
+bool IsYieldPoint(const Station& station);
 std::optional<double> EstimateRouteDistance(
     const StationCatalog& catalog, const std::string& from, const std::string& to);
 std::optional<std::vector<std::string>> FindRoutePath(

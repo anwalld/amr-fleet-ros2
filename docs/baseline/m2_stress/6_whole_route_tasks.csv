@@ -1,0 +1,3 @@
+t_s,robot,task,pickup,dropoff,mode,duration_s,wait_route_s,distance_m
+78.888,robot_6,stress_000003,storage,assembly,whole_route,77.148,14.807,40.007
+113.664,robot_5,stress_000004,storage,receiving,whole_route,111.147,73.354,22.083

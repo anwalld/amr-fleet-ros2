@@ -112,7 +112,8 @@ rg "queue_size=1" "${LOG_DIR}/submit_route.out"
 ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
   >"${LOG_DIR}/traffic_before_route_start.out"
 rg "success=True" "${LOG_DIR}/traffic_before_route_start.out"
-rg "station_order_cleanup_route_alpha" "${LOG_DIR}/traffic_before_route_start.out"
+# M3 起 whole_route 也以执行车辆号占用（任务中枢默认 robot_1），不再是任务号。
+rg "owner_ids=\['robot_1'" "${LOG_DIR}/traffic_before_route_start.out"
 rg "route_edge:receiving__storage_a" "${LOG_DIR}/traffic_before_route_start.out"
 
 ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" \

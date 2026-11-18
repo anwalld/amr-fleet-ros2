@@ -82,6 +82,17 @@ source_ros() {
   set -u
 }
 
+# Gazebo 渲染环境。虚拟机的 VMware 虚拟 GPU 没开 3D，必须用 Mesa llvmpipe 软件渲染，
+# 这几个变量平时写在 ~/.bashrc 里；但非交互 shell（ssh 直接起、setsid、cron）不读 .bashrc，
+# Gazebo 会因 OpenGL 3.3 不可用起不来，所有依赖它的用例都拿不到里程计
+# （2026-11-18 白天一轮因此阶段 3 掉到 45/99）。这里给默认值，已设置的不覆盖。
+export_render_env() {
+  : "${LIBGL_ALWAYS_SOFTWARE:=1}" "${MESA_LOADER_DRIVER_OVERRIDE:=kms_swrast}"
+  : "${GALLIUM_DRIVER:=llvmpipe}" "${MESA_GL_VERSION_OVERRIDE:=4.5}"
+  export LIBGL_ALWAYS_SOFTWARE MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER MESA_GL_VERSION_OVERRIDE
+}
+export_render_env
+
 # 杀掉一个进程组（先 INT/TERM 给 launch 机会收尾，再 KILL）。
 kill_group() {
   local pgid="$1"

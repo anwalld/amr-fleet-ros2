@@ -473,9 +473,10 @@ void TrafficService::RunDeadlockCheck() {
   robot_tasks::PruneWholeRouteRetryWaits(context_.whole_route_retry_waits, now);
 
   const auto started = std::chrono::steady_clock::now();
-  const auto cycles = robot_tasks::FindWaitCycles(robot_tasks::BuildWaitGraph(
+  const auto edges = robot_tasks::BuildWaitGraph(
       context_.route_locks, context_.route_wait_queues, context_.whole_route_retry_waits,
-      context_.route_holds, now));
+      context_.route_holds, now);
+  const auto cycles = robot_tasks::FindWaitCycles(edges);
   last_detection_us_ =
       std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started)
           .count();
@@ -536,12 +537,11 @@ void TrafficService::RunDeadlockCheck() {
             info[robot_id] = *wait;
           }
         }
-        const auto yielder = robot_tasks::SelectYieldRobot(cycle, info, *catalog);
-        const auto yielder_info =
-            info.count(yielder) != 0U ? info.at(yielder) : TrafficWaitInfo{yielder, 0, "", ""};
-        const auto plan = robot_tasks::PlanDeadlockYield(
-            cycle, yielder_info, *catalog, context_.route_locks, context_.route_holds,
+        // 让路车绕开在等它的车：轮流试环上各车，选第一辆能改道或退避的。
+        const auto plan = robot_tasks::PlanDeadlockResolution(
+            cycle, info, *catalog, context_.route_locks, context_.route_holds, edges,
             yield_hold_s_);
+        const auto& yielder = plan.robot_id;
         if (plan.action == "pause") {
           PauseDeadlockedRobots(cycle, plan.message);
           entry.action = "pause";

@@ -99,6 +99,15 @@ std::optional<std::vector<std::string>> FindRoutePathAvoiding(
 std::string SelectYieldRobot(
     const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
     const StationCatalog& catalog);
+// 同上规则给环上全部车排序，"更该让路"的在前。
+std::vector<std::string> RankYieldRobots(
+    const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
+    const StationCatalog& catalog);
+
+// 直接或间接在等 robot_id 的车（沿等待边反向可达，不含 robot_id 自己），已排序。
+// 这些车在 robot_id 动之前都动不了，让路车开进它们占着的资源只会立刻成新环。
+std::vector<std::string> UpstreamWaitingRobots(
+    const std::vector<WaitGraphEdge>& edges, const std::string& robot_id);
 
 struct DeadlockYieldPlan {
   std::string robot_id;
@@ -113,9 +122,18 @@ struct DeadlockYieldPlan {
 
 // 为让路车规划解除动作：先试改道（绕开环上他车占用或暂扣的资源和封路，到原目的地），
 // 再试退避（去最近的、未被他车占用或暂扣的避让点），都不行返回 pause。
+// edges 非空时，让路车还要绕开直接或间接在等它的车占用 / 暂扣的资源（见 UpstreamWaitingRobots）。
 DeadlockYieldPlan PlanDeadlockYield(
     const WaitCycle& cycle, const TrafficWaitInfo& yielder, const StationCatalog& catalog,
-    const RouteLockMap& route_locks, const RouteHoldMap& holds, double hold_s);
+    const RouteLockMap& route_locks, const RouteHoldMap& holds, double hold_s,
+    const std::vector<WaitGraphEdge>* edges = nullptr);
+
+// 按 RankYieldRobots 的顺序逐辆试 PlanDeadlockYield（带 edges），取第一个改道或退避方案；
+// 全都不行才返回排第一的车的 pause 方案。info 里没有的车不能让路（不知道它在哪）。
+DeadlockYieldPlan PlanDeadlockResolution(
+    const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
+    const StationCatalog& catalog, const RouteLockMap& route_locks, const RouteHoldMap& holds,
+    const std::vector<WaitGraphEdge>& edges, double hold_s);
 
 // 兜底计数：记下"这组车"又成环一次，返回窗口（默认 30 秒）内的成环次数（含本次）。
 struct DeadlockHistory {

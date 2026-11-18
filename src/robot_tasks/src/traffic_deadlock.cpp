@@ -312,7 +312,7 @@ std::optional<std::vector<std::string>> FindRoutePathAvoiding(
   return path;
 }
 
-std::string SelectYieldRobot(
+std::vector<std::string> RankYieldRobots(
     const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
     const StationCatalog& catalog) {
   struct Candidate {
@@ -328,17 +328,15 @@ std::string SelectYieldRobot(
       candidate.priority = it->second.priority;
       double remaining = 0.0;
       if (!it->second.goal_station.empty() &&
-          FindRoutePathAvoiding(catalog, it->second.current_station, it->second.goal_station, {}, &remaining)) {
+          FindRoutePathAvoiding(
+              catalog, it->second.current_station, it->second.goal_station, {}, &remaining)) {
         candidate.remaining_m = remaining;
       }
     }
     candidates.push_back(candidate);
   }
-  if (candidates.empty()) {
-    return "";
-  }
   // "更该让路"排在前面：优先级低 → 剩余路程长 → 车辆号大。
-  const auto yields_first = [](const Candidate& a, const Candidate& b) {
+  std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
     if (a.priority != b.priority) {
       return a.priority < b.priority;
     }
@@ -346,19 +344,64 @@ std::string SelectYieldRobot(
       return a.remaining_m > b.remaining_m;
     }
     return a.robot_id > b.robot_id;
-  };
-  return std::min_element(candidates.begin(), candidates.end(), yields_first)->robot_id;
+  });
+  std::vector<std::string> ranked;
+  ranked.reserve(candidates.size());
+  for (const auto& candidate : candidates) {
+    ranked.push_back(candidate.robot_id);
+  }
+  return ranked;
+}
+
+std::string SelectYieldRobot(
+    const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
+    const StationCatalog& catalog) {
+  const auto ranked = RankYieldRobots(cycle, info, catalog);
+  return ranked.empty() ? "" : ranked.front();
+}
+
+std::vector<std::string> UpstreamWaitingRobots(
+    const std::vector<WaitGraphEdge>& edges, const std::string& robot_id) {
+  std::unordered_map<std::string, std::vector<std::string>> waiters_of;
+  for (const auto& edge : edges) {
+    waiters_of[edge.to_robot_id].push_back(edge.from_robot_id);
+  }
+  std::unordered_set<std::string> seen{robot_id};
+  std::vector<std::string> stack{robot_id};
+  std::vector<std::string> upstream;
+  while (!stack.empty()) {
+    const auto current = stack.back();
+    stack.pop_back();
+    const auto it = waiters_of.find(current);
+    if (it == waiters_of.end()) {
+      continue;
+    }
+    for (const auto& waiter : it->second) {
+      if (seen.insert(waiter).second) {
+        upstream.push_back(waiter);
+        stack.push_back(waiter);
+      }
+    }
+  }
+  std::sort(upstream.begin(), upstream.end());
+  return upstream;
 }
 
 DeadlockYieldPlan PlanDeadlockYield(
     const WaitCycle& cycle, const TrafficWaitInfo& yielder, const StationCatalog& catalog,
-    const RouteLockMap& route_locks, const RouteHoldMap& holds, const double hold_s) {
+    const RouteLockMap& route_locks, const RouteHoldMap& holds, const double hold_s,
+    const std::vector<WaitGraphEdge>* edges) {
   DeadlockYieldPlan plan;
   plan.robot_id = yielder.robot_id;
   plan.cycle_robot_ids = cycle.robot_ids;
 
-  // 应绕开：环上他车占用或暂扣的资源，以及全部封路。
-  const std::unordered_set<std::string> others(cycle.robot_ids.begin(), cycle.robot_ids.end());
+  // 应绕开：环上他车（以及直接或间接在等让路车的车）占用或暂扣的资源，以及全部封路。
+  std::unordered_set<std::string> others(cycle.robot_ids.begin(), cycle.robot_ids.end());
+  if (edges != nullptr) {
+    for (auto& robot_id : UpstreamWaitingRobots(*edges, yielder.robot_id)) {
+      others.insert(std::move(robot_id));
+    }
+  }
   for (const auto& [resource_id, owner_id] : route_locks) {
     if (IsTrafficBlockOwner(owner_id) ||
         (owner_id != yielder.robot_id && others.count(owner_id) != 0U)) {
@@ -423,6 +466,37 @@ DeadlockYieldPlan PlanDeadlockYield(
 
   plan.action = "pause";
   plan.message = "no reroute or free yield point for " + yielder.robot_id;
+  return plan;
+}
+
+DeadlockYieldPlan PlanDeadlockResolution(
+    const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
+    const StationCatalog& catalog, const RouteLockMap& route_locks, const RouteHoldMap& holds,
+    const std::vector<WaitGraphEdge>& edges, const double hold_s) {
+  const auto ranked = RankYieldRobots(cycle, info, catalog);
+  std::optional<DeadlockYieldPlan> first_pause;
+  for (const auto& robot_id : ranked) {
+    const auto it = info.find(robot_id);
+    if (it == info.end()) {
+      continue;
+    }
+    auto plan = PlanDeadlockYield(cycle, it->second, catalog, route_locks, holds, hold_s, &edges);
+    if (plan.action != "pause") {
+      return plan;
+    }
+    if (!first_pause.has_value()) {
+      first_pause = std::move(plan);
+    }
+  }
+  if (first_pause.has_value()) {
+    first_pause->message = "no robot in the cycle can reroute or reach a free yield point";
+    return *first_pause;
+  }
+  DeadlockYieldPlan plan;
+  plan.robot_id = ranked.empty() ? "" : ranked.front();
+  plan.action = "pause";
+  plan.cycle_robot_ids = cycle.robot_ids;
+  plan.message = "no wait info for any robot in the cycle";
   return plan;
 }
 

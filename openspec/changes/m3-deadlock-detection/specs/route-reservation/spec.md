@@ -116,7 +116,11 @@ whole_route 模式 SHALL 保留旧行为作为对照：申请带 `station_path` 
 - **THEN** 检出含 robot_1、robot_3 的环
 
 ### Requirement: 选择让路车
-检出环且死锁解除开启时，系统 SHALL 在每个环上选一辆让路车：任务优先级最低者；优先级相同时选到 `goal_station` 剩余最短路程最长者（不知道目的地的车视为剩余路程为零）；仍相同时选车辆号字典序最大者。同一个环在一次检测中只选一辆。
+检出环且死锁解除开启时，系统 SHALL 在每个环上选一辆让路车：任务优先级最低者；优先级相同时选到 `goal_station` 剩余最短路程最长者（不知道目的地的车视为剩余路程为零）；仍相同时选车辆号字典序最大者。按此顺序排在前面的车若既不能改道也不能退避，SHALL 依次改试下一辆，第一辆能改道或退避的车成为让路车；环上全部车都不能动才按兜底处理。同一个环在一次检测中只选一辆。
+
+#### Scenario: 排第一的车被围住时改由下一辆让路
+- **WHEN** robot_2 停在 machining、剩余路程最长，与 jn_n 上的 robot_3 对向成环，jn_s 上的 robot_4 也在等 machining；robot_3 可以退到 park_a
+- **THEN** robot_2 两侧路口都被在等它的车占着、无路可走，robot_3 被选为让路车并收到退到 park_a 的 `backoff` 指令
 
 #### Scenario: 优先级最低者让路
 - **WHEN** robot_1（优先级 20）与 robot_2（优先级 10）成环
@@ -127,14 +131,14 @@ whole_route 模式 SHALL 保留旧行为作为对照：申请带 `station_path` 
 - **THEN** robot_2 被选为让路车
 
 ### Requirement: 改道解除
-系统 SHALL 先尝试改道：在路网中去掉环上其他车占用的资源（以及封住的路段）后，若让路车从当前站点到 `goal_station` 仍有路径，则撤掉让路车的全部等待，并在 `/traffic/yield` 上向它发出 `action=reroute` 的指令，带上应绕开的资源和新路径。
+系统 SHALL 先尝试改道：在路网中去掉环上其他车、以及直接或间接在等让路车的车所占用或暂扣的资源（以及封住的路段）后，若让路车从当前站点到 `goal_station` 仍有路径，则撤掉让路车的全部等待，并在 `/traffic/yield` 上向它发出 `action=reroute` 的指令，带上应绕开的资源和新路径。
 
 #### Scenario: 有绕行路线时改道
 - **WHEN** 让路车 robot_2 在 jn_s 等 robot_1 占着的 `route_node:machining`，绕开它仍能经外环到达目的地 jn_n
 - **THEN** robot_2 从所有等待队列中移除，`/traffic/yield` 发出 robot_2 的 `reroute` 指令，新路径不经过 machining
 
 ### Requirement: 退避解除
-改道不可行时（没有绕行路径，或不知道让路车的目的地），系统 SHALL 选离让路车当前站点最近、未被占用也未被暂扣的避让点，撤掉让路车的全部等待，并在 `/traffic/yield` 上发出 `action=backoff` 的指令，带上去避让点的路径和停留时间（参数 `traffic_yield_hold_s`，默认 5 秒）。路网中没有可达的空闲避让点时 SHALL 按兜底处理。
+改道不可行时（没有绕行路径，或不知道让路车的目的地），系统 SHALL 选离让路车当前站点最近、未被占用也未被暂扣、且去程绕得开上述资源的避让点，撤掉让路车的全部等待，并在 `/traffic/yield` 上发出 `action=backoff` 的指令，带上去避让点的路径和停留时间（参数 `traffic_yield_hold_s`，默认 5 秒）。路网中没有可达的空闲避让点时 SHALL 按兜底处理。
 
 #### Scenario: 无法改道时退到避让点
 - **WHEN** 让路车 robot_2 的目的地就是 robot_1 占着的站点，最近的空闲避让点是 park_3

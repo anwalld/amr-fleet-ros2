@@ -32,42 +32,17 @@ start_bg() {
   PIDS+=("$!")
 }
 
-cat >"${MISSION_FILE}" <<'YAML'
-mission_id: relocalization_resume_long
-frame_id: map
-loop: false
-goals:
-  - x: 0.1
-    y: 0.0
-    yaw: 0.0
-  - x: 0.2
-    y: 0.0
-    yaw: 0.0
-  - x: 0.3
-    y: 0.0
-    yaw: 0.0
-  - x: 0.4
-    y: 0.0
-    yaw: 0.0
-  - x: 0.5
-    y: 0.0
-    yaw: 0.0
-  - x: 0.6
-    y: 0.0
-    yaw: 0.0
-  - x: 0.7
-    y: 0.0
-    yaw: 0.0
-  - x: 0.8
-    y: 0.0
-    yaw: 0.0
-  - x: 0.9
-    y: 0.0
-    yaw: 0.0
-  - x: 1.0
-    y: 0.0
-    yaw: 0.0
-YAML
+# 无 Nav2 无里程计时每个目标约 1 秒；40 个目标 ≈ 40 秒，留足时间在任务跑完前注入定位丢失
+# （原来 10 个目标，负载高时等 RUNNING + 起 Python 发布者就要 8–10 秒，任务会先跑完）。
+{
+  echo "mission_id: relocalization_resume_long"
+  echo "frame_id: map"
+  echo "loop: false"
+  echo "goals:"
+  for i in $(seq 1 40); do
+    printf '  - x: %s\n    y: 0.0\n    yaw: 0.0\n' "$(awk -v i="${i}" 'BEGIN{printf "%.2f", i*0.1}')"
+  done
+} >"${MISSION_FILE}"
 
 start_bg navigate_sequence_server ros2 run robot_tasks navigate_sequence_server_node --ros-args \
   -p use_nav2_action:=false \

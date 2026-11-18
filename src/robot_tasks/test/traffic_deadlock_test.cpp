@@ -403,4 +403,121 @@ TEST(DeadlockTrackTest, DetectOnlyOrPaused_NeverTimesOut) {
   EXPECT_TRUE(TrackDeadlocks(active, {cycle}, 200.0, 10.0).new_cycles.empty());
 }
 
+
+// ---------------------------------------------------------------------------
+// 让路车不能开进"在等它的车"占着的路口（第一夜 4 台 rolling 的实况）
+//
+//   park_a ── n ── m ── s ── park_b
+//             │         │
+//             g2(远)    g3
+//
+// robot_2 在 m 要去 g2（经 n），robot_3 在 n 要去 g3（经 m），二者对向成环；
+// robot_4 在 s 也在等 m（环外，但在等 robot_2）。robot_2 剩余路程最长，按规则先选它，
+// 可它两边的 n、s 都被在等它的车占着，开过去只会立刻成新环——应改由 robot_3 退到 park_a。
+// ---------------------------------------------------------------------------
+namespace {
+
+StationCatalog SurroundedCatalog() {
+  StationCatalog catalog;
+  for (const auto& [id, x, y] : std::vector<std::tuple<std::string, double, double>>{
+           {"m", 0, 0}, {"n", 0, 3}, {"s", 0, -3}, {"park_a", -3, 3}, {"park_b", 3, -3},
+           {"g2", 0, 23}, {"g3", 0, -12}}) {
+    catalog.stations.push_back(MakeStation(id, x, y));
+  }
+  catalog.edges = {
+      MakeEdge("park_a", "n", 3), MakeEdge("n", "m", 3),  MakeEdge("m", "s", 3),
+      MakeEdge("s", "park_b", 3), MakeEdge("n", "g2", 20), MakeEdge("s", "g3", 9),
+  };
+  return catalog;
+}
+
+struct SurroundedCase {
+  RouteLockMap locks{{"route_node:m", "robot_2"}, {"route_node:n", "robot_3"},
+                     {"route_node:s", "robot_4"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+};
+
+void SetUpSurrounded(SurroundedCase& c) {
+  Wait(c.locks, c.queues, c.seq, "robot_2", {"route_node:n"}, 0, "m", "g2");
+  Wait(c.locks, c.queues, c.seq, "robot_3", {"route_node:m"}, 0, "n", "g3");
+  Wait(c.locks, c.queues, c.seq, "robot_4", {"route_node:m"}, 0, "s", "g3");
+}
+
+std::unordered_map<std::string, TrafficWaitInfo> InfoFor(
+    const WaitCycle& cycle, const SurroundedCase& c) {
+  std::unordered_map<std::string, TrafficWaitInfo> info;
+  for (const auto& robot_id : cycle.robot_ids) {
+    if (const auto wait = FindTrafficWaitInfo(robot_id, c.queues, {}, 0.0)) {
+      info[robot_id] = *wait;
+    }
+  }
+  return info;
+}
+
+}  // namespace
+
+TEST(YieldUpstreamTest, UpstreamWaitingRobots_FollowsWaitEdgesBackwards) {
+  SurroundedCase c;
+  SetUpSurrounded(c);
+  const auto edges = BuildWaitGraph(c.locks, c.queues, {}, {}, 0.0);
+  EXPECT_EQ(UpstreamWaitingRobots(edges, "robot_2"),
+            (std::vector<std::string>{"robot_3", "robot_4"}));
+  EXPECT_EQ(UpstreamWaitingRobots(edges, "robot_3"),
+            (std::vector<std::string>{"robot_2", "robot_4"}));
+  EXPECT_TRUE(UpstreamWaitingRobots(edges, "robot_4").empty());
+}
+
+TEST(YieldUpstreamTest, SurroundedYielder_WithoutEdgesWouldDriveIntoWaiter) {
+  SurroundedCase c;
+  SetUpSurrounded(c);
+  const auto catalog = SurroundedCatalog();
+  const auto cycles = Detect(c.locks, c.queues);
+  ASSERT_EQ(cycles.size(), 1U);
+  ASSERT_EQ(cycles[0].robot_ids, (std::vector<std::string>{"robot_2", "robot_3"}));
+  const auto info = InfoFor(cycles[0], c);
+  ASSERT_EQ(SelectYieldRobot(cycles[0], info, catalog), "robot_2");
+
+  // 旧做法（不看在等它的车）：robot_2 退到 park_b，要经过 robot_4 占着的 s。
+  const auto old_plan =
+      PlanDeadlockYield(cycles[0], info.at("robot_2"), catalog, c.locks, {}, 5.0);
+  EXPECT_EQ(old_plan.action, "backoff");
+  EXPECT_EQ(old_plan.station_path, (std::vector<std::string>{"m", "s", "park_b"}));
+
+  // 带等待边：robot_2 无路可走。
+  const auto edges = BuildWaitGraph(c.locks, c.queues, {}, {}, 0.0);
+  const auto plan =
+      PlanDeadlockYield(cycles[0], info.at("robot_2"), catalog, c.locks, {}, 5.0, &edges);
+  EXPECT_EQ(plan.action, "pause");
+}
+
+TEST(YieldUpstreamTest, Resolution_FallsBackToNextRobotThatCanMove) {
+  SurroundedCase c;
+  SetUpSurrounded(c);
+  const auto catalog = SurroundedCatalog();
+  const auto cycles = Detect(c.locks, c.queues);
+  ASSERT_EQ(cycles.size(), 1U);
+  const auto edges = BuildWaitGraph(c.locks, c.queues, {}, {}, 0.0);
+  const auto plan =
+      PlanDeadlockResolution(cycles[0], InfoFor(cycles[0], c), catalog, c.locks, {}, edges, 5.0);
+  EXPECT_EQ(plan.robot_id, "robot_3");
+  EXPECT_EQ(plan.action, "backoff");
+  EXPECT_EQ(plan.station_path, (std::vector<std::string>{"n", "park_a"}));
+  EXPECT_DOUBLE_EQ(plan.hold_s, 5.0);
+}
+
+TEST(YieldUpstreamTest, Resolution_AllStuck_PauseNamesTopRankedRobot) {
+  SurroundedCase c;
+  c.locks["route_node:park_a"] = "robot_9";  // 唯一能退的地方也被占了
+  SetUpSurrounded(c);
+  const auto catalog = SurroundedCatalog();
+  const auto cycles = Detect(c.locks, c.queues);
+  ASSERT_EQ(cycles.size(), 1U);
+  const auto edges = BuildWaitGraph(c.locks, c.queues, {}, {}, 0.0);
+  const auto plan =
+      PlanDeadlockResolution(cycles[0], InfoFor(cycles[0], c), catalog, c.locks, {}, edges, 5.0);
+  EXPECT_EQ(plan.action, "pause");
+  EXPECT_EQ(plan.robot_id, "robot_2");
+}
+
 }  // namespace robot_tasks

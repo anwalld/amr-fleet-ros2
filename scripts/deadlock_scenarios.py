@@ -77,6 +77,7 @@ class Scenario(Node):
         self.finished = set()
         self.detected_at = None
         self.detected_robots = set()
+        self.cycle_from_yield = False
         self.resolved = None  # (action, robot, ms)
         self.orders_at = time.time()
         self.create_subscription(TrafficState, "/traffic/state", self.on_state, 10)
@@ -112,7 +113,8 @@ class Scenario(Node):
             return
         if self.detected_at is None and msg.deadlock_count > self.base.deadlock_count:
             self.detected_at = time.time()
-            self.detected_robots = set(msg.deadlock_robot_ids)
+            if not self.cycle_from_yield:
+                self.detected_robots = set(msg.deadlock_robot_ids)
         if self.resolved is None and msg.resolved_count > self.base.resolved_count:
             self.resolved = (msg.last_resolution_action, msg.last_resolution_robot_id,
                              msg.last_resolution_ms)
@@ -120,6 +122,13 @@ class Scenario(Node):
     def on_yield(self, msg):
         if self.base is not None:
             self.yields.append((msg.robot_id, msg.action, set(msg.cycle_robot_ids)))
+            # /traffic/state 1 Hz 发布，常常发布时环已经被解开（deadlock_robot_ids 为空）；
+            # 让路指令里带着被解的那个环，以它为准。
+            if msg.cycle_robot_ids and not self.cycle_from_yield:
+                self.cycle_from_yield = True
+                self.detected_robots = set(msg.cycle_robot_ids)
+                if self.detected_at is None:
+                    self.detected_at = time.time()
 
     def on_event(self, msg):
         try:

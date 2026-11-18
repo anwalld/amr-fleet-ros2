@@ -1,6 +1,6 @@
 # Tasks
 
-白天只在虚拟机上跑改动包的单测（`colcon test --packages-select <包>`）；全栈验证（全量 colcon test、验收、压测、场景）一律交给当晚的 `scripts/nightly.sh`，不白天单独跑。
+白天只在虚拟机上跑改动包的单测（`colcon test --packages-select <包>`）；全栈验证（全量 colcon test、验收、压测、场景）一律交给当晚的 `scripts/nightly.sh`，不白天单独跑（用户明确授权时除外，如白天人不在、虚拟机空闲）。
 
 ## 1. 接口追加
 

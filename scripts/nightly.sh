@@ -31,7 +31,8 @@
 #
 # 注意：所有 ros2 service call 都必须带 timeout。FastDDS 在高负载下会丢服务应答，
 # 不带超时的调用会一直挂到用例的 600 秒上限。本脚本自身不直接调用 ros2 service call；
-# 被调用的脚本若要调用，必须用 `timeout <秒> ros2 service call ...`。报告里会列出
+# 被调用的脚本若要调用，必须用 `timeout <秒> ros2 service call ...`（现有脚本统一为
+# `timeout "${ROS2_CALL_TIMEOUT:-120}"`，默认 120 秒，可用环境变量调）。报告里会列出
 # scripts/ 下仍有不带 timeout 的 ros2 service call 的脚本。
 
 # 阶段函数经 "stage_${N}" 间接调用，shellcheck 看不出来。

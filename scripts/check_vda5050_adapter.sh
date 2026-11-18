@@ -9,7 +9,7 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
   "{order_id: vda_alpha, order_type: vda5050, priority: 55, payload_json: 'serial_number=robot_1;pickup_node_id=receiving;dropoff_node_id=storage_a;start_if_idle=true;preempt_current=false', tags: [vda5050_adapter]}" \
   | rg "accepted=True|station_order_vda5050_vda_alpha"
 

@@ -42,7 +42,7 @@ wait_finished_event() {
   local event_file="${LOG_DIR}/${mission_id}_finished_event.out"
   local deadline=$((SECONDS + 90))
   while true; do
-    ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission_id}}" \
       >"${event_file}" 2>"${event_file}.err" || true
     if rg "success=True" "${event_file}" >/dev/null &&
@@ -63,7 +63,7 @@ wait_finished_event() {
 assert_no_route_owner() {
   local mission_id="$1"
   local traffic_file="${LOG_DIR}/${mission_id}_traffic_after_finish.out"
-  ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
     >"${traffic_file}" 2>"${traffic_file}.err"
   rg "success=True" "${traffic_file}"
   if rg "${mission_id}|route_edge:receiving__storage_a|route_node:storage_a" "${traffic_file}" \
@@ -102,28 +102,28 @@ wait_service_type /v2/list_mission_events \
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_bg station_auto_confirm station_auto_confirm_loop acceptance_tote "${LOG_DIR}/auto_confirm.log"
 
-ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
   "{order_id: cleanup_route_alpha, order_type: station_transport, priority: 35, payload_json: 'pickup_station=receiving;dropoff_station=storage_a;start_if_idle=false;preempt_current=false', tags: [runtime_smoke, resource_cleanup]}" \
   >"${LOG_DIR}/submit_route.out"
 rg "accepted=True" "${LOG_DIR}/submit_route.out"
 rg "station_order_cleanup_route_alpha" "${LOG_DIR}/submit_route.out"
 rg "queue_size=1" "${LOG_DIR}/submit_route.out"
 
-ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
   >"${LOG_DIR}/traffic_before_route_start.out"
 rg "success=True" "${LOG_DIR}/traffic_before_route_start.out"
 # M3 起 whole_route 也以执行车辆号占用（任务中枢默认 robot_1），不再是任务号。
 rg "owner_ids=\['robot_1'" "${LOG_DIR}/traffic_before_route_start.out"
 rg "route_edge:receiving__storage_a" "${LOG_DIR}/traffic_before_route_start.out"
 
-ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" \
   >"${LOG_DIR}/start_route.out"
 rg "success=True" "${LOG_DIR}/start_route.out"
 
 wait_finished_event "station_order_cleanup_route_alpha"
 assert_no_route_owner "station_order_cleanup_route_alpha"
 
-ros2 service call /v2/execute_facility_action robot_interfaces_facility/srv/ExecuteFacilityAction \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/execute_facility_action robot_interfaces_facility/srv/ExecuteFacilityAction \
   "{request_id: cleanup_elevator_alpha, resource_id: freight_elevator, resource_type: elevator, action: call, priority: 34, start_if_idle: true, preempt_current: false, hold_after_action: false}" \
   >"${LOG_DIR}/execute_elevator.out"
 rg "success=True" "${LOG_DIR}/execute_elevator.out"
@@ -131,7 +131,7 @@ rg "facility_action_cleanup_elevator_alpha" "${LOG_DIR}/execute_elevator.out"
 
 wait_finished_event "facility_action_cleanup_elevator_alpha"
 
-ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
   "{resource_type: elevator, include_disabled: false}" \
   >"${LOG_DIR}/facility_after_elevator.out"
 rg "success=True" "${LOG_DIR}/facility_after_elevator.out"

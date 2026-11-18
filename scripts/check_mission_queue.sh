@@ -39,9 +39,9 @@ YAML
 ros2 service type /v2/enqueue_mission_profile | rg "robot_interfaces_mission/srv/EnqueueMission"
 ros2 topic type /mission_runner/state | rg "robot_interfaces/msg/RobotState"
 
-ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${low}\", priority: 1, start_if_idle: false}" | rg "success=True"
-ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${high}\", priority: 10, start_if_idle: true}" | rg "success=True"
 
 seen_high=false

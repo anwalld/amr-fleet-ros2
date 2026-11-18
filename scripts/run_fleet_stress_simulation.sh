@@ -53,7 +53,7 @@ wait_service_type /v2/list_traffic_reservations "robot_interfaces_mission/srv/Li
   "${LOG_DIR}/wait_traffic.err"
 
 START_TS="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
   "{from_station: storage_b, to_station: packing, reason: stress_bottleneck}" \
   >"${LOG_DIR}/block.out"
 
@@ -62,14 +62,14 @@ call_submit_order "${RUN_ID}" station_order_batch 25 \
   station_order_batch \
   >"${LOG_DIR}/batch.out"
 
-ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
   "{from_station: storage_b, to_station: packing}" \
   >"${LOG_DIR}/unblock.out"
 
 MISSION_ID="station_order_batch_${RUN_ID}_order_${RUN_ID}_free"
 deadline=$((SECONDS + 45))
 while true; do
-  ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 80, state_filter: FINISHED, mission_id_filter: ${MISSION_ID}}" \
     >"${LOG_DIR}/finish.out" 2>"${LOG_DIR}/finish.err" || true
   if rg "success=True" "${LOG_DIR}/finish.out" >/dev/null &&
@@ -84,7 +84,7 @@ while true; do
   sleep 1
 done
 
-ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations \
   "{}" >"${LOG_DIR}/traffic.out"
 
 CSV_FILE="${OUTPUT_DIR}/fleet_stress_${RUN_ID}.csv"

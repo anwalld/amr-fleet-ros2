@@ -150,7 +150,7 @@ wait_mission_event() {
   local out_file="${LOG_DIR}/event_${state}.out"
   local deadline=$((SECONDS + timeout_sec))
   while true; do
-    ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 40, state_filter: ${state}, mission_id_filter: localization}" \
       >"${out_file}" 2>"${out_file}.err" || true
     if rg "success=True" "${out_file}" >/dev/null &&
@@ -190,7 +190,7 @@ wait_topic_type /localization_health "robot_interfaces/msg/LocalizationHealth" 2
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 20 \
   "${LOG_DIR}/wait_mission_state.err"
 
-ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" \
   >"${LOG_DIR}/start.out" 2>"${LOG_DIR}/start.err"
 rg "success=True" "${LOG_DIR}/start.out"
 wait_runner_state "RUNNING" 10

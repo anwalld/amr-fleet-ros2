@@ -53,7 +53,7 @@ call_submit_order() {
   shift 4
   local tags
   tags="$(yaml_flow_list "$@")"
-  ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
+  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
     "{order_id: $(yaml_single_quote "${order_id}"), order_type: $(yaml_single_quote "${order_type}"), priority: ${priority}, payload_json: $(yaml_single_quote "${payload_json}"), tags: ${tags}}"
 }
 
@@ -105,7 +105,7 @@ wait_lifecycle_active() {
   local err_file="${3:-/tmp/robot_wait_lifecycle.err}"
   local deadline=$((SECONDS + timeout_sec))
   while true; do
-    if ros2 service call "${service_name}" lifecycle_msgs/srv/GetState "{}" >"${err_file}" 2>&1 &&
+    if timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call "${service_name}" lifecycle_msgs/srv/GetState "{}" >"${err_file}" 2>&1 &&
       rg "label(: |=)'?active'?" "${err_file}" >/dev/null; then
       return 0
     fi
@@ -200,13 +200,13 @@ call_request_route_segment() {
   local from_station="$2"
   local to_station="$3"
   local priority="${4:-0}"
-  ros2 service call /v2/request_route_segment robot_interfaces_mission/srv/RequestRouteSegment \
+  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/request_route_segment robot_interfaces_mission/srv/RequestRouteSegment \
     "{robot_id: $(yaml_single_quote "${robot_id}"), from_station: $(yaml_single_quote "${from_station}"), to_station: $(yaml_single_quote "${to_station}"), priority: ${priority}, station_path: []}"
 }
 
 call_release_route_segment() {
   local robot_id="$1"
   shift
-  ros2 service call /v2/release_route_segment robot_interfaces_mission/srv/ReleaseRouteSegment \
+  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/release_route_segment robot_interfaces_mission/srv/ReleaseRouteSegment \
     "{robot_id: $(yaml_single_quote "${robot_id}"), resource_ids: $(yaml_flow_list "$@")}"
 }

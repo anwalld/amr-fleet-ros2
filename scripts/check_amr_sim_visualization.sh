@@ -83,14 +83,14 @@ wait_service_type /v2/set_dynamic_speed_limit "robot_interfaces_navigation/srv/S
 wait_service_type /v2/report_obstacle_blockage "robot_interfaces_navigation/srv/ReportObstacleBlockage" 30 \
   "${LOG_DIR}/wait_obstacle.err"
 
-ros2 service call /v2/request_docking robot_interfaces_mission/srv/RequestDocking \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/request_docking robot_interfaces_mission/srv/RequestDocking \
   "{dock_id: main_dock, request_id: sim_visual, priority: 50, start_if_idle: true, preempt_current: false, simulate_contact_success: true}" \
   | rg "success=True|state='APPROACHING'"
 
 deadline=$((SECONDS + 40))
 while true; do
   dock_output="$(
-    ros2 service call /v2/get_dock_state robot_interfaces_mission/srv/GetDockState "{dock_id: main_dock}" \
+    timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_dock_state robot_interfaces_mission/srv/GetDockState "{dock_id: main_dock}" \
       2>"${LOG_DIR}/get_dock_state.err" || true
   )"
   if grep -q "success=True" <<<"${dock_output}" && grep -q "state='CHARGING'" <<<"${dock_output}"; then
@@ -110,31 +110,31 @@ awk -v x="${odom_x}" -v y="${odom_y}" 'BEGIN { exit !(x < -2.0 && y < -2.0) }' |
   exit 1
 }
 
-ros2 service call /v2/set_payload_loaded robot_interfaces_facility/srv/SetPayloadLoaded \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/set_payload_loaded robot_interfaces_facility/srv/SetPayloadLoaded \
   "{loaded: true, payload_id: sim_tote, weight_kg: 8.5, message: rviz visual demo}" \
   | rg "success=True|payload_id='sim_tote'|loaded=True"
 
-ros2 service call /v2/request_station_confirmation robot_interfaces_facility/srv/RequestStationConfirmation \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/request_station_confirmation robot_interfaces_facility/srv/RequestStationConfirmation \
   "{confirmation_id: sim_load_confirm, station_id: receiving, action: load_tote, mission_id: sim_visual, operator_hint: confirm simulated loading, timeout_sec: 0, timeout_policy: manual}" \
   | rg "success=True|confirmation_id='sim_load_confirm'"
 
-ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
   "{from_station: receiving, to_station: storage_a, reason: sim_visual_block}" \
   | rg "success=True|route_edge:receiving__storage_a"
 
-ros2 service call /v2/request_lift_session robot_interfaces_facility/srv/RequestLiftSession \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/request_lift_session robot_interfaces_facility/srv/RequestLiftSession \
   "{session_id: sim_lift, lift_id: freight_elevator, requester_id: sim_visual, from_station: packing, to_station: floor_2_dropoff, release_existing_for_requester: true}" \
   | rg "success=True|freight_elevator"
 
-ros2 service call /v2/reserve_facility_resource robot_interfaces_facility/srv/ReserveFacilityResource \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/reserve_facility_resource robot_interfaces_facility/srv/ReserveFacilityResource \
   "{resource_id: receiving_door, holder_id: sim_visual_door, mission_id: sim_visual, release_existing_for_holder: false}" \
   | rg "success=True|receiving_door"
 
-ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
   "{speed_limit_mps: 0.25, reason: sim_visual_slow_zone}" \
   | rg "success=True|0.25"
 
-ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
   "{blockage_id: sim_obstacle, reason: simulated obstacle, pause_active: false}" \
   | rg "success=True|sim_obstacle"
 

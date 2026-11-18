@@ -11,7 +11,7 @@ call_submit_order wms_cancel_alpha station_order_batch 50 \
   station_order_batch \
   | rg "accepted=True|station_order_batch_wms_cancel_alpha_order_one|station_order_batch_wms_cancel_alpha_order_three|queue_size=3"
 
-ros2 service call /v2/cancel_station_order_batch robot_interfaces_mission/srv/CancelStationOrderBatch \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/cancel_station_order_batch robot_interfaces_mission/srv/CancelStationOrderBatch \
   "{batch_id: wms_cancel_alpha, cancel_active: false}" \
   | rg "success=True|station_order_batch_wms_cancel_alpha_order_one|station_order_batch_wms_cancel_alpha_order_three|queue_size=0"
 

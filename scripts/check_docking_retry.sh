@@ -52,7 +52,7 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 wait_service_type /v2/list_facility_resources "robot_interfaces_facility/srv/ListFacilityResources" 20 \
   "${LOG_DIR}/wait_facilities.err"
 
-ros2 service call /v2/request_docking robot_interfaces_mission/srv/RequestDocking \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/request_docking robot_interfaces_mission/srv/RequestDocking \
   "{dock_id: main_dock, request_id: retry_alpha, priority: 50, start_if_idle: true, preempt_current: false, simulate_contact_success: false}" \
   >"${LOG_DIR}/request_docking.out"
 rg "success=True" "${LOG_DIR}/request_docking.out"
@@ -62,7 +62,7 @@ rg "state='APPROACHING'" "${LOG_DIR}/request_docking.out"
 
 deadline=$((SECONDS + 40))
 while true; do
-  ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 20, state_filter: DOCKING_CONTACT_FAILED, mission_id_filter: docking_request_retry_alpha}" \
     >"${LOG_DIR}/contact_failed.out" 2>"${LOG_DIR}/contact_failed.err" || true
   if rg "success=True" "${LOG_DIR}/contact_failed.out" >/dev/null &&
@@ -77,7 +77,7 @@ while true; do
   sleep 1
 done
 
-ros2 service call /v2/get_mission_recovery_state robot_interfaces_mission/srv/GetMissionRecoveryState "{}" \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_mission_recovery_state robot_interfaces_mission/srv/GetMissionRecoveryState "{}" \
   >"${LOG_DIR}/recovery.out"
 rg "success=True" "${LOG_DIR}/recovery.out"
 rg "retry_count=(0|1)(,|\\)|$)" "${LOG_DIR}/recovery.out"
@@ -86,7 +86,7 @@ rg "last_failure_message='docking contact failed'" "${LOG_DIR}/recovery.out"
 
 deadline=$((SECONDS + 50))
 while true; do
-  ros2 service call /v2/get_dock_state robot_interfaces_mission/srv/GetDockState "{dock_id: main_dock}" \
+  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_dock_state robot_interfaces_mission/srv/GetDockState "{dock_id: main_dock}" \
     >"${LOG_DIR}/dock_state.out" 2>"${LOG_DIR}/dock_state.err" || true
   if rg "success=True" "${LOG_DIR}/dock_state.out" >/dev/null &&
       rg "state='CHARGING'" "${LOG_DIR}/dock_state.out" >/dev/null; then
@@ -100,14 +100,14 @@ while true; do
   sleep 1
 done
 
-ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
   "{resource_type: charger, include_disabled: false}" \
   >"${LOG_DIR}/facilities.out"
 rg "success=True" "${LOG_DIR}/facilities.out"
 rg "resource_ids=\\['charger_main'\\]" "${LOG_DIR}/facilities.out"
 rg "status=\\['CHARGING'\\]" "${LOG_DIR}/facilities.out"
 
-ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: CHARGING, mission_id_filter: docking_request_retry_alpha}" \
   >"${LOG_DIR}/charging_event.out"
 rg "success=True" "${LOG_DIR}/charging_event.out"

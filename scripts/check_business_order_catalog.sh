@@ -7,7 +7,7 @@ wait_service_type /v2/list_business_order_types "robot_interfaces_business/srv/L
 wait_submit_order 10 /tmp/robot_business_catalog_submit.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_business_catalog_events.err
 
-ros2 service call /v2/list_business_order_types robot_interfaces_business/srv/ListBusinessOrderTypes "{}" \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_business_order_types robot_interfaces_business/srv/ListBusinessOrderTypes "{}" \
   | rg "success=True|warehouse_inbound|campus_mail|hospital_round|laboratory_samples"
 
 call_submit_order biz_catalog_alpha business 0 \
@@ -22,7 +22,7 @@ for mission in \
   station_sequence_business_biz_catalog_alpha_step_1_leg_4; do
   deadline=$((SECONDS + 45))
   while true; do
-    if ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission}}" \
       2>/tmp/robot_business_catalog_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
       break

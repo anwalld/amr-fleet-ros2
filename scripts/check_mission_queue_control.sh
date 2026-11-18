@@ -52,12 +52,12 @@ ros2 service type /v2/cancel_queued_mission | rg "robot_interfaces_mission/srv/C
 ros2 service type /v2/preempt_mission_profile | rg "robot_interfaces_mission/srv/PreemptMission"
 ros2 topic type /mission_runner/state | rg "robot_interfaces/msg/RobotState"
 
-ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${cancel_me}\", priority: 1, start_if_idle: false}" | rg "success=True"
-ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
   "{mission_id: cancel_me, cancel_active: false}" | rg "success=True"
 
-ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${long_running}\", priority: 1, start_if_idle: true}" | rg "success=True"
 
 seen_long=false
@@ -78,7 +78,7 @@ while true; do
   sleep 1
 done
 
-ros2 service call /v2/preempt_mission_profile robot_interfaces_mission/srv/PreemptMission \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/preempt_mission_profile robot_interfaces_mission/srv/PreemptMission \
   "{mission_file: \"${urgent}\", priority: 100}" | rg "success=True"
 
 seen_urgent=false

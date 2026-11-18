@@ -48,7 +48,7 @@ wait_service_type /v2/release_facility_resource "robot_interfaces_facility/srv/R
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 20 \
   "${LOG_DIR}/wait_events.err"
 
-ros2 service call /v2/execute_facility_action robot_interfaces_facility/srv/ExecuteFacilityAction \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/execute_facility_action robot_interfaces_facility/srv/ExecuteFacilityAction \
   "{request_id: door_passage_alpha, resource_id: receiving_door, resource_type: door, action: pass, priority: 45, start_if_idle: true, preempt_current: false, hold_after_action: true}" \
   >"${LOG_DIR}/execute_door.out"
 rg "success=True" "${LOG_DIR}/execute_door.out"
@@ -58,7 +58,7 @@ rg "status='reserved'" "${LOG_DIR}/execute_door.out"
 
 deadline=$((SECONDS + 50))
 while true; do
-  ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 30, state_filter: FINISHED, mission_id_filter: facility_action_door_passage_alpha}" \
     >"${LOG_DIR}/door_event.out" 2>"${LOG_DIR}/door_event.err" || true
   if rg "success=True" "${LOG_DIR}/door_event.out" >/dev/null &&
@@ -74,20 +74,20 @@ while true; do
   sleep 1
 done
 
-ros2 service call /v2/get_door_state robot_interfaces_facility/srv/GetDoorState \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_door_state robot_interfaces_facility/srv/GetDoorState \
   "{door_id: receiving_door}" >"${LOG_DIR}/door_occupied.out"
 rg "success=True" "${LOG_DIR}/door_occupied.out"
 rg "available=False" "${LOG_DIR}/door_occupied.out"
 rg "holder_id='facility_action_door_passage_alpha'" "${LOG_DIR}/door_occupied.out"
 rg "status='occupied'" "${LOG_DIR}/door_occupied.out"
 
-ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
   "{resource_id: receiving_door, holder_id: facility_action_door_passage_alpha}" \
   >"${LOG_DIR}/release_door.out"
 rg "success=True" "${LOG_DIR}/release_door.out"
 rg "status='available'" "${LOG_DIR}/release_door.out"
 
-ros2 service call /v2/get_door_state robot_interfaces_facility/srv/GetDoorState \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_door_state robot_interfaces_facility/srv/GetDoorState \
   "{door_id: receiving_door}" >"${LOG_DIR}/door_available.out"
 rg "success=True" "${LOG_DIR}/door_available.out"
 rg "available=True" "${LOG_DIR}/door_available.out"

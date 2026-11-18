@@ -6,7 +6,7 @@ source "${SCRIPT_DIR}/robot_wait.sh"
 wait_service_type /return_to_dock "std_srvs/srv/Trigger" 10 /tmp/robot_return_to_dock_service.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_return_to_dock_topic.err
 
-ros2 service call /return_to_dock std_srvs/srv/Trigger "{}" | rg "success=True"
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /return_to_dock std_srvs/srv/Trigger "{}" | rg "success=True"
 
 seen_dock=false
 deadline=$((SECONDS + 20))

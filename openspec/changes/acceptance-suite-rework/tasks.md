@@ -25,7 +25,7 @@
 - [x] 3.1 `ops:interfaces_split`：去掉写死的接口数。验证：`lint:` 栈下本机运行通过；临时删掉某个包 CMakeLists 里的一条注册，检查会失败。
 - [x] 3.2 换栈：`mission:estimates`、`mission:preflight`、`facility:plc` 改为 `core`；`safety:system_health`、`ops:map_manager`、`ops:map_zones`、`ops:tf_tree` 改为 `mock_bringup`。同时把这些脚本的断言按 design D7 拆开。验证：用例表更新，`bash -n` 通过；进夜跑 #2。
 - [ ] 3.3 任务太短的问题：`mission:runner`、`mission:controls`、`mission:recovery`、`safety:low_battery_dock` 改为自带约 40 个点的长任务文件；runner 改为自己调用 `/start_mission_profile`。验证：`bash -n`；进夜跑 #2，要求 4 个都 PASS。
-- [ ] 3.4 `business:picking_wave`：删掉过时的 `report_short_pick` 步骤，断言 `confirm_pick` 直接进入 `SHORT_PICK`、`short_quantity=2`。验证：进夜跑 #2。
+- [x] 3.4 `business:picking_wave`：删掉过时的 `report_short_pick` 步骤，断言 `confirm_pick` 直接进入 `SHORT_PICK`、`short_quantity=2`。验证：进夜跑 #2。
 - [ ] 3.5 `amr_sim:gazebo_entities`：读 `amr_sim_gazebo_entity_bridge_node` 的显示规则，改为先触发对应事件、再查对应标签可见，同时核对没有触发的标签保持隐藏。验证：进夜跑 #2。
 - [ ] 3.6 `amr_sim:gazebo_nav2`：让 `/map_server` 生命周期的等待上限和就绪条件与实际启动顺序一致（只加长轮询，不重跑）。验证：进夜跑 #2 和 #3，两夜都 PASS。
 

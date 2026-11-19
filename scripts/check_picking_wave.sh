@@ -90,9 +90,11 @@ assert_contains "${LOG_DIR}/confirm_pick.out" "short_quantity=2"
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/report_short_pick robot_interfaces_business/srv/ReportShortPick \
   "{fulfillment_id: ${FULFILLMENT_ID}, operator_id: alice, short_quantity: 2, reason: bin short}" \
   >"${LOG_DIR}/short_pick.out"
-assert_contains "${LOG_DIR}/short_pick.out" "success=True"
-assert_contains "${LOG_DIR}/short_pick.out" "state='SHORT_PICK'"
-assert_contains "${LOG_DIR}/short_pick.out" "short_quantity=2"
+# 上游已把短拣判定并进 confirm_pick：拣 8/10 时直接进入 SHORT_PICK（见上面的断言），
+# 此时再单独报短拣会被拒，状态保持 SHORT_PICK。原脚本仍期望这一步成功，所以一直失败。
+assert_contains "${LOG_DIR}/short_pick.out" "success=False"
+assert_contains "${LOG_DIR}/short_pick.out" "short pick is not pending"
+assert_contains "${LOG_DIR}/short_pick.out" "state=SHORT_PICK"
 
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_pending_confirmations robot_interfaces_facility/srv/GetPendingConfirmations \
   "{station_id_filter: packing}" >"${LOG_DIR}/pending_dropoff.out"

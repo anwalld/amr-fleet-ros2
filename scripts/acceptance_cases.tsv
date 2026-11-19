@@ -8,7 +8,7 @@ mission	controls	check_mission_controls.sh	core	60	120	upstream
 mission	queue	check_mission_queue.sh	amr_demo	30	60	upstream
 mission	queue_control	check_mission_queue_control.sh	amr_demo	40	80	upstream
 mission	reprioritize	check_mission_reprioritize.sh	amr_demo	30	60	upstream
-mission	recovery	check_mission_recovery.sh	amr_demo	20	60	upstream
+mission	recovery	check_mission_recovery.sh	self	60	120	upstream
 mission	resource_cleanup	check_mission_resource_cleanup_runtime.sh	self	40	80	upstream
 mission	action_result	check_mission_action_result_runtime.sh	self	60	120	upstream
 mission	events	check_mission_events.sh	amr_demo	20	60	upstream
@@ -81,7 +81,7 @@ safety	obstacle_recovery	check_obstacle_blockage_recovery.sh	self	30	60	upstream
 safety	localization	check_localization_health.sh	self	20	60	upstream
 safety	localization_auto_recovery	check_localization_auto_recovery.sh	self	30	60	upstream
 safety	relocalization	check_relocalization_resume.sh	self	30	60	upstream
-safety	low_battery_dock	check_low_battery_dock.sh	amr_demo	40	80	upstream
+safety	low_battery_dock	check_low_battery_dock.sh	amr_demo	120	240	upstream
 safety	opportunity_charging	check_opportunity_charging.sh	amr_demo	50	100	upstream
 safety	route_locks	check_route_resource_locks.sh	amr_demo	90	180	upstream
 safety	intersection_lock	check_intersection_lock.sh	self	30	60	upstream

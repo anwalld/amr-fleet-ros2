@@ -39,7 +39,9 @@
 | `safety:system_health` | 需要 cmd_vel_mux、system_monitor，只有 bringup mock 模式里有 | 修：栈改为 `mock_bringup` |
 | `ops:map_manager`、`ops:map_zones` | `map_manager_node` 没有被任何总启动文件包含 | 修：栈改为 `mock_bringup`（含 map_manager） |
 | `mission:preflight` | 禁行区按 `robot_navigation` 的 `map_zones.yaml` 写，amr_demo 用 `amr_sim_map_zones.yaml`，所以禁行区的单被接受了 | 修：栈改为 `core` |
-| `mission:runner`、`controls`、`recovery`、`safety:low_battery_dock` | `demo_patrol.yaml` 只有 2 个点、约 1 秒跑完；runner 还假定任务会自动开始 | 修：用例自带约 40 个点的长任务文件；runner 自己调用 `/start_mission_profile`。诊断时 controls 两轮都通过了，印证了时间竞争 |
+| `mission:runner`、`mission:controls` | `demo_patrol.yaml` 只有 2 个点、约 1 秒跑完；runner 还假定任务会自动开始 | 修：栈改为 `core`；controls 入队约 40 个点的长任务再暂停、恢复、取消；runner 自己调用 `/start_mission_profile`。诊断时 controls 两轮都通过了，印证了时间竞争 |
+| `mission:recovery` | （2026-11-19 实施时更正）它要的是导航失败、重试 1 次后升级为 `NEEDS_OPERATOR`；amr_demo 里导航正常，任务直接 FINISHED | 修：改为 `self`，自起任务中枢和 `use_nav2_action:=true simulate_without_nav2:=false` 的导航序列服务（无 Nav2 时稳定返回失败），断言 `NEEDS_OPERATOR`、重试计数、恢复动作与重置 |
+| `safety:low_battery_dock` | （2026-11-19 实施时更正）低电量回桩不依赖任务是否在跑；脚本只 `ros2 topic pub --once` 发一次低电量，大概率在订阅匹配前就退出，消息丢失 | 修：连续发布数次后断言 `dock_return` 出现并跑完；`mission:preflight` 的低电量发布同样改为连续发布 |
 | `facility:actions`、`facility:charging`、`safety:opportunity_charging`、`facility:door_passage` | **产品 bug**，见 D9 | 修产品代码；脚本的断言一并加强 |
 | `amr_sim:gazebo_entities` | 14 个标签模型都在，但实体桥只在相应事件发生后才把它们移到可见位置，平时停在 z=-2；脚本要求 14 个同时可见 | 修：按实体桥的规则重写断言。先触发对应事件，再查对应标签；同时核对"没有触发的标签保持隐藏" |
 | `amr_sim:visualization` | `/amr_simulation/markers` 里一直没有 `mission: ` 文字标记 | 先读 `amr_sim_visualizer_node` 定性：如果是标记被上游去掉了，就改脚本；如果是该发没发，就修产品并补规格增量 |

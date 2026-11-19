@@ -12,8 +12,8 @@ mission	recovery	check_mission_recovery.sh	amr_demo	20	60	upstream
 mission	resource_cleanup	check_mission_resource_cleanup_runtime.sh	self	40	80	upstream
 mission	action_result	check_mission_action_result_runtime.sh	self	60	120	upstream
 mission	events	check_mission_events.sh	amr_demo	20	60	upstream
-mission	estimates	check_mission_estimates.sh	amr_demo	10	60	upstream
-mission	preflight	check_mission_preflight.sh	amr_demo	10	60	upstream
+mission	estimates	check_mission_estimates.sh	core	10	60	upstream
+mission	preflight	check_mission_preflight.sh	core	10	60	upstream
 mission	transport_order	check_transport_order.sh	amr_demo	20	60	upstream
 mission	station_transport	check_station_transport_order.sh	amr_demo	70	140	upstream
 mission	station_sequence	check_station_sequence_task.sh	amr_demo	110	220	upstream
@@ -87,7 +87,7 @@ safety	route_locks	check_route_resource_locks.sh	amr_demo	90	180	upstream
 safety	intersection_lock	check_intersection_lock.sh	self	30	60	upstream
 safety	traffic_deadlock	check_traffic_deadlock_detection.sh	self	20	60	upstream
 safety	fault_supervisor	check_fault_supervisor.sh	amr_demo	20	60	upstream
-safety	system_health	check_system_health.sh	amr_demo	10	60	upstream
+safety	system_health	check_system_health.sh	mock_bringup	10	60	upstream
 ops	rest_gateway	check_rest_gateway.sh	self	40	80	upstream
 ops	rest_workflow	check_rest_workflow_controls.sh	self	40	80	upstream
 ops	operator_snapshot	check_operator_snapshot.sh	amr_demo	80	160	upstream
@@ -98,8 +98,8 @@ ops	interfaces_split	check_robot_interfaces_split.sh	none	10	60	upstream
 ops	legacy_usage	check_robot_interfaces_legacy_usage.sh	amr_demo	20	60	upstream
 ops	site_config_validation	check_site_config_validation.sh	amr_demo	10	60	upstream
 ops	site_config_activation	check_site_config_activation.sh	amr_demo	20	60	upstream
-ops	map_manager	check_map_manager.sh	amr_demo	10	60	upstream
-ops	map_zones	check_map_zones.sh	amr_demo	10	60	upstream
+ops	map_manager	check_map_manager.sh	mock_bringup	10	60	upstream
+ops	map_zones	check_map_zones.sh	mock_bringup	10	60	upstream
 ops	tf_tree	check_tf_tree.sh	mock_bringup	10	60	upstream
 ops	topics	check_topics.sh	amr_demo	10	60	upstream
 lint	script_timeouts	lint_script_timeouts.py	none	10	60	rework

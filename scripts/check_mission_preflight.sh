@@ -11,7 +11,8 @@ keepout_response="$(
     transport_order
 )"
 rg "accepted=False" <<<"${keepout_response}"
-rg "preflight rejected|keepout" <<<"${keepout_response}"
+rg "preflight rejected" <<<"${keepout_response}"
+rg "inside keepout zone" <<<"${keepout_response}"
 
 ros2 topic pub -1 /chassis/state robot_interfaces/msg/ChassisState \
   "{backend: mock, kinematics_model: diff_drive, connected: true, battery_voltage: 21.0, linear_velocity: 0.0, angular_velocity: 0.0, status: low_battery}" \

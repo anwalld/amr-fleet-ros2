@@ -36,7 +36,10 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 python3 "${SCRIPT_DIR}/facility_plc_file_adapter.py" "${plc_json}" "${request_json}" "${result_json}" 45
 python3 -m json.tool "${plc_json}" >/dev/null
 python3 -m json.tool "${result_json}" >/dev/null
-rg '"state": "open"|"last_action": "open"' "${plc_json}"
-rg '"state_before": "closed"|"state_after": "open"|"finished": true' "${result_json}"
+rg '"state": "open"' "${plc_json}"
+rg '"last_action": "open"' "${plc_json}"
+rg '"state_before": "closed"' "${result_json}"
+rg '"state_after": "open"' "${result_json}"
+rg '"finished": true' "${result_json}"
 
 echo "facility plc adapter passed"

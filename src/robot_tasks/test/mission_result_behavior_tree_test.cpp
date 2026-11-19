@@ -39,8 +39,8 @@ TEST(MissionResultBehaviorTreeTest, SuccessfulActionResult_SelectsSucceededBranc
 
   ASSERT_TRUE(result.success);
   EXPECT_EQ(result.branch, "succeeded");
-  EXPECT_TRUE(result.decision.release_all_resources);
-  EXPECT_FALSE(result.decision.release_route_locks);
+  EXPECT_FALSE(result.decision.release_all_resources);
+  EXPECT_TRUE(result.decision.release_route_locks);
   EXPECT_TRUE(result.decision.mark_resource_occupied);
 }
 

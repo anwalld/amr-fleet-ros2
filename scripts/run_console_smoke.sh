@@ -10,7 +10,8 @@
 # 前台以冒烟模式运行 robot_console，度量写到 console_metrics.tsv；跑完停掉压测进程组
 # （压测脚本自己的 trap 会停掉 launch）。
 # 结果：<输出目录>/console_smoke.tsv = 调度台输出的全部度量 + console_rc + verdict（+ reason）。
-# 判定 PASS：调度台退出码 0，snapshot_hz 与 traffic_hz 都 >= 0.8，pose_hz_min >= 5，robots_with_pose >= 6。
+# 判定 PASS：调度台退出码 0，snapshot_hz 与 traffic_hz 都 >= 0.8，pose_hz_min >= 5，robots_with_pose >= 6，
+#   且冒烟期间录下的 stack/console.jsonl 通过 console_replay_check.py（四类记录齐全、回放不跳行）。
 # 延迟和帧率只记录，不参与判定（offscreen 下测得）。
 # 其他输出：console.log（调度台日志）、stack/（压测输出）、stack.out。
 # 退出码：0 = PASS，1 = FAIL。
@@ -38,7 +39,8 @@ set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((RANDOM % 150 + 50))}"
 
 minutes=$(( (SMOKE_SECONDS + 59) / 60 + 3 ))
-NETWORK="${SMOKE_NETWORK}" setsid "${SCRIPT_DIR}/run_fleet_traffic_stress.sh" \
+# 冒烟期间同时录像，结束后回放校验（acceptance-suite-rework：调度台冒烟附带回放校验）。
+CONSOLE_CAPTURE=1 NETWORK="${SMOKE_NETWORK}" setsid "${SCRIPT_DIR}/run_fleet_traffic_stress.sh" \
   "${SMOKE_ROBOTS}" "${minutes}" rolling "${OUT_DIR}/stack" \
   > "${OUT_DIR}/stack.out" 2>&1 < /dev/null &
 STACK_PID=$!
@@ -90,6 +92,16 @@ else
     reason="${reason}robots_with_pose=${robots_with_pose} < ${SMOKE_ROBOTS}; "
 fi
 
+# 先停栈（采集进程随之收尾、写完文件），再校验录像：每行可解析、四类记录齐全、回放程序退出 0 且不跳行。
+cleanup
+REPLAY_BIN="${ROOT_DIR}/install/robot_console_core/bin/robot_console_replay"
+[[ -x "${REPLAY_BIN}" ]] || REPLAY_BIN=""
+replay_check="$(python3 "${SCRIPT_DIR}/console_replay_check.py" "${OUT_DIR}/stack/console.jsonl" ${REPLAY_BIN:+"${REPLAY_BIN}"} 2>&1 | tail -1)"
+case "${replay_check}" in
+  OK*) ;;
+  *) reason="${reason}录像回放校验：${replay_check}; " ;;
+esac
+
 {
   if [[ -s "${METRICS}" ]]; then
     cat "${METRICS}"
@@ -97,6 +109,7 @@ fi
     printf "metric\tvalue\n"
   fi
   printf "console_rc\t%s\n" "${console_rc}"
+  printf "replay_check\t%s\n" "${replay_check}"
   if [[ -z "${reason}" ]]; then
     printf "verdict\tPASS\n"
   else
@@ -105,6 +118,5 @@ fi
   fi
 } > "${RESULT}"
 
-cleanup
 echo "console smoke: $(awk -F'\t' '$1 == "verdict" { print $2 }' "${RESULT}") -> ${RESULT}"
 [[ -z "${reason}" ]]

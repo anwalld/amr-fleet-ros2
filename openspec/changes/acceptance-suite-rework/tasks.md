@@ -26,7 +26,7 @@
 - [x] 3.2 换栈：`mission:estimates`、`mission:preflight`、`facility:plc` 改为 `core`；`safety:system_health`、`ops:map_manager`、`ops:map_zones`、`ops:tf_tree` 改为 `mock_bringup`。同时把这些脚本的断言按 design D7 拆开。验证：用例表更新，`bash -n` 通过；进夜跑 #2。
 - [x] 3.3 时间竞争与丢消息（design D1，2026-11-19 实施时更正了 recovery、low_battery_dock 的根因）：`mission:runner`、`mission:controls` 改到 `core` 栈，controls 用约 40 个点的长任务，runner 自己调用 `/start_mission_profile`；`mission:recovery` 改为 `self`，用无 Nav2 时稳定失败的导航序列服务触发 `NEEDS_OPERATOR`；`safety:low_battery_dock` 和 `mission:preflight` 的低电量消息改为连续发布。验证：`bash -n`；进夜跑 #2，要求 4 个都 PASS。
 - [x] 3.4 `business:picking_wave`：删掉过时的 `report_short_pick` 步骤，断言 `confirm_pick` 直接进入 `SHORT_PICK`、`short_quantity=2`。验证：进夜跑 #2。
-- [ ] 3.5 `amr_sim:gazebo_entities`：读 `amr_sim_gazebo_entity_bridge_node` 的显示规则，改为先触发对应事件、再查对应标签可见，同时核对没有触发的标签保持隐藏。验证：进夜跑 #2。
+- [x] 3.5 `amr_sim:gazebo_entities`：读 `amr_sim_gazebo_entity_bridge_node` 后更正根因（design D1）：对象标签在 `labels_enabled` 为真时常显，amr_demo 默认已改为 false；脚本起栈时传 `labels_enabled:=true`。验证：进夜跑 #2。
 - [ ] 3.6 `amr_sim:gazebo_nav2`：让 `/map_server` 生命周期的等待上限和就绪条件与实际启动顺序一致（只加长轮询，不重跑）。验证：夜跑 #2、#3 两夜都 PASS。
 
 ## 4. 待定性的两条（design D1、Open Questions）

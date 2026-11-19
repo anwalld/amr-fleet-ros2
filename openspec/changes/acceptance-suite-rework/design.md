@@ -43,7 +43,7 @@
 | `mission:recovery` | （2026-11-19 实施时更正）它要的是导航失败、重试 1 次后升级为 `NEEDS_OPERATOR`；amr_demo 里导航正常，任务直接 FINISHED | 修：改为 `self`，自起任务中枢和 `use_nav2_action:=true simulate_without_nav2:=false` 的导航序列服务（无 Nav2 时稳定返回失败），断言 `NEEDS_OPERATOR`、重试计数、恢复动作与重置 |
 | `safety:low_battery_dock` | （2026-11-19 实施时更正）低电量回桩不依赖任务是否在跑；脚本只 `ros2 topic pub --once` 发一次低电量，大概率在订阅匹配前就退出，消息丢失 | 修：连续发布数次后断言 `dock_return` 出现并跑完；`mission:preflight` 的低电量发布同样改为连续发布 |
 | `facility:actions`、`facility:charging`、`safety:opportunity_charging`、`facility:door_passage` | **产品 bug**，见 D9 | 修产品代码；脚本的断言一并加强 |
-| `amr_sim:gazebo_entities` | 14 个标签模型都在，但实体桥只在相应事件发生后才把它们移到可见位置，平时停在 z=-2；脚本要求 14 个同时可见 | 修：按实体桥的规则重写断言。先触发对应事件，再查对应标签；同时核对"没有触发的标签保持隐藏" |
+| `amr_sim:gazebo_entities` | （2026-11-19 实施时更正）14 个对象标签在 `labels_enabled` 为真时每个周期都放到可见位置；上游把 `amr_demo.launch.py` 的 `labels_enabled` 默认改成了 false，脚本起栈时没有显式打开，所以全部停在隐藏位 z=-2（按事件显示的是另一批状态标签） | 修：起栈时传 `labels_enabled:=true`，断言不变 |
 | `amr_sim:visualization` | `/amr_simulation/markers` 里一直没有 `mission: ` 文字标记 | 先读 `amr_sim_visualizer_node` 定性：如果是标记被上游去掉了，就改脚本；如果是该发没发，就修产品并补规格增量 |
 | `business:vda5050_mqtt` | `vda5050_mqtt_mock_bridge.py` 在它自己的 45 秒超时里没等到结果（用例耗时 49 秒），桥的输出随临时目录一起删掉了 | 先改为失败时保留桥的输出，再定性，处理方式同上 |
 | `amr_sim:full` | 按顺序重跑 sensor、slam、nav2、default、gazebo_entities、station_motion 这 6 个已有用例，每个最多 2 次，耗时 519 秒 | **删除**。完全重复，覆盖面不减 |

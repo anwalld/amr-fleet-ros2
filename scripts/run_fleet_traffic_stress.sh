@@ -7,6 +7,8 @@
 # 拉起 fleet_sim.launch.py（任务中枢 + 无 Nav2 的 navigate_sequence_server + N 个运动学代理，
 # 不开 Gazebo），再运行 fleet_traffic_stress.py 随机下单、每秒记录、判定违规、采死锁指标。
 # 结果：<输出目录>/{state.csv,tasks.csv,violations.csv,deadlocks.csv,summary.json,launch.log}
+# CONSOLE_CAPTURE=1（M4，默认关闭）：仿真栈运行期间同时用 console_capture.py 录调度台回放，
+#   写到 <输出目录>/console.jsonl（日志 console.capture.log）。采集失败不影响判定和退出码。
 # 退出码：0 = 无违规，1 = 有违规，2 = 车队没就绪。
 set -uo pipefail
 
@@ -32,8 +34,32 @@ setsid ros2 launch robot_bringup fleet_sim.launch.py \
   traffic_deadlock_resolution_enabled:="${DEADLOCK_RESOLUTION}" \
   >"${OUT_DIR}/launch.log" 2>&1 < /dev/null &
 LAUNCH_PGID=$!
+
+TILDE="~"  # 写进 meta.source 时把家目录缩写成 ~
+CAPTURE_PID=""
+if [[ "${CONSOLE_CAPTURE:-0}" == "1" ]]; then
+  python3 "${SCRIPT_DIR}/console_capture.py" --out "${OUT_DIR}/console.jsonl" \
+    --network "${NETWORK}" --robots "${ROBOTS}" --mode "${MODE}" \
+    --source "${OUT_DIR/#${HOME}/${TILDE}}" \
+    > "${OUT_DIR}/console.capture.log" 2>&1 < /dev/null &
+  CAPTURE_PID=$!
+fi
+
+# 先停采集（INT 后最多等 5 秒），再停仿真栈。
+# shellcheck disable=SC2329  # 由 cleanup 调用
+stop_capture() {
+  [[ -n "${CAPTURE_PID}" ]] || return 0
+  kill -INT "${CAPTURE_PID}" 2>/dev/null
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "${CAPTURE_PID}" 2>/dev/null || break
+    sleep 0.5
+  done
+  kill -KILL "${CAPTURE_PID}" 2>/dev/null
+  CAPTURE_PID=""
+}
 # shellcheck disable=SC2329  # 由 trap 调用
 cleanup() {
+  stop_capture
   kill -INT -- "-${LAUNCH_PGID}" 2>/dev/null; sleep 3
   kill -KILL -- "-${LAUNCH_PGID}" 2>/dev/null
 }

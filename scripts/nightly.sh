@@ -115,6 +115,17 @@ ros_sweep() {
 
 # 阶段内部写结论摘要（几行 markdown，报告直接拼接）。
 summary() { echo "$*" >> "${SDIR}/summary.md"; }
+# M4：列出调度台回放录像（行数、大小），报告里能看到确实录到了数据。
+capture_summary() {
+  local dir="$1" pattern="$2" f n=0
+  for f in "${dir}"/${pattern}; do
+    [[ -f "${f}" ]] || continue
+    (( n == 0 )) && summary "调度台回放录像："
+    summary "- ${f#"${dir}"/}：$(wc -l < "${f}" | tr -d ' ') 行，$(du -h "${f}" | cut -f1)"
+    n=$((n + 1))
+  done
+  (( n > 0 )) || summary "调度台回放录像：无"
+}
 skip() { summary "SKIP：$*"; exit "${SKIP_RC}"; }
 
 # ---------------------------------------------------------------------------
@@ -302,12 +313,16 @@ stage_5() {
     skip "压测脚本还没有死锁指标列（M3 tasks 8.1 未完成）；M2 吞吐数据见 docs/baseline/M2.md"
   dry && skip "DRY_RUN：压测脚本已有死锁列；6 组 × ${STRESS_MINUTES} 分钟留给夜跑"
   printf "%s\n" "${METRICS_HEADER}" > "${SDIR}/metrics.tsv"
-  local robots mode rc fails=0 dir
+  local robots mode rc fails=0 dir capture
   for robots in 2 4 6; do
     for mode in whole_route rolling; do
       dir="${SDIR}/stress_${robots}_${mode}"
       log "stress ${robots} ${mode} -> ${dir}"
-      NETWORK="${STRESS_NETWORK}" "${stress}" "${robots}" "${STRESS_MINUTES}" "${mode}" "${dir}" \
+      # M4：只在 6 台 rolling 这一组同时录调度台回放（与前几夜同组吞吐对比，检查采集是否有干扰）。
+      capture=0
+      [[ "${robots}" == 6 && "${mode}" == rolling ]] && capture=1
+      CONSOLE_CAPTURE="${capture}" NETWORK="${STRESS_NETWORK}" \
+        "${stress}" "${robots}" "${STRESS_MINUTES}" "${mode}" "${dir}" \
         > "${SDIR}/stress_${robots}_${mode}.out" 2>&1 < /dev/null
       rc=$?
       ros_sweep
@@ -316,6 +331,7 @@ stage_5() {
     done
   done
   summary "6 组中 ${fails} 组退出码非 0（1 = 有安全违规，2 = 车队没就绪）；路网 ${STRESS_NETWORK}，每组 ${STRESS_MINUTES} 分钟"
+  capture_summary "${SDIR}" "stress_*/console.jsonl"
   summary ""
   awk -F'\t' 'NR==1 { h="|"; s="|"; for (i=1;i<=NF;i++) { h=h" "$i" |"; s=s" --- |" } print h; print s; next }
               { r="|"; for (i=1;i<=NF;i++) r=r" "$i" |"; print r }' "${SDIR}/metrics.tsv" >> "${SDIR}/summary.md"
@@ -326,8 +342,9 @@ stage_6() {
   local scen="${SCRIPT_DIR}/run_deadlock_scenarios.sh"
   [[ -x "${scen}" ]] || skip "死锁场景脚本 scripts/run_deadlock_scenarios.sh 还没写（M3 tasks 8.2）"
   dry && skip "DRY_RUN：场景脚本存在；${SCENARIO_ROUNDS} 遍 × 3 个场景留给夜跑"
-  "${scen}" "${SDIR}" "${SCENARIO_ROUNDS}" > "${SDIR}/scenarios.log" 2>&1 < /dev/null
+  CONSOLE_CAPTURE=1 "${scen}" "${SDIR}" "${SCENARIO_ROUNDS}" > "${SDIR}/scenarios.log" 2>&1 < /dev/null
   local rc=$?
+  capture_summary "${SDIR}" "scenario_*.console.jsonl"
   if [[ -f "${SDIR}/deadlock_scenarios.tsv" ]]; then
     local pass total
     total=$(tail -n +2 "${SDIR}/deadlock_scenarios.tsv" | wc -l)

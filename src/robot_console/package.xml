@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robot_console</name>
+  <version>0.0.0</version>
+  <description>Qt 6 调度台：RosBridge 在 QThread 里跑 rclcpp 执行器，只读地订阅话题、轮询快照与路网，驱动 robot_console_core 的界面；支持冒烟模式（夜跑阶段 7）。</description>
+  <maintainer email="ubuntu@todo.todo">ubuntu</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>nav_msgs</depend>
+  <depend>qt6-base-dev</depend>
+  <depend>rclcpp</depend>
+  <depend>robot_console_core</depend>
+  <depend>robot_interfaces_business</depend>
+  <depend>robot_interfaces_mission</depend>
+  <depend>std_msgs</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

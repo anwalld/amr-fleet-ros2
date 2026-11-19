@@ -14,7 +14,7 @@
 
 **环境**
 - 车间路网没有底图文件。
-- Mac 上没有 ROS，虚拟机上没有桌面。Mac 用 Homebrew 的 Qt 6.12，虚拟机和 CI 用 rosdep 键 `qt6-base-dev` 装的 6.4.2。
+- Mac 上没有 ROS，虚拟机上没有桌面。Mac 用 Homebrew 的 `qtbase` 6.12（只含基础模块），虚拟机和 CI 用 rosdep 键 `qt6-base-dev` 装的 6.4.2。
 - 仓库现有 19 个包全是 ament_cmake，没有用 Qt 的。
 
 **夜跑**
@@ -56,7 +56,7 @@ core 的任何目标都不链接 ROS，所以误加 `#include <rclcpp/...>` 在 
 Mac 上的构建目录放在仓库外面，避免同步到虚拟机：
 
 ```
-cmake -S src/robot_console_core -B ~/build/robot_console_core -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+cmake -S src/robot_console_core -B ~/build/robot_console_core -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase)"
 cmake --build ~/build/robot_console_core -j
 ctest --test-dir ~/build/robot_console_core --output-on-failure
 ```
@@ -117,7 +117,7 @@ DataSource 是一个 `QObject` 基类，信号对应六类数据：路网、位�
 ### 6. 地图场景
 
 **坐标与缩放**
-- 场景单位是米。视图做 `scale(s, -s)`，让 y 轴朝上。
+- 场景单位是米。地图坐标 (x, y) 放在场景 (x, -y)，屏幕上 y 轴朝上；视图本身不翻转，这样文字不会被镜像，车辆朝向换算成 `-yaw`。
 - 站点编号和车辆图形设置 `ItemIgnoresTransformations`，缩放时保持像素大小不变。
 
 **图元**
@@ -133,7 +133,7 @@ DataSource 是一个 `QObject` 基类，信号对应六类数据：路网、位�
 
 **颜色**
 - 固定 10 色调色板。`robot_N` 取第 `(N-1) mod 10` 色，其他车辆号按哈希取色。整个会话内颜色不变。
-- `traffic_block:` 开头的占用者统一用灰色斜线。
+- `traffic_block:` 开头的占用者统一用深灰色点划线（线条没法画斜线填充）。
 
 **合并刷新**
 - 数据到达时只标记"脏"，一个 33 ms 的定时器统一把待更新的位置写进图元并触发重绘，所以帧率上限是 30。

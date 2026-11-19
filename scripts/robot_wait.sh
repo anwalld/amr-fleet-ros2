@@ -117,6 +117,22 @@ wait_active_mission() {
   done
 }
 
+# 写一份长巡逻任务文件：沿 x 轴每 0.1 米一个目标。无 Nav2 的模拟导航下每个目标约 1 秒，
+# 40 个目标约 40 秒，足够在任务结束前完成暂停、取消等操作（默认的 demo_patrol 只有 2 个点、约 1 秒）。
+# 用法：write_long_mission <文件> <mission_id> [目标数，默认 40]
+write_long_mission() {
+  local file="$1" mission_id="$2" goals="${3:-40}" i
+  {
+    echo "mission_id: ${mission_id}"
+    echo "frame_id: map"
+    echo "loop: false"
+    echo "goals:"
+    for i in $(seq 1 "${goals}"); do
+      printf '  - x: %s\n    y: 0.0\n    yaw: 0.0\n' "$(awk -v i="${i}" 'BEGIN{printf "%.2f", i*0.1}')"
+    done
+  } > "${file}"
+}
+
 wait_topic_type() {
   local topic_name="$1"
   local expected_type="$2"

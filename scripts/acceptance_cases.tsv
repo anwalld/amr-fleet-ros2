@@ -3,8 +3,8 @@
 # budget_s 为耗时预算（超出只提醒），timeout_s = 2×budget_s 并限制在 60–600（超出记 TIMEOUT）。
 # 首个全绿夜之前的预算按 2026-11-18-r2 实测耗时 ×1.5 估算（上限 300），之后按新基线回填。
 suite	case	script	stack	budget_s	timeout_s	origin
-mission	runner	check_mission_runner.sh	amr_demo	40	80	upstream
-mission	controls	check_mission_controls.sh	amr_demo	20	60	upstream
+mission	runner	check_mission_runner.sh	core	40	80	upstream
+mission	controls	check_mission_controls.sh	core	60	120	upstream
 mission	queue	check_mission_queue.sh	amr_demo	30	60	upstream
 mission	queue_control	check_mission_queue_control.sh	amr_demo	40	80	upstream
 mission	reprioritize	check_mission_reprioritize.sh	amr_demo	30	60	upstream

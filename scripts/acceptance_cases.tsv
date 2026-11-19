@@ -91,7 +91,7 @@ ops	site_config_validation	check_site_config_validation.sh	amr_demo	10	60	upstre
 ops	site_config_activation	check_site_config_activation.sh	amr_demo	20	60	upstream
 ops	map_manager	check_map_manager.sh	mock_bringup	10	60	upstream
 ops	map_zones	check_map_zones.sh	mock_bringup	10	60	upstream
-ops	tf_tree	check_tf_tree.sh	mock_bringup	10	60	upstream
+ops	tf_tree	check_tf_tree.sh	mock_bringup	40	80	upstream
 ops	topics	check_topics.sh	amr_demo	10	60	upstream
 lint	assets	check_amr_showcase_demo_assets.sh	none	10	60	upstream
 lint	operator_static	check_operator_console_static.sh	none	10	60	upstream

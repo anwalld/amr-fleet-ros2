@@ -118,7 +118,9 @@ STACK_PGID=""
 stack_up() {
   local stack="$1" tag="$2" cmd
   cmd="$(stack_command "${stack}")" || { echo "[runner] 未知的栈：${stack}" >&2; return 1; }
-  setsid bash -c "${cmd}" > "${OUT_DIR}/_stack__${tag}.log" 2>&1 < /dev/null &
+  # 以追加方式打开：栈进程与下面写的 ready= 行共用一个文件，用 ">" 打开时后者会被栈进程的输出覆盖。
+  : > "${OUT_DIR}/_stack__${tag}.log"
+  setsid bash -c "${cmd}" >> "${OUT_DIR}/_stack__${tag}.log" 2>&1 < /dev/null &
   STACK_PGID=$!
   ros2 daemon start >/dev/null 2>&1 < /dev/null
   # 连续 3 次探测成功才算就绪，避免 daemon 刚起时的抖动；超时也照常运行用例。

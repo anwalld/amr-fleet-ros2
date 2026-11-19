@@ -18,7 +18,7 @@
 ## 2. 产品修复：设施资源执行后保持（design D9）
 
 - [x] 2.1 改 `PlanMissionResultWorkflow` 的成功分支：非对桩任务只释放路权，设施预约交给"标为占用"处理；节点里的执行顺序相应调整。改 `mission_result_workflow_test` 中断言两个标志的用例，新增"成功 + 保持"和"成功 + 不保持"两个测最终效果的单测（`FacilityReservationMap` 的最终状态）。验证：`colcon test --packages-select robot_tasks` 全绿。
-- [ ] 2.2 加强 `facility:actions`、`facility:charging`、`safety:opportunity_charging`、`facility:door_passage` 的断言，使其对应 `specs/facility-reservation` 的各个场景：保持、占用者释放、非占用者被拒、不保持即释放、取消即释放。验证：`bash -n`；全栈部分进夜跑 #2。
+- [x] 2.2 加强 `facility:actions`、`facility:charging`、`safety:opportunity_charging`、`facility:door_passage` 的断言，使其对应 `specs/facility-reservation` 的各个场景：保持、占用者释放、非占用者被拒、不保持即释放、取消即释放。验证：`bash -n`；全栈部分进夜跑 #2。
 
 ## 3. 修复其余失败用例（design D1）
 

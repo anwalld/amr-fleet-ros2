@@ -57,6 +57,66 @@ call_submit_order() {
     "{order_id: $(yaml_single_quote "${order_id}"), order_type: $(yaml_single_quote "${order_type}"), priority: ${priority}, payload_json: $(yaml_single_quote "${payload_json}"), tags: ${tags}}"
 }
 
+# 断言一个设施资源的状态（acceptance-suite-rework design D7，specs/facility-reservation）。
+# ListFacilityResources 按资源类型返回并列数组，这里按资源号取出同一下标的 status / holder / available 逐项比对。
+# 用法：expect_facility_resource <resource_type> <resource_id> <status> <holder_id> <available: True|False>
+expect_facility_resource() {
+  local resource_type="$1" resource_id="$2" want_status="$3" want_holder="$4" want_available="$5" out
+  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_facility_resources \
+    robot_interfaces_facility/srv/ListFacilityResources \
+    "{resource_type: ${resource_type}, include_disabled: false}")" || {
+    echo "list_facility_resources call failed for ${resource_type}" >&2
+    return 1
+  }
+  FACILITY_OUT="${out}" python3 - "${resource_id}" "${want_status}" "${want_holder}" "${want_available}" <<'PY'
+import ast, os, re, sys
+rid, want_status, want_holder, want_available = sys.argv[1:5]
+out = os.environ["FACILITY_OUT"]
+def arr(name):
+    m = re.search(r"\b" + name + r"=(\[[^\]]*\])", out)
+    return ast.literal_eval(m.group(1)) if m else None
+ids = arr("resource_ids")
+if not ids or rid not in ids:
+    sys.exit(f"facility resource {rid} not listed: {out}")
+i = ids.index(rid)
+got = {"status": arr("status")[i], "holder": arr("holder_ids")[i], "available": str(arr("available")[i])}
+want = {"status": want_status, "holder": want_holder, "available": want_available}
+bad = [f"{k}={got[k]!r} (want {want[k]!r})" for k in want if got[k] != want[k]]
+if bad:
+    sys.exit(f"facility resource {rid}: " + ", ".join(bad))
+print(f"facility resource {rid}: status={got['status']} holder={got['holder']!r} available={got['available']}")
+PY
+}
+
+# 等某个任务成为当前任务并进入指定状态（默认 FINISHED）；看到 FAILED / ERROR 立即失败。
+# 第 4 个参数为 seen 时视为已见过该任务（取消之后当前任务号可能已清空）。
+# 用法：wait_active_mission <mission_id> <timeout_sec> [state_regex] [seen]
+wait_active_mission() {
+  local mission_id="$1" timeout_sec="$2" want="${3:-FINISHED}"
+  local deadline=$((SECONDS + timeout_sec)) seen=false active state
+  [[ "${4:-}" == seen ]] && seen=true
+  while true; do
+    active="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state \
+      robot_interfaces/msg/RobotState --field active_goal_id 2>/dev/null || true)"
+    state="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state \
+      robot_interfaces/msg/RobotState --field state 2>/dev/null || true)"
+    grep -q "${mission_id}" <<<"${active}" && seen=true
+    if ${seen} && grep -Eq "${want}" <<<"${state}"; then
+      echo "mission ${mission_id} reached ${want}"
+      return 0
+    fi
+    if grep -Eq "FAILED|ERROR" <<<"${state}"; then
+      echo "mission ${mission_id} failed: state=${state} active=${active}" >&2
+      return 1
+    fi
+    if (( SECONDS >= deadline )); then
+      echo "mission ${mission_id} did not reach ${want}; seen=${seen} state=${state} active=${active}" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 wait_topic_type() {
   local topic_name="$1"
   local expected_type="$2"

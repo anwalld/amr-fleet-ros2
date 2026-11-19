@@ -16,6 +16,15 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((RANDOM % 200 + 20))}"
 LOG_DIR="$(mktemp -d /tmp/robot_mission_recovery.XXXXXX)"
 PIDS=()
 cleanup() {
+  local status=$?
+  # 失败时把自起节点日志的末尾打进用例日志，否则临时目录一删就没有现场了。
+  if (( status != 0 )); then
+    for f in "${LOG_DIR}"/*.log; do
+      [[ -f "${f}" ]] || continue
+      echo "===== tail ${f##*/} =====" >&2
+      tail -n 60 "${f}" >&2
+    done
+  fi
   for pid in "${PIDS[@]:-}"; do
     kill "${pid}" >/dev/null 2>&1 || true
   done

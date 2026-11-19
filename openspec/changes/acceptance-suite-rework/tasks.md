@@ -49,10 +49,10 @@
 
 ## 7. 新增交通与车队用例（specs 里对应的四条要求）
 
-- [ ] 7.1 `traffic:block_replan`（`core` 栈）：按规格断言 replan 通知、`replan_required`、解封后获授予。验证：`bash -n`；进夜跑。
-- [ ] 7.2 `traffic:whole_route_retry_wait`（`core` 栈，`traffic_reservation_mode=whole_route`，关闭死锁解除）：有效期内能检出环，过期后不再检出。验证：同上。
-- [ ] 7.3 `traffic:deadlock_pause_clear`（`core` 栈，用 `warehouse_stations.yaml`，没有避让点）：断言 `/traffic/yield` 发出 pause、`/traffic/state` 的暂停计数为 1、被冻结的车申请被拒、清除预约后可以再申请。验证：同上。
-- [ ] 7.4 `fleet:agent_station_task`（`fleet_sim` 栈）：2 单都完成；`/v2/list_remote_tasks` 的状态正确；agent_events 每单各一条；车回到停车位；交通状态里没有残留的路段。验证：同上。
+- [x] 7.1 `traffic:block_replan`（`core` 栈）：按规格断言 replan 通知、`replan_required`、解封后获授予。验证：`bash -n`；进夜跑。
+- [x] 7.2 `traffic:whole_route_retry_wait`（`core` 栈，`traffic_reservation_mode=whole_route`，关闭死锁解除）：有效期内能检出环，过期后不再检出。验证：同上。
+- [x] 7.3 `traffic:deadlock_pause_clear`（`core` 栈，用 `warehouse_stations.yaml`，没有避让点）：断言 `/traffic/yield` 发出 pause、`/traffic/state` 的暂停计数为 1、被冻结的车申请被拒、清除预约后可以再申请。验证：同上。
+- [x] 7.4 `fleet:agent_station_task`（`fleet_sim` 栈）：2 单都完成；`/v2/list_remote_tasks` 的状态正确；agent_events 每单各一条；车回到停车位；交通状态里没有残留的路段。验证：同上。
 
 ## 8. 接口全覆盖（design D8）
 

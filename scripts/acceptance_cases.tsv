@@ -99,3 +99,7 @@ lint	interfaces_split	check_robot_interfaces_split.sh	none	10	60	upstream
 lint	script_timeouts	lint_script_timeouts.py	none	10	60	rework
 lint	case_map	lint_case_map.py	none	10	60	rework
 lint	assertion_alternation	lint_assertion_alternation.py	none	10	60	rework
+traffic	block_replan	check_traffic_block_replan.sh	core	60	120	rework
+traffic	whole_route_retry_wait	check_traffic_whole_route_retry_wait.sh	self	60	120	rework
+traffic	deadlock_pause_clear	check_traffic_deadlock_pause_clear.sh	self	60	120	rework
+fleet	agent_station_task	check_fleet_agent_station_task.sh	fleet_sim	300	600	rework

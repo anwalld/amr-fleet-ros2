@@ -286,6 +286,17 @@ print("\t".join([robots, mode, g("network") or network, rc, g("tasks_finished"),
 PY
 }
 
+# 一组压测完成的任务数；summary.json 缺失或读不出时输出 -1。
+stress_tasks_finished() {
+  python3 - "$1" <<'PY2'
+import json, sys
+try:
+    print(int(json.load(open(sys.argv[1])).get("tasks_finished") or 0))
+except Exception:
+    print(-1)
+PY2
+}
+
 stage_5() {
   local stress="${SCRIPT_DIR}/run_fleet_traffic_stress.sh"
   [[ -x "${stress}" ]] || skip "找不到 ${stress}"
@@ -294,7 +305,8 @@ stage_5() {
     skip "压测脚本还没有死锁指标列（M3 tasks 8.1 未完成）；M2 吞吐数据见 docs/baseline/M2.md"
   dry && skip "DRY_RUN：压测脚本已有死锁列；6 组 × ${STRESS_MINUTES} 分钟留给夜跑"
   printf "%s\n" "${METRICS_HEADER}" > "${SDIR}/metrics.tsv"
-  local robots mode rc fails=0 dir capture
+  local robots mode rc fails=0 dir capture tasks
+  local -a stalled=()
   for robots in 2 4 6; do
     for mode in whole_route rolling; do
       dir="${SDIR}/stress_${robots}_${mode}"
@@ -309,14 +321,19 @@ stage_5() {
       ros_sweep
       metrics_row "${robots}" "${mode}" "${rc}" "${dir}/summary.json" >> "${SDIR}/metrics.tsv"
       (( rc == 0 )) || fails=$((fails + 1))
+      # 每组须完成任务：违规为 0 但一单不成（开局即卡死）也判失败；暂停次数只记录
+      # （acceptance-suite-rework specs：压测每组须完成任务）。
+      tasks="$(stress_tasks_finished "${dir}/summary.json")"
+      (( tasks > 0 )) || stalled+=("${robots}台${mode}（完成 ${tasks} 单）")
     done
   done
-  summary "6 组中 ${fails} 组退出码非 0（1 = 有安全违规，2 = 车队没就绪）；路网 ${STRESS_NETWORK}，每组 ${STRESS_MINUTES} 分钟"
+  summary "6 组中 ${fails} 组退出码非 0（1 = 有安全违规，2 = 车队没就绪），${#stalled[@]} 组没有完成任务；路网 ${STRESS_NETWORK}，每组 ${STRESS_MINUTES} 分钟"
+  (( ${#stalled[@]} == 0 )) || summary "没有完成任务的组：${stalled[*]}"
   capture_summary "${SDIR}" "stress_*/console.jsonl"
   summary ""
   awk -F'\t' 'NR==1 { h="|"; s="|"; for (i=1;i<=NF;i++) { h=h" "$i" |"; s=s" --- |" } print h; print s; next }
               { r="|"; for (i=1;i<=NF;i++) r=r" "$i" |"; print r }' "${SDIR}/metrics.tsv" >> "${SDIR}/summary.md"
-  (( fails == 0 ))
+  (( fails == 0 && ${#stalled[@]} == 0 ))
 }
 
 stage_6() {

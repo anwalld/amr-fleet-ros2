@@ -58,5 +58,4 @@ CMakeLists.txt.user*
 .DS_Store
 *.swp
 *~
-core
 core.[0-9]*

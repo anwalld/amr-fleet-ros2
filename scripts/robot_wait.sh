@@ -180,6 +180,26 @@ expect_close() {
   echo "ok: $1 ≈ $3"
 }
 
+# 等事件日志里出现指定任务的 FINISHED 记录（比轮询 /mission_runner/state 不怕错过很快结束的任务）。
+# 每次查询带超时，查不到下一轮再查。用法：wait_mission_event_finished <mission_id> <timeout_sec>
+wait_mission_event_finished() {
+  local mission_id="$1" timeout_sec="$2" out
+  local deadline=$((SECONDS + timeout_sec))
+  while true; do
+    out="$(timeout 15s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+      "{limit: 100, state_filter: FINISHED, mission_id_filter: ${mission_id}}" 2>/dev/null || true)"
+    if rg -q "mission_ids=\\['${mission_id}'\\]" <<<"${out}" && rg -q "states=\\['FINISHED'\\]" <<<"${out}"; then
+      echo "mission ${mission_id} FINISHED"
+      return 0
+    fi
+    if (( SECONDS >= deadline )); then
+      echo "mission ${mission_id} did not finish within ${timeout_sec}s; last events: ${out}" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 wait_topic_type() {
   local topic_name="$1"
   local expected_type="$2"

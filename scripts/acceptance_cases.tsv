@@ -66,8 +66,7 @@ business	scenario_workflows	check_scenario_workflows.sh	amr_demo	110	220	upstrea
 business	scenario_facility_workflow	check_scenario_facility_workflow.sh	amr_demo	80	160	upstream
 business	scenario_station_sequence	check_scenario_station_sequence.sh	amr_demo	110	220	upstream
 business	scenario_station_sequence_cancel	check_scenario_station_sequence_cancel.sh	amr_demo	10	60	upstream
-business	industry_workflows	check_industry_workflows.sh	amr_demo	300	600	upstream
-business	more_industry_workflows	check_more_industry_workflows.sh	amr_demo	300	600	upstream
+business	scenario_workflow_shapes	check_scenario_workflow_shapes.sh	amr_demo	300	600	rework
 safety	dynamic_route	check_dynamic_route_block.sh	self	20	60	upstream
 safety	dynamic_speed	check_dynamic_speed_limit.sh	self	10	60	upstream
 safety	obstacle_stop	check_amr_obstacle_safety_stop.sh	self	30	60	upstream

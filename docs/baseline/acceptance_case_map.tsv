@@ -11,3 +11,5 @@ amr_sim:assets	lint:assets	不需要起栈的静态检查，归入 lint 套件
 business:fleet_preview	business:fleet_dispatch	三个用例各测一组车队服务又各自完整跑同一种本地 fleet_station 任务；合并后全部断言保留并加强，任务只跑一遍
 business:fleet_runtime	business:fleet_dispatch	三个用例各测一组车队服务又各自完整跑同一种本地 fleet_station 任务；合并后全部断言保留并加强，任务只跑一遍
 business:fleet_task_pool	business:fleet_dispatch	三个用例各测一组车队服务又各自完整跑同一种本地 fleet_station 任务；合并后全部断言保留并加强，任务只跑一遍
+business:industry_workflows	business:scenario_workflow_shapes	11 个行业模板执行路径相同；验收改为全部受理检查加两种执行形态各完整跑一个，模板路径有效性由 GoogleTest industry_scenarios_test 校验
+business:more_industry_workflows	business:scenario_workflow_shapes	11 个行业模板执行路径相同；验收改为全部受理检查加两种执行形态各完整跑一个，模板路径有效性由 GoogleTest industry_scenarios_test 校验

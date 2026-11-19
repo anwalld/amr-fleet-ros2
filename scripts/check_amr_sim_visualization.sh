@@ -83,9 +83,10 @@ wait_service_type /v2/set_dynamic_speed_limit "robot_interfaces_navigation/srv/S
 wait_service_type /v2/report_obstacle_blockage "robot_interfaces_navigation/srv/ReportObstacleBlockage" 30 \
   "${LOG_DIR}/wait_obstacle.err"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_docking robot_interfaces_mission/srv/RequestDocking \
-  "{dock_id: main_dock, request_id: sim_visual, priority: 50, start_if_idle: true, preempt_current: false, simulate_contact_success: true}" \
-  | rg "success=True|state='APPROACHING'"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_docking robot_interfaces_mission/srv/RequestDocking \
+  "{dock_id: main_dock, request_id: sim_visual, priority: 50, start_if_idle: true, preempt_current: false, simulate_contact_success: true}")"
+rg "success=True" <<<"${_rg_out}"
+rg "state='APPROACHING'" <<<"${_rg_out}"
 
 deadline=$((SECONDS + 40))
 while true; do
@@ -110,33 +111,41 @@ awk -v x="${odom_x}" -v y="${odom_y}" 'BEGIN { exit !(x < -2.0 && y < -2.0) }' |
   exit 1
 }
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_payload_loaded robot_interfaces_facility/srv/SetPayloadLoaded \
-  "{loaded: true, payload_id: sim_tote, weight_kg: 8.5, message: rviz visual demo}" \
-  | rg "success=True|payload_id='sim_tote'|loaded=True"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_payload_loaded robot_interfaces_facility/srv/SetPayloadLoaded \
+  "{loaded: true, payload_id: sim_tote, weight_kg: 8.5, message: rviz visual demo}")"
+rg "success=True" <<<"${_rg_out}"
+rg "payload_id='sim_tote'" <<<"${_rg_out}"
+rg "loaded=True" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_station_confirmation robot_interfaces_facility/srv/RequestStationConfirmation \
-  "{confirmation_id: sim_load_confirm, station_id: receiving, action: load_tote, mission_id: sim_visual, operator_hint: confirm simulated loading, timeout_sec: 0, timeout_policy: manual}" \
-  | rg "success=True|confirmation_id='sim_load_confirm'"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_station_confirmation robot_interfaces_facility/srv/RequestStationConfirmation \
+  "{confirmation_id: sim_load_confirm, station_id: receiving, action: load_tote, mission_id: sim_visual, operator_hint: confirm simulated loading, timeout_sec: 0, timeout_policy: manual}")"
+rg "success=True" <<<"${_rg_out}"
+rg "confirmation_id='sim_load_confirm'" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
-  "{from_station: receiving, to_station: storage_a, reason: sim_visual_block}" \
-  | rg "success=True|route_edge:receiving__storage_a"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
+  "{from_station: receiving, to_station: storage_a, reason: sim_visual_block}")"
+rg "success=True" <<<"${_rg_out}"
+rg "route_edge:receiving__storage_a" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_lift_session robot_interfaces_facility/srv/RequestLiftSession \
-  "{session_id: sim_lift, lift_id: freight_elevator, requester_id: sim_visual, from_station: packing, to_station: floor_2_dropoff, release_existing_for_requester: true}" \
-  | rg "success=True|freight_elevator"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_lift_session robot_interfaces_facility/srv/RequestLiftSession \
+  "{session_id: sim_lift, lift_id: freight_elevator, requester_id: sim_visual, from_station: packing, to_station: floor_2_dropoff, release_existing_for_requester: true}")"
+rg "success=True" <<<"${_rg_out}"
+rg "freight_elevator" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/reserve_facility_resource robot_interfaces_facility/srv/ReserveFacilityResource \
-  "{resource_id: receiving_door, holder_id: sim_visual_door, mission_id: sim_visual, release_existing_for_holder: false}" \
-  | rg "success=True|receiving_door"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/reserve_facility_resource robot_interfaces_facility/srv/ReserveFacilityResource \
+  "{resource_id: receiving_door, holder_id: sim_visual_door, mission_id: sim_visual, release_existing_for_holder: false}")"
+rg "success=True" <<<"${_rg_out}"
+rg "receiving_door" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
-  "{speed_limit_mps: 0.25, reason: sim_visual_slow_zone}" \
-  | rg "success=True|0.25"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
+  "{speed_limit_mps: 0.25, reason: sim_visual_slow_zone}")"
+rg "success=True" <<<"${_rg_out}"
+rg "0.25" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
-  "{blockage_id: sim_obstacle, reason: simulated obstacle, pause_active: false}" \
-  | rg "success=True|sim_obstacle"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
+  "{blockage_id: sim_obstacle, reason: simulated obstacle, pause_active: false}")"
+rg "success=True" <<<"${_rg_out}"
+rg "sim_obstacle" <<<"${_rg_out}"
 
 wait_marker_text "charging dock: CHARGING" 30
 wait_marker_text "payload on robot: sim_tote" 30

@@ -79,9 +79,10 @@ start_bg station_auto_confirm station_auto_confirm_loop acceptance_tote "${LOG_D
 start_x="$(read_odom_field pose.pose.position.x)"
 start_y="$(read_odom_field pose.pose.position.y)"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
-  "{order_id: sim_station_motion, order_type: station_transport, priority: 20, payload_json: 'pickup_station=receiving;dropoff_station=storage_b;start_if_idle=true;preempt_current=false', tags: [amr_sim_station_motion]}" \
-  | rg "accepted=True|station_order_sim_station_motion"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
+  "{order_id: sim_station_motion, order_type: station_transport, priority: 20, payload_json: 'pickup_station=receiving;dropoff_station=storage_b;start_if_idle=true;preempt_current=false', tags: [amr_sim_station_motion]}")"
+rg "accepted=True" <<<"${_rg_out}"
+rg "station_order_sim_station_motion" <<<"${_rg_out}"
 
 wait_finished_event "station_order_sim_station_motion" 90
 

@@ -84,17 +84,25 @@ wait_path_has_pose 90
 
 wait_topic_sample /navigate_sequence/current_path nav_msgs/msg/Path 90 \
   "${LOG_DIR}/nav_sequence_path.txt"
-rg "poses:|position:" "${LOG_DIR}/nav_sequence_path.txt"
+rg "poses:" "${LOG_DIR}/nav_sequence_path.txt"
+rg "position:" "${LOG_DIR}/nav_sequence_path.txt"
 wait_topic_sample /navigate_sequence/current_goal geometry_msgs/msg/PoseStamped 90 \
   "${LOG_DIR}/nav_sequence_goal.txt"
 rg "position:" "${LOG_DIR}/nav_sequence_goal.txt"
 
 wait_topic_sample /amr_simulation/demo_timeline std_msgs/msg/String 60 \
   "${LOG_DIR}/timeline.txt"
-rg "当前阶段:|下一阶段:|进度:" "${LOG_DIR}/timeline.txt"
+rg "当前阶段:" "${LOG_DIR}/timeline.txt"
+rg "下一阶段:" "${LOG_DIR}/timeline.txt"
+rg "进度:" "${LOG_DIR}/timeline.txt"
 
 wait_topic_sample /amr_simulation/markers visualization_msgs/msg/MarkerArray 60 \
   "${LOG_DIR}/markers.txt"
-rg "mission_panel|station_routes|safety|localization|当前阶段:|下一阶段:" "${LOG_DIR}/markers.txt"
+rg "mission_panel" "${LOG_DIR}/markers.txt"
+rg "station_routes" "${LOG_DIR}/markers.txt"
+rg "safety" "${LOG_DIR}/markers.txt"
+rg "localization" "${LOG_DIR}/markers.txt"
+rg "当前阶段:" "${LOG_DIR}/markers.txt"
+rg "下一阶段:" "${LOG_DIR}/markers.txt"
 
 echo "AMR RViz showcase topics passed"

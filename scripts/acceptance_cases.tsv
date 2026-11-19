@@ -48,7 +48,6 @@ amr_sim	task_dashboard	check_amr_task_dashboard_showcase.sh	self	30	60	upstream
 amr_sim	gazebo_sensor	check_gazebo_sensor_stack.sh	self	60	120	upstream
 amr_sim	gazebo_slam	check_gazebo_slam_runtime.sh	self	20	60	upstream
 amr_sim	gazebo_nav2	check_gazebo_nav2_runtime.sh	self	80	160	upstream
-amr_sim	full	check_full_amr_simulation_stack.sh	none	300	600	upstream
 business	order	check_business_order.sh	amr_demo	100	200	upstream
 business	catalog	check_business_order_catalog.sh	amr_demo	110	220	upstream
 business	idempotent	check_idempotent_order_submit.sh	none	20	60	upstream
@@ -56,8 +55,6 @@ business	picking_wave	check_picking_wave.sh	self	20	60	upstream
 business	replenishment	check_replenishment_order.sh	self	30	60	upstream
 business	warehouse_fulfillment	check_warehouse_fulfillment.sh	self	30	60	upstream
 business	callbacks	check_external_callbacks_and_idempotency.sh	self	20	60	upstream
-business	webhook	check_external_webhook_callbacks.sh	none	20	60	upstream
-business	fulfillment_benchmark	run_fulfillment_benchmark.sh	none	30	60	upstream
 business	vda5050_adapter	check_vda5050_adapter.sh	amr_demo	70	140	upstream
 business	vda5050_state	check_vda5050_state_bridge.sh	self	30	60	upstream
 business	vda5050_instant	check_vda5050_instant_actions.sh	self	20	60	upstream

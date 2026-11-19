@@ -1,0 +1,7 @@
+# 验收用例新旧映射（acceptance-suite-rework design D10）。夜跑阶段 3 每晚都先用这张表把上一夜的结果换算到当前用例键再对比。
+# 改名：一行；合并：多行指向同一 new_key（全部 PASS 才算 PASS）；删除：new_key 为 - 并写明理由。
+# 永久保留，以后再有删并就追加。
+old_key	new_key	reason
+amr_sim:full	-	按顺序重跑 sensor、slam、nav2、default、gazebo_entities、station_motion 6 个已有用例（每个最多 2 次），完全重复
+business:fulfillment_benchmark	-	只是跑一遍 check_warehouse_fulfillment.sh 再写一个内容固定为 PASS 的 CSV，与 business:warehouse_fulfillment 重复
+business:webhook	-	脚本全文就是 source check_external_callbacks_and_idempotency.sh，与 business:callbacks 完全相同

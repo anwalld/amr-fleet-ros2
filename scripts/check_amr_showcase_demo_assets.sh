@@ -26,7 +26,6 @@ required_files=(
   "${ROOT_DIR}/src/robot_bringup/launch/amr_demo.launch.py"
   "${ROOT_DIR}/src/robot_simulation/launch/sim.launch.py"
   "${ROOT_DIR}/scripts/generate_amr_sim_text_geometry_labels.py"
-  "${ROOT_DIR}/scripts/check_full_amr_simulation_stack.sh"
   "${ROOT_DIR}/scripts/check_amr_task_dashboard_showcase.sh"
   "${ROOT_DIR}/scripts/check_amr_rviz_showcase_topics.sh"
   "${ROOT_DIR}/scripts/check_amr_sim_gazebo_entities.sh"
@@ -45,7 +44,6 @@ for file in "${required_files[@]}"; do
 done
 
 required_scripts=(
-  "${ROOT_DIR}/scripts/check_full_amr_simulation_stack.sh"
   "${ROOT_DIR}/scripts/check_amr_task_dashboard_showcase.sh"
   "${ROOT_DIR}/scripts/check_amr_rviz_showcase_topics.sh"
   "${ROOT_DIR}/scripts/check_amr_sim_gazebo_entities.sh"

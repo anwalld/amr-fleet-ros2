@@ -13,7 +13,7 @@
 - [x] 1.3 运行器改为读用例表：取消 `eval` 和 grep 猜类型；实现 design D4 的六种栈配置，各自的启动命令、就绪条件和独立的 ROS_DOMAIN_ID；`results.tsv` 的 `kind` 列写栈名；按每个用例的 `timeout_s` 执行。验证：`bash -n`、`shellcheck` 通过；`DRY_RUN=1 scripts/nightly.sh` 的阶段 3 显示"用例表列出 99 个用例"。
 - [x] 1.4 xtrace：通过 `BASH_ENV` 和 `BASH_XTRACEFD` 为每个用例写 `<套件>__<用例>.trace`；用例失败时，日志末尾附上跟踪的最后 20 行。验证：写一个只含 `false` 的临时用例，跑一遍后 trace 存在，日志末尾能看到 `false` 这一行，标准输出里没有混入跟踪行（这个临时用例不提交）。
 - [x] 1.5 `robot_wait.sh` 的 `ROS2_CALL_TIMEOUT` 默认值改为 30 秒；新增 `lint:script_timeouts`（栈 `none`），检查用例脚本和公共助手里的 `ros2 service call`、`topic echo --once`、`action send_goal`、`tf2_echo` 都带超时，并给现有的 58 处 `topic echo --once` 补上超时。验证：lint 在本机通过；故意删掉一处超时后，lint 失败并报出文件和行号。
-- [ ] 1.6 夜跑 #1：全量 nightly，要求阶段 3 的 99 个用例与 r2 一致，或者只多出原因已经清楚的变化（例如 plc、tf_tree 换栈后的结果）。逐条记录在回查记录的草稿里。
+- [x] 1.6 夜跑 #1：全量 nightly，要求阶段 3 的 99 个用例与 r2 一致，或者只多出原因已经清楚的变化（例如 plc、tf_tree 换栈后的结果）。逐条记录在回查记录的草稿里。
 
 ## 2. 产品修复：设施资源执行后保持（design D9）
 

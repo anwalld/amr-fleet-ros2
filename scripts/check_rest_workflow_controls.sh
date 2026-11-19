@@ -64,10 +64,11 @@ timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/update_fleet_robot_stat
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
   "{robot_id: robot_2, enabled: true, state: available, battery_voltage: 24.2, current_station_id: receiving, update_enabled: true, update_state: true, update_battery_voltage: true, update_current_station_id: true}" \
   | rg "success=True"
-call_submit_order remote_rest_control fleet_station 20 \
+_rg_out="$(call_submit_order remote_rest_control fleet_station 20 \
   "task_id=remote_rest_control;required_capability=station_transport;pickup_station=receiving;dropoff_station=storage_a;start_if_idle=true;preempt_current=false" \
-  fleet_station_task \
-  | rg "accepted=True|remote_fleet_task_remote_rest_control"
+  fleet_station_task)"
+rg "accepted=True" <<<"${_rg_out}"
+rg "remote_fleet_task_remote_rest_control" <<<"${_rg_out}"
 
 python3 - "http://127.0.0.1:${PORT}" "${AUDIT_LOG}" <<'PY'
 import json

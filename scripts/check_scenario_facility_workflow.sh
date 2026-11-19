@@ -11,14 +11,21 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
-  "{scenario_id: warehouse}" \
-  | rg "open_receiving_door|facility_action|receiving_door|open|inbound_to_storage|station_transport"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
+  "{scenario_id: warehouse}")"
+rg "open_receiving_door" <<<"${_rg_out}"
+rg "facility_action" <<<"${_rg_out}"
+rg "receiving_door" <<<"${_rg_out}"
+rg "open" <<<"${_rg_out}"
+rg "inbound_to_storage" <<<"${_rg_out}"
+rg "station_transport" <<<"${_rg_out}"
 
-call_submit_order facility_workflow_alpha scenario_workflow 0 \
+_rg_out="$(call_submit_order facility_workflow_alpha scenario_workflow 0 \
   "scenario_id=warehouse;workflow_id=door_assisted_inbound;order_id=facility_workflow_alpha;start_if_idle=true;preempt_current=false" \
-  scenario_workflow \
-  | rg "accepted=True|facility_action_facility_workflow_alpha_step_1|station_order_fleet_facility_workflow_alpha_step_2"
+  scenario_workflow)"
+rg "accepted=True" <<<"${_rg_out}"
+rg "facility_action_facility_workflow_alpha_step_1" <<<"${_rg_out}"
+rg "station_order_fleet_facility_workflow_alpha_step_2" <<<"${_rg_out}"
 
 for mission_id in facility_action_facility_workflow_alpha_step_1 station_order_fleet_facility_workflow_alpha_step_2; do
   deadline=$((SECONDS + 90))
@@ -39,8 +46,9 @@ for mission_id in facility_action_facility_workflow_alpha_step_1 station_order_f
   done
 done
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
-  "{resource_type: door, include_disabled: false}" \
-  | rg "receiving_door|available=True"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
+  "{resource_type: door, include_disabled: false}")"
+rg "receiving_door" <<<"${_rg_out}"
+rg "available=True" <<<"${_rg_out}"
 
 echo "scenario facility workflow passed"

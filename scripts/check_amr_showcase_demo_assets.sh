@@ -61,13 +61,23 @@ for script in "${required_scripts[@]}"; do
   fi
 done
 
-rg "任务看板|mission_panel|LaserScan|Map|Path|Goal" "${RVIZ_CONFIG}"
-rg "showcase_environment_polish|label_robot_1|label_obstacle_clear_status" "${WORLD_TEMPLATE}"
+rg "任务看板" "${RVIZ_CONFIG}"
+rg "mission_panel" "${RVIZ_CONFIG}"
+rg "LaserScan" "${RVIZ_CONFIG}"
+rg "Map" "${RVIZ_CONFIG}"
+rg "Path" "${RVIZ_CONFIG}"
+rg "Goal" "${RVIZ_CONFIG}"
+rg "showcase_environment_polish" "${WORLD_TEMPLATE}"
+rg "label_robot_1" "${WORLD_TEMPLATE}"
+rg "label_obstacle_clear_status" "${WORLD_TEMPLATE}"
 rg -F 'file://${simulation_media_path}/text_meshes/label_robot_1.obj' "${WORLD_TEMPLATE}" >/dev/null
 rg -F 'file://${simulation_media_path}/text_meshes/label_obstacle_clear_status.obj' "${WORLD_TEMPLATE}" >/dev/null
-rg "<ambient>0.000 0.000 0.000 1</ambient>|<diffuse>0.000 0.000 0.000 1</diffuse>" "${WORLD_TEMPLATE}" >/dev/null
-rg "mtllib label_text_black.mtl|usemtl label_text_black" "${TEXT_MESH_DIR}/label_robot_1.obj" "${TEXT_MESH_DIR}/label_door.obj" >/dev/null
-rg "Kd 0.000 0.000 0.000|Ka 0.000 0.000 0.000" "${TEXT_MESH_DIR}/label_text_black.mtl" >/dev/null
+rg "<ambient>0.000 0.000 0.000 1</ambient>" "${WORLD_TEMPLATE}" >/dev/null
+rg "<diffuse>0.000 0.000 0.000 1</diffuse>" "${WORLD_TEMPLATE}" >/dev/null
+rg "mtllib label_text_black.mtl" "${TEXT_MESH_DIR}/label_robot_1.obj" "${TEXT_MESH_DIR}/label_door.obj" >/dev/null
+rg "usemtl label_text_black" "${TEXT_MESH_DIR}/label_robot_1.obj" "${TEXT_MESH_DIR}/label_door.obj" >/dev/null
+rg "Kd 0.000 0.000 0.000" "${TEXT_MESH_DIR}/label_text_black.mtl" >/dev/null
+rg "Ka 0.000 0.000 0.000" "${TEXT_MESH_DIR}/label_text_black.mtl" >/dev/null
 python3 - "${TEXT_MESH_DIR}" <<'PY'
 import sys
 from pathlib import Path
@@ -101,7 +111,7 @@ if bad:
     print("\n".join(bad), file=sys.stderr)
     sys.exit(1)
 PY
-if rg "albedo_map|../media/labels|<plane><normal>0 0 1</normal><size>" "${WORLD_TEMPLATE}" >/dev/null; then
+if rg "albedo_map|../media/labels|<plane><normal>0 0 1</normal><size>" "${WORLD_TEMPLATE}" >/dev/null; then  # lint:allow-alternation 否定检查：这些旧写法一个都不能出现
   echo "Gazebo labels must be texture-free geometry, not planes or PNG albedo maps" >&2
   exit 1
 fi

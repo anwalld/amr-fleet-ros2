@@ -2,7 +2,7 @@
 
 **验证规则**
 - 白天：只跑单测和静态检查：`colcon build/test --packages-select <改动的包>`、`bash -n`、`shellcheck`、lint 用例（栈为 `none`，不起 ROS）。
-- 全栈验证（验收用例、压测、场景、冒烟）一律交给当晚的 `scripts/nightly.sh`。夜里补跑个别用例用 `ONLY_CASES`，也只在夜里跑。用户明确授权的白天运行除外。
+- 全栈验证（验收用例、压测、场景、冒烟）一律交给夜跑，按 3 夜安排（用户 2026-11-19 确认）：#1 只验证新运行器；#2 一次跑完其余全部改动；#3 修完后全绿、建基线、回查；#4 仅在 #3 未全绿时备用。两夜之间的白天，经用户授权，可用 `ONLY_CASES` 只复跑失败的用例。
 - 本变更**不留"修不好就删"的退路**：删除和豁免只能是 design D1、D2 里已经写明的那几条。新冒出的情况要先回来问用户。
 - 提交、推送、开 PR 之前，都要先问用户。每个产品修复单独一个提交。
 
@@ -27,7 +27,7 @@
 - [x] 3.3 时间竞争与丢消息（design D1，2026-11-19 实施时更正了 recovery、low_battery_dock 的根因）：`mission:runner`、`mission:controls` 改到 `core` 栈，controls 用约 40 个点的长任务，runner 自己调用 `/start_mission_profile`；`mission:recovery` 改为 `self`，用无 Nav2 时稳定失败的导航序列服务触发 `NEEDS_OPERATOR`；`safety:low_battery_dock` 和 `mission:preflight` 的低电量消息改为连续发布。验证：`bash -n`；进夜跑 #2，要求 4 个都 PASS。
 - [x] 3.4 `business:picking_wave`：删掉过时的 `report_short_pick` 步骤，断言 `confirm_pick` 直接进入 `SHORT_PICK`、`short_quantity=2`。验证：进夜跑 #2。
 - [ ] 3.5 `amr_sim:gazebo_entities`：读 `amr_sim_gazebo_entity_bridge_node` 的显示规则，改为先触发对应事件、再查对应标签可见，同时核对没有触发的标签保持隐藏。验证：进夜跑 #2。
-- [ ] 3.6 `amr_sim:gazebo_nav2`：让 `/map_server` 生命周期的等待上限和就绪条件与实际启动顺序一致（只加长轮询，不重跑）。验证：进夜跑 #2 和 #3，两夜都 PASS。
+- [ ] 3.6 `amr_sim:gazebo_nav2`：让 `/map_server` 生命周期的等待上限和就绪条件与实际启动顺序一致（只加长轮询，不重跑）。验证：夜跑 #2、#3 两夜都 PASS。
 
 ## 4. 待定性的两条（design D1、Open Questions）
 
@@ -45,7 +45,7 @@
 ## 6. 断言加强（design D7）
 
 - [x] 6.1 新增 `lint:assertion_alternation`，并给出白名单（只放格式变体）。验证：在现状上运行，能报出约 121 + 124 处候选，清单存进提交说明。
-- [ ] 6.2 按套件拆开并加强断言，依次为 mission、facility、amr_sim、business、safety、ops，每个套件一个提交，跳过第 2、3、5 组已经处理过的脚本。每个套件提交后当夜跑一次，新暴露的失败按 design D1 的思路处理；查出产品缺陷的，单独提交、补规格增量，并先告诉用户。验证：`lint:assertion_alternation` 通过；6 个套件的夜跑都全绿。
+- [ ] 6.2 按套件拆开并加强断言，依次为 mission、facility、amr_sim、business、safety、ops，每个套件一个提交，跳过第 2、3、5 组已经处理过的脚本。6 个套件都在夜跑 #2 之前写完、一起验证；新暴露的失败按 design D1 的思路处理，查出产品缺陷的单独提交、补规格增量，并先告诉用户。验证：`lint:assertion_alternation` 通过；夜跑 #3 全绿。
 
 ## 7. 新增交通与车队用例（specs 里对应的四条要求）
 

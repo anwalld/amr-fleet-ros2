@@ -122,10 +122,24 @@ assert robots["success"] and robots["robots"], robots
 resources = get("/api/facilities/resources", {"include_disabled": "true"})
 assert resources["success"] and resources["resources"], resources
 
+# 站点运输批量单经 REST（design D8 补覆盖 /api/station_order_batches）；不开跑，只看受理。
+batch = post("/api/station_order_batches", {
+    "batch_id": "rest_batch_alpha",
+    "order_ids": ["rest_batch_1", "rest_batch_2"],
+    "pickup_station_ids": ["receiving", "storage_b"],
+    "dropoff_station_ids": ["storage_a", "packing"],
+    "priority": 0,
+    "start_if_idle": False,
+    "continue_on_error": True,
+})
+assert batch["success"], batch
+assert len(batch["mission_ids"]) == 2, batch
+
 print("REST_SUBMIT=" + json.dumps(submit, sort_keys=True))
 print("REST_EVENTS=" + json.dumps(events, sort_keys=True))
 print("REST_ROBOTS=" + str(len(robots["robots"])))
 print("REST_RESOURCES=" + str(len(resources["resources"])))
+print("REST_BATCH=" + json.dumps(batch, sort_keys=True))
 PY
 
 echo "rest gateway passed"

@@ -56,10 +56,10 @@
 
 ## 8. 接口全覆盖（design D8）
 
-- [ ] 8.1 写提取脚本，按 D8 的规则从 `src/` 和 REST 网关提取接口清单，生成 `docs/baseline/interface_coverage.tsv` 的初稿，包括带车号话题的手工登记行。验证：清单数量与这次盘点一致（服务 99、固定名字的话题和动作 38、REST 路由 26），有出入的逐条说明。
-- [ ] 8.2 补用例：`ops:navigate_sequence_controls`（`core`）、`ops:chassis_mock`（`mock_bringup`）、`ops:manual_takeover`、`ops:path_tracking`（tracking.launch.py）、`ops:experiment_statistics`、`ops:legacy_entries`（4 个旧入口各调一次，`legacy_usage` 的白名单只放这一个脚本）；把 4 条没覆盖的 REST 路由并进 rest 的两个用例。验证：`bash -n`；进夜跑。
-- [ ] 8.3 IMU 磁校准：先查 `imu_100d4_parser_node` 有没有不接硬件的输入方式。有，就新增 `ops:imu_calibration`；确实需要硬件的，**先回来请用户决定**要不要登记为例外。验证：结论写进覆盖表的 note 列。
-- [ ] 8.4 新增 `lint:interface_coverage`，按规格做三项检查。验证：本机运行通过；临时加一个没有登记的服务名，lint 失败。
+- [x] 8.1 写提取脚本，按 D8 的规则从 `src/` 和 REST 网关提取接口清单，生成 `docs/baseline/interface_coverage.tsv` 的初稿，包括带车号话题的手工登记行。验证：清单数量与这次盘点一致（服务 99、固定名字的话题和动作 38、REST 路由 26），有出入的逐条说明。
+- [x] 8.2 补用例：`ops:navigate_sequence_controls`（`core`）、`ops:chassis_mock`（`mock_bringup`）、`ops:manual_takeover`、`ops:path_tracking`（tracking.launch.py）、`/experiment/statistics` 并入 `ops:path_tracking`（tracking.launch.py 带实验节点）、`ops:legacy_entries`（4 个旧入口各调一次，`legacy_usage` 的白名单只放这一个脚本）；把 4 条没覆盖的 REST 路由并进 rest 的两个用例。验证：`bash -n`；进夜跑。
+- [x] 8.3 IMU 磁校准：先查 `imu_100d4_parser_node` 有没有不接硬件的输入方式。有，就新增 `ops:imu_calibration`；确实需要硬件的，**先回来请用户决定**要不要登记为例外。验证：结论写进覆盖表的 note 列。
+- [x] 8.4 新增 `lint:interface_coverage`，按规格做三项检查。验证：本机运行通过；临时加一个没有登记的服务名，lint 失败。
 
 ## 9. 夜跑判定（specs：阶段 3、5、7）
 

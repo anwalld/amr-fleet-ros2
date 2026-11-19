@@ -35,10 +35,12 @@ rg -n \
 report_match "legacy robot_interfaces service client found in repository code:" \
   "${tmp_dir}/static_clients.txt"
 
+# check_legacy_entries.sh 是旧入口兼容用例（ops:legacy_entries），唯一允许直接调用旧入口的脚本。
 rg -n \
   "robot_interfaces/srv/Submit|/submit_transport_order|/submit_station_transport_order|/submit_fleet_station_task|/submit_business_order|/submit_scenario_task|/submit_scenario_workflow|/submit_vda5050_order|/submit_picking_wave|/submit_replenishment_order|/submit_milk_run" \
   scripts src/robot_simulation tools \
   --glob '!scripts/check_robot_interfaces_legacy_usage.sh' \
+  --glob '!scripts/check_legacy_entries.sh' \
   | grep -v "兼容入口" >"${tmp_dir}/legacy_submit_examples.txt" || true
 report_match "legacy Submit* usage found outside compatibility notes:" \
   "${tmp_dir}/legacy_submit_examples.txt"

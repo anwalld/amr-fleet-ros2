@@ -44,7 +44,7 @@
 
 ## 6. 断言加强（design D7）
 
-- [ ] 6.1 新增 `lint:assertion_alternation`，并给出白名单（只放格式变体）。验证：在现状上运行，能报出约 121 + 124 处候选，清单存进提交说明。
+- [x] 6.1 新增 `lint:assertion_alternation`，并给出白名单（只放格式变体）。验证：在现状上运行，能报出约 121 + 124 处候选，清单存进提交说明。
 - [ ] 6.2 按套件拆开并加强断言，依次为 mission、facility、amr_sim、business、safety、ops，每个套件一个提交，跳过第 2、3、5 组已经处理过的脚本。每个套件提交后当夜跑一次，新暴露的失败按 design D1 的思路处理；查出产品缺陷的，单独提交、补规格增量，并先告诉用户。验证：`lint:assertion_alternation` 通过；6 个套件的夜跑都全绿。
 
 ## 7. 新增交通与车队用例（specs 里对应的四条要求）

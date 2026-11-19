@@ -144,6 +144,9 @@ wait_marker_text "confirm: load_tote" 30
 wait_marker_text "blocked: sim_obstacle" 30
 wait_marker_text "speed limit: 0.25 mps" 30
 wait_marker_text "elevator: lift_session" 30
-wait_marker_text "mission: " 30
+# 任务看板（amr_sim_visualizer_node 的 AddMissionPanel）从初始提交起就是中英双语的"当前任务 task: …"，
+# 没有 "mission: " 前缀；原断言从未匹配过（4.1 定性：脚本过时）。
+wait_marker_text "AMR任务看板 / task_board" 30
+wait_marker_text "当前任务 task: " 30
 
 echo "amr simulation visualization passed"

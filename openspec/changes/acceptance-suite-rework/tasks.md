@@ -31,7 +31,7 @@
 
 ## 4. 待定性的两条（design D1、Open Questions）
 
-- [ ] 4.1 `amr_sim:visualization`：读 `amr_sim_visualizer_node`，确认 `mission: ` 文字标记该不该发。如果是脚本过时就改脚本；如果是产品缺陷就修产品，加单测，并用 `/opsx:update` 补规格增量（先告诉用户）。验证：结论写进回查记录；进夜跑。
+- [x] 4.1 `amr_sim:visualization`：读 `amr_sim_visualizer_node`，确认 `mission: ` 文字标记该不该发。如果是脚本过时就改脚本；如果是产品缺陷就修产品，加单测，并用 `/opsx:update` 补规格增量（先告诉用户）。验证：结论写进回查记录；进夜跑。
 - [ ] 4.2 `business:vda5050_mqtt`：先改为失败时保留桥的输出目录，再夜跑一次定性，处理方式同 4.1。验证：同上。
 
 ## 5. 删并与换层（design D2、D10）

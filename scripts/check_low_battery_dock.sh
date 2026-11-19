@@ -13,11 +13,11 @@ seen_dock=false
 deadline=$((SECONDS + 20))
 while true; do
   active_goal="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field active_goal_id 2>/tmp/robot_low_battery_dock_state.err || true
   )"
   state="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state 2>/tmp/robot_low_battery_dock_state.err || true
   )"
 

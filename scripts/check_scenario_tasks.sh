@@ -10,7 +10,7 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
   "{scenario_id: warehouse}" \
   | rg "success=True|inbound_to_storage"
 
@@ -23,11 +23,11 @@ seen_order=false
 deadline=$((SECONDS + 90))
 while true; do
   active_goal="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field active_goal_id 2>/tmp/robot_scenario_state.err || true
   )"
   state="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state 2>/tmp/robot_scenario_state.err || true
   )"
 

@@ -75,7 +75,7 @@ python3 -m json.tool "${LOG_DIR}/pause_state.json" >/dev/null
 rg '"action_type": "pause"' "${LOG_DIR}/pause_state.json"
 rg '"accepted": true' "${LOG_DIR}/pause_state.json"
 rg '"action_state": "FINISHED"' "${LOG_DIR}/pause_state.json"
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
   "{order_id: vda_instant_alpha}" >"${LOG_DIR}/paused_status.out"
 rg "state='PAUSED'" "${LOG_DIR}/paused_status.out"
 rg "paused=True" "${LOG_DIR}/paused_status.out"
@@ -103,7 +103,7 @@ python3 -m json.tool "${LOG_DIR}/cancel_state.json" >/dev/null
 rg '"action_type": "cancelOrder"' "${LOG_DIR}/cancel_state.json"
 rg '"accepted": true' "${LOG_DIR}/cancel_state.json"
 rg '"action_state": "FINISHED"' "${LOG_DIR}/cancel_state.json"
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
   "{order_id: vda_instant_alpha}" >"${LOG_DIR}/canceled_status.out"
 rg "success=False" "${LOG_DIR}/canceled_status.out"
 rg "total_steps=0" "${LOG_DIR}/canceled_status.out"

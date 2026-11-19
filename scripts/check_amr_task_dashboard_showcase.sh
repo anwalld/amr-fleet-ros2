@@ -16,7 +16,7 @@ LOG_DIR="$(mktemp -d /tmp/robot_task_dashboard.XXXXXX)"
 PIDS=()
 
 cleanup() {
-  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
+  timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
     "{from_station: storage_a, to_station: packing}" >/dev/null 2>&1 || true
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "$pid" >/dev/null 2>&1; then

@@ -12,11 +12,11 @@ call_submit_order cancel_alpha scenario_workflow 0 \
   scenario_workflow \
   | rg "accepted=True|station_order_fleet_cancel_alpha_step_1|station_order_fleet_cancel_alpha_step_2|queue_size=2"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
   "{order_id: cancel_alpha, cancel_active: false}" \
   | rg "success=True|station_order_fleet_cancel_alpha_step_1|station_order_fleet_cancel_alpha_step_2|active_cancel_requested=False|queue_size=0"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
   "{order_id: cancel_alpha, cancel_active: false}" \
   | rg "success=False|workflow has no queued mission: cancel_alpha|queue_size=0"
 

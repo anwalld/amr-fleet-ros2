@@ -11,7 +11,7 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/estimate_station_sequence robot_interfaces_mission/srv/EstimateStationSequence \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/estimate_station_sequence robot_interfaces_mission/srv/EstimateStationSequence \
   "{station_ids: [receiving, storage_a, packing, dock], nominal_speed_mps: 0.5, battery_voltage: 24.5}" \
   | rg "success=True|estimate_station_sequence|waypoint_count=4|distance_m=3.9|battery_sufficient=True"
 
@@ -26,21 +26,21 @@ seen_third=false
 deadline=$((SECONDS + 180))
 while true; do
   state="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state 2>/tmp/robot_station_sequence_state.err || true
   )"
 
-  if timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: FINISHED, mission_id_filter: station_sequence_sequence_alpha_leg_1}" \
     2>/tmp/robot_station_sequence_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
     seen_first=true
   fi
-  if timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: FINISHED, mission_id_filter: station_sequence_sequence_alpha_leg_2}" \
     2>/tmp/robot_station_sequence_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
     seen_second=true
   fi
-  if timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: FINISHED, mission_id_filter: station_sequence_sequence_alpha_leg_3}" \
     2>/tmp/robot_station_sequence_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
     seen_third=true

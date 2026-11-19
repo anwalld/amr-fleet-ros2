@@ -7,17 +7,17 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 wait_service_type /start_mission_profile "std_srvs/srv/Trigger" 10 /tmp/robot_mission_events_start.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_mission_events_state_topic.err
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
 
 seen_demo=false
 deadline=$((SECONDS + 25))
 while true; do
   active_goal="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field active_goal_id 2>/tmp/robot_mission_events_state.err || true
   )"
   state="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state 2>/tmp/robot_mission_events_state.err || true
   )"
 
@@ -38,11 +38,11 @@ while true; do
   sleep 1
 done
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: '', mission_id_filter: demo_patrol}" \
   | rg "success=True|demo_patrol|FINISHED|STARTING"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 5, state_filter: FINISHED, mission_id_filter: demo_patrol}" \
   | rg "success=True|states=\\['FINISHED'\\]|demo_patrol"
 

@@ -11,7 +11,7 @@ call_submit_order campus_cancel_alpha scenario_workflow 0 \
   scenario_workflow \
   | rg "accepted=True|station_sequence_campus_cancel_alpha_step_1_leg_1|queue_size=4"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
   "{order_id: campus_cancel_alpha, cancel_active: false}" \
   | rg "success=True|station_sequence_campus_cancel_alpha_step_1_leg_1|station_sequence_campus_cancel_alpha_step_1_leg_4|queue_size=0"
 

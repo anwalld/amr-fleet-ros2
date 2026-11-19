@@ -52,19 +52,19 @@ ros2 service type /v2/cancel_queued_mission | rg "robot_interfaces_mission/srv/C
 ros2 service type /v2/preempt_mission_profile | rg "robot_interfaces_mission/srv/PreemptMission"
 ros2 topic type /mission_runner/state | rg "robot_interfaces/msg/RobotState"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${cancel_me}\", priority: 1, start_if_idle: false}" | rg "success=True"
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
   "{mission_id: cancel_me, cancel_active: false}" | rg "success=True"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${long_running}\", priority: 1, start_if_idle: true}" | rg "success=True"
 
 seen_long=false
 deadline=$((SECONDS + 12))
 while true; do
   active_goal="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field active_goal_id 2>/tmp/robot_queue_control_state.err || true
   )"
   if grep -q "long_running" <<<"${active_goal}"; then
@@ -78,7 +78,7 @@ while true; do
   sleep 1
 done
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/preempt_mission_profile robot_interfaces_mission/srv/PreemptMission \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/preempt_mission_profile robot_interfaces_mission/srv/PreemptMission \
   "{mission_file: \"${urgent}\", priority: 100}" | rg "success=True"
 
 seen_urgent=false
@@ -86,11 +86,11 @@ seen_urgent=false
 deadline=$((SECONDS + 60))
 while true; do
   active_goal="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field active_goal_id 2>/tmp/robot_queue_control_state.err || true
   )"
   state="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state 2>/tmp/robot_queue_control_state.err || true
   )"
 

@@ -9,19 +9,19 @@ wait_service_type /v2/release_facility_resource "robot_interfaces_facility/srv/R
 wait_service_type /v2/request_charging "robot_interfaces_mission/srv/RequestCharging" 10 /tmp/robot_charging_request.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_charging_state_topic.err
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
   "{resource_type: charger, include_disabled: false}" \
   | rg "success=True|charger_main|available=\\[True"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/reserve_facility_resource robot_interfaces_facility/srv/ReserveFacilityResource \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/reserve_facility_resource robot_interfaces_facility/srv/ReserveFacilityResource \
   "{resource_id: receiving_door, holder_id: operator_a, mission_id: manual_door_check, release_existing_for_holder: true}" \
   | rg "success=True"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
   "{resource_id: receiving_door, holder_id: operator_a}" \
   | rg "success=True"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/request_charging robot_interfaces_mission/srv/RequestCharging \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_charging robot_interfaces_mission/srv/RequestCharging \
   "{request_id: charge_alpha, charger_id: charger_main, priority: 80, start_if_idle: true, preempt_current: false}" \
   | rg "success=True"
 
@@ -29,11 +29,11 @@ seen_charging=false
 deadline=$((SECONDS + 25))
 while true; do
   active_goal="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field active_goal_id 2>/tmp/robot_charging_state.err || true
   )"
   state="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state 2>/tmp/robot_charging_state.err || true
   )"
 
@@ -54,11 +54,11 @@ while true; do
   sleep 1
 done
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
   "{resource_type: charger, include_disabled: false}" \
   | rg "occupied|charging_request_charge_alpha"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
   "{resource_id: charger_main, holder_id: charging_request_charge_alpha}" \
   | rg "success=True"
 

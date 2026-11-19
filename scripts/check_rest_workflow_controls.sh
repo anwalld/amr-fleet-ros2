@@ -58,10 +58,10 @@ wait_service_type /v2/update_fleet_robot_state "robot_interfaces_fleet/srv/Updat
 wait_service_type /v2/update_remote_task_state "robot_interfaces_fleet/srv/UpdateRemoteTaskState" 20 "${LOG_DIR}/wait_remote_task.err"
 wait_service_type /v2/get_operator_snapshot "robot_interfaces_business/srv/GetOperatorSnapshot" 20 "${LOG_DIR}/wait_snapshot.err"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
   "{robot_id: robot_1, enabled: true, state: busy, battery_voltage: 24.0, current_station_id: dock, update_enabled: true, update_state: true, update_battery_voltage: true, update_current_station_id: true}" \
   | rg "success=True"
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
   "{robot_id: robot_2, enabled: true, state: available, battery_voltage: 24.2, current_station_id: receiving, update_enabled: true, update_state: true, update_battery_voltage: true, update_current_station_id: true}" \
   | rg "success=True"
 call_submit_order remote_rest_control fleet_station 20 \

@@ -51,11 +51,11 @@ wait_submit_order 20 "${LOG_DIR}/wait_submit.err"
 wait_service_type /v2/cancel_queued_mission "robot_interfaces_mission/srv/CancelQueuedMission" 20 \
   "${LOG_DIR}/wait_cancel.err"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
   "{from_station: receiving, to_station: storage_a, reason: aisle maintenance}" \
   | rg "success=True|resource_id='route_edge:receiving__storage_a'"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
   | rg "success=True|route_edge:receiving__storage_a|traffic_block:aisle_maintenance|blocked"
 
 call_submit_order blocked_route_alpha station_transport 10 \
@@ -63,7 +63,7 @@ call_submit_order blocked_route_alpha station_transport 10 \
   station_transport_order \
   | rg "accepted=False|route resource locked|traffic_block:aisle_maintenance"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
   "{from_station: receiving, to_station: storage_a}" \
   | rg "success=True|resource_id='route_edge:receiving__storage_a'"
 
@@ -72,14 +72,14 @@ call_submit_order clear_route_alpha station_transport 10 \
   station_transport_order \
   | rg "accepted=True|station_order_clear_route_alpha|queue_size=1"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
   | rg "success=True|route_edge:receiving__storage_a|station_order_clear_route_alpha|mission"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/clear_traffic_reservation robot_interfaces_mission/srv/ClearTrafficReservation \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/clear_traffic_reservation robot_interfaces_mission/srv/ClearTrafficReservation \
   "{resource_id: 'route_edge:receiving__storage_a'}" \
   | rg "success=True|owner_id='station_order_clear_route_alpha'"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
   "{mission_id: station_order_clear_route_alpha, cancel_active: false}" \
   | rg "success=True|queue_size=0"
 

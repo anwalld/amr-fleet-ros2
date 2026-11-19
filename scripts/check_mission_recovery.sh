@@ -15,13 +15,13 @@ ros2 service type /v2/get_mission_recovery_state | rg "robot_interfaces_mission/
 ros2 service type /reset_mission_recovery_state | rg "std_srvs/srv/Trigger"
 ros2 topic type /mission_runner/state | rg "robot_interfaces/msg/RobotState"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /reset_mission_recovery_state std_srvs/srv/Trigger "{}" | rg "success=True|success: true"
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True|success: true"
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /reset_mission_recovery_state std_srvs/srv/Trigger "{}" | rg "success=True|success: true"
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True|success: true"
 
 deadline=$((SECONDS + 30))
 last_state=""
 while true; do
-  last_state="$(ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState --field state 2>/tmp/robot_mission_recovery_state.err || true)"
+  last_state="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState --field state 2>/tmp/robot_mission_recovery_state.err || true)"
   if grep -q "NEEDS_OPERATOR" <<<"${last_state}"; then
     echo "${last_state}"
     break
@@ -37,6 +37,6 @@ while true; do
   sleep 1
 done
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_mission_recovery_state robot_interfaces_mission/srv/GetMissionRecoveryState "{}" | tee /tmp/robot_mission_recovery_response.txt
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_mission_recovery_state robot_interfaces_mission/srv/GetMissionRecoveryState "{}" | tee /tmp/robot_mission_recovery_response.txt
 rg "retry_count=1|retry_count: 1" /tmp/robot_mission_recovery_response.txt
 rg "last_recovery_action='manual'|last_recovery_action: manual" /tmp/robot_mission_recovery_response.txt

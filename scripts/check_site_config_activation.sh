@@ -53,14 +53,14 @@ wait_service_type /v2/activate_site_config "robot_interfaces_site/srv/ActivateSi
 wait_service_type /v2/rollback_site_config "robot_interfaces_site/srv/RollbackSiteConfig" 20 \
   "${LOG_DIR}/wait_rollback.err"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/activate_site_config robot_interfaces_site/srv/ActivateSiteConfig \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/activate_site_config robot_interfaces_site/srv/ActivateSiteConfig \
   "{bundle_dir: ${BUNDLE_V1}, version_id: site_v1, require_valid: true}" \
   >"${LOG_DIR}/activate_v1.out"
 rg "success=True" "${LOG_DIR}/activate_v1.out"
 rg "active_version_id='site_v1'" "${LOG_DIR}/activate_v1.out"
 rg "previous_version_id=''" "${LOG_DIR}/activate_v1.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/activate_site_config robot_interfaces_site/srv/ActivateSiteConfig \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/activate_site_config robot_interfaces_site/srv/ActivateSiteConfig \
   "{bundle_dir: ${BUNDLE_V2}, version_id: site_v2, require_valid: true}" \
   >"${LOG_DIR}/activate_v2.out"
 rg "success=True" "${LOG_DIR}/activate_v2.out"
@@ -68,7 +68,7 @@ rg "active_version_id='site_v2'" "${LOG_DIR}/activate_v2.out"
 rg "previous_version_id='site_v1'" "${LOG_DIR}/activate_v2.out"
 rg "active_version=site_v1; next_version=site_v2" "${LOG_DIR}/activate_v2.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/rollback_site_config robot_interfaces_site/srv/RollbackSiteConfig \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/rollback_site_config robot_interfaces_site/srv/RollbackSiteConfig \
   "{}" >"${LOG_DIR}/rollback.out"
 rg "success=True" "${LOG_DIR}/rollback.out"
 rg "active_version_id='site_v1'" "${LOG_DIR}/rollback.out"

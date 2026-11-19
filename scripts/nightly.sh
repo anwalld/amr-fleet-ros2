@@ -32,7 +32,7 @@
 # 注意：所有 ros2 service call 都必须带 timeout。FastDDS 在高负载下会丢服务应答，
 # 不带超时的调用会一直挂到用例的 600 秒上限。本脚本自身不直接调用 ros2 service call；
 # 被调用的脚本若要调用，必须用 `timeout <秒> ros2 service call ...`（现有脚本统一为
-# `timeout "${ROS2_CALL_TIMEOUT:-120}"`，默认 120 秒，可用环境变量调）。报告里会列出
+# `timeout "${ROS2_CALL_TIMEOUT:-30}"`，默认 30 秒，可用环境变量调；用例脚本另由 lint:script_timeouts 检查）。报告里会列出
 # scripts/ 下仍有不带 timeout 的 ros2 service call 的脚本。
 
 # 阶段函数经 "stage_${N}" 间接调用，shellcheck 看不出来。
@@ -191,9 +191,8 @@ stage_3() {
   [[ -x "${runner}" ]] || { summary "找不到 ${runner}"; exit 1; }
   if dry; then
     local n
-    n=$(bash -c "eval \"\$(sed -n '/^suite_cases() {/,/^}/p' '${SCRIPT_DIR}/check_robot.sh')\"; \
-      for s in mission facility amr_sim business safety ops; do suite_cases \$s; done" | wc -w)
-    skip "DRY_RUN：验收运行器存在，check_robot.sh 列出 ${n} 个用例"
+    n=$(grep -v '^#' "${SCRIPT_DIR}/acceptance_cases.tsv" | awk -F'\t' 'NF && $1 != "suite"' | wc -l | tr -d ' ')
+    skip "DRY_RUN：验收运行器存在，用例表列出 ${n} 个用例"
   fi
   "${runner}" "${SDIR}/acceptance" > "${SDIR}/runner.log" 2>&1
   local results="${SDIR}/acceptance/results.tsv"

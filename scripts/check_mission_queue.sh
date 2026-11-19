@@ -39,9 +39,9 @@ YAML
 ros2 service type /v2/enqueue_mission_profile | rg "robot_interfaces_mission/srv/EnqueueMission"
 ros2 topic type /mission_runner/state | rg "robot_interfaces/msg/RobotState"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${low}\", priority: 1, start_if_idle: false}" | rg "success=True"
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${high}\", priority: 10, start_if_idle: true}" | rg "success=True"
 
 seen_high=false
@@ -49,11 +49,11 @@ seen_low=false
 deadline=$((SECONDS + 25))
 while true; do
   active_goal="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field active_goal_id 2>/tmp/robot_mission_queue_state.err || true
   )"
   state="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state 2>/tmp/robot_mission_queue_state.err || true
   )"
 

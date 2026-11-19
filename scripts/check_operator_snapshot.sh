@@ -10,7 +10,7 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 5}" \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 5}" \
   | rg "success=True|operator snapshot|fleet_robot_ids=\\[|facility_resource_ids=\\[|business_types=\\["
 
 call_submit_order operator_alpha business 0 \
@@ -21,7 +21,7 @@ call_submit_order operator_alpha business 0 \
 for mission in facility_action_business_operator_alpha_step_1 station_order_fleet_business_operator_alpha_step_2; do
   deadline=$((SECONDS + 90))
   while true; do
-    if timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission}}" \
       2>/tmp/robot_operator_snapshot_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
       break
@@ -34,7 +34,7 @@ for mission in facility_action_business_operator_alpha_step_1 station_order_flee
   done
 done
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 20}" \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 20}" \
   | rg "success=True|FINISHED|facility_action_business_operator_alpha_step_1|station_order_fleet_business_operator_alpha_step_2|business_types=\\["
 
 echo "operator snapshot passed"

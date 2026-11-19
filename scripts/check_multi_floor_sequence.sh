@@ -35,7 +35,7 @@ wait_mission_finished() {
   local mission_id="$1"
   local deadline=$((SECONDS + 60))
   while true; do
-    timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 30, state_filter: FINISHED, mission_id_filter: ${mission_id}}" \
       >"${LOG_DIR}/${mission_id}.event" 2>"${LOG_DIR}/${mission_id}.err" || true
     if rg "success=True" "${LOG_DIR}/${mission_id}.event" >/dev/null &&
@@ -70,7 +70,7 @@ wait_submit_order 20 "${LOG_DIR}/wait_sequence.err"
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 20 \
   "${LOG_DIR}/wait_events.err"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/request_lift_session robot_interfaces_facility/srv/RequestLiftSession \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_lift_session robot_interfaces_facility/srv/RequestLiftSession \
   "{session_id: floor_sequence_lift_alpha, lift_id: freight_elevator, requester_id: robot_1, from_station: receiving, to_station: packing, release_existing_for_requester: true}" \
   >"${LOG_DIR}/request_lift.out"
 rg "success=True" "${LOG_DIR}/request_lift.out"
@@ -88,14 +88,14 @@ rg "station_sequence_floor_alpha_leg_2" "${LOG_DIR}/submit_sequence.out"
 wait_mission_finished "station_sequence_floor_alpha_leg_1"
 wait_mission_finished "station_sequence_floor_alpha_leg_2"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_lift_state robot_interfaces_facility/srv/GetLiftState \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_lift_state robot_interfaces_facility/srv/GetLiftState \
   "{lift_id: freight_elevator}" >"${LOG_DIR}/lift_reserved.out"
 rg "success=True" "${LOG_DIR}/lift_reserved.out"
 rg "available=False" "${LOG_DIR}/lift_reserved.out"
 rg "holder_id='robot_1'" "${LOG_DIR}/lift_reserved.out"
 rg "status='lift_session'" "${LOG_DIR}/lift_reserved.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/release_lift_session robot_interfaces_facility/srv/ReleaseLiftSession \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_lift_session robot_interfaces_facility/srv/ReleaseLiftSession \
   "{session_id: floor_sequence_lift_alpha, lift_id: freight_elevator}" \
   >"${LOG_DIR}/release_lift.out"
 rg "success=True" "${LOG_DIR}/release_lift.out"

@@ -35,7 +35,7 @@ wait_for_estop() {
   local deadline=$((SECONDS + 10))
   while true; do
     local state
-    state="$(ros2 topic echo --once /emergency_stop/state std_msgs/msg/Bool --field data 2>/tmp/robot_fault_estop.err || true)"
+    state="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /emergency_stop/state std_msgs/msg/Bool --field data 2>/tmp/robot_fault_estop.err || true)"
     if grep -qi "${expected}" <<<"${state}"; then
       echo "${state}"
       return

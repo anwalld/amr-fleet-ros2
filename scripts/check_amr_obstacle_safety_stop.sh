@@ -108,7 +108,7 @@ wait_topic_type /safety_state "robot_interfaces/msg/SafetyState" 20 "${LOG_DIR}/
 publish_probe_cmd
 wait_cmd_linear_condition "x > 0.10" 20
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
   "{blockage_id: sim_safety_stop_probe, reason: safety stop probe, pause_active: false}" \
   >"${LOG_DIR}/report_obstacle.out"
 rg "success=True" "${LOG_DIR}/report_obstacle.out"
@@ -117,7 +117,7 @@ rg "state='OBSTACLE_BLOCKED'" "${LOG_DIR}/report_obstacle.out"
 wait_safety_state "OBSTACLE_BLOCKED" 20
 wait_cmd_linear_condition "x < 0.02 && x > -0.02" 20
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/clear_obstacle_blockage robot_interfaces_navigation/srv/ClearObstacleBlockage \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/clear_obstacle_blockage robot_interfaces_navigation/srv/ClearObstacleBlockage \
   "{blockage_id: sim_safety_stop_probe, resolution: safety stop probe cleared, resume_active: false}" \
   >"${LOG_DIR}/clear_obstacle.out"
 rg "success=True" "${LOG_DIR}/clear_obstacle.out"

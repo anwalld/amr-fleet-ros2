@@ -11,11 +11,11 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
   "{robot_id: robot_2, enabled: true, state: available, battery_voltage: 25.2, current_station_id: receiving, update_enabled: false, update_state: true, update_battery_voltage: true, update_current_station_id: true}" \
   | rg "success=True|robot_2|state='available'|battery_voltage=25\\.2|current_station_id='receiving'"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_fleet_robots robot_interfaces_fleet/srv/ListFleetRobots \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_fleet_robots robot_interfaces_fleet/srv/ListFleetRobots \
   "{capability: station_transport, include_disabled: false}" \
   | rg "success=True|robot_2|available|25\\.2|receiving"
 
@@ -24,7 +24,7 @@ call_submit_order runtime_remote fleet_station 45 \
   fleet_station_task \
   | rg "accepted=True|remote_fleet_task_runtime_remote|dispatched remote fleet task runtime_remote to robot_2"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
+timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
   "{robot_id: robot_2, enabled: true, state: charging, battery_voltage: 23.0, current_station_id: dock, update_enabled: false, update_state: true, update_battery_voltage: true, update_current_station_id: true}" \
   | rg "success=True|robot_2|state='charging'|battery_voltage=23\\.0|current_station_id='dock'"
 
@@ -37,11 +37,11 @@ seen_task=false
 deadline=$((SECONDS + 90))
 while true; do
   active_goal="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field active_goal_id 2>/tmp/robot_fleet_runtime_state.err || true
   )"
   state="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state 2>/tmp/robot_fleet_runtime_state.err || true
   )"
 

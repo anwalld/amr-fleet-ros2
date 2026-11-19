@@ -11,7 +11,7 @@ ros2 topic type /mission_runner/state | rg "robot_interfaces/msg/RobotState"
 
 deadline=$((SECONDS + 20))
 while true; do
-  state="$(ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState --field state 2>/tmp/robot_mission_runner_state.err || true)"
+  state="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState --field state 2>/tmp/robot_mission_runner_state.err || true)"
   if grep -q "FINISHED" <<<"${state}"; then
     echo "${state}"
     exit 0

@@ -15,10 +15,12 @@ wait_service_type /v2/list_traffic_reservations "robot_interfaces_mission/srv/Li
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-call_submit_order route_lock_a station_transport 10 \
+_rg_out="$(call_submit_order route_lock_a station_transport 10 \
   "pickup_station=receiving;dropoff_station=storage_a;start_if_idle=false;preempt_current=false" \
-  station_transport_order \
-  | rg "accepted=True|station_order_route_lock_a|queue_size=1"
+  station_transport_order)"
+rg "accepted=True" <<<"${_rg_out}"
+rg "station_order_route_lock_a" <<<"${_rg_out}"
+rg "queue_size=1" <<<"${_rg_out}"
 
 # 新语义：同一路线的第二单不再被拒，而是排进任务队列。
 call_submit_order route_lock_b station_transport 10 \
@@ -37,9 +39,11 @@ if rg "station_order_route_lock" /tmp/robot_route_lock_list.out >/dev/null; then
   exit 1
 fi
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
-  "{mission_id: station_order_route_lock_a, cancel_active: false}" \
-  | rg "success=True|removed queued mission station_order_route_lock_a|queue_size=1"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
+  "{mission_id: station_order_route_lock_a, cancel_active: false}")"
+rg "success=True" <<<"${_rg_out}"
+rg "removed queued mission station_order_route_lock_a" <<<"${_rg_out}"
+rg "queue_size=1" <<<"${_rg_out}"
 
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
 
@@ -47,7 +51,7 @@ deadline=$((SECONDS + 120))
 while true; do
   if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 80, state_filter: FINISHED, mission_id_filter: station_order_route_lock_b}" \
-    2>/tmp/robot_route_lock_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
+    2>/tmp/robot_route_lock_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
     break
   fi
   if (( SECONDS >= deadline )); then

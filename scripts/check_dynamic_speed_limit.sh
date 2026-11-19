@@ -43,12 +43,16 @@ wait_service_type /v2/set_dynamic_speed_limit "robot_interfaces_navigation/srv/S
   "${LOG_DIR}/wait_speed_limit.err"
 wait_topic_type /cmd_vel "geometry_msgs/msg/Twist" 20 "${LOG_DIR}/wait_cmd_vel.err"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
-  "{speed_limit_mps: 0.2, reason: narrow aisle}" \
-  | rg "success=True|runtime_speed_limit_mps=0.2|effective_speed_limit_mps=0.2"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
+  "{speed_limit_mps: 0.2, reason: narrow aisle}")"
+rg "success=True" <<<"${_rg_out}"
+rg "runtime_speed_limit_mps=0.2" <<<"${_rg_out}"
+rg "effective_speed_limit_mps=0.2" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /safety_state robot_interfaces/msg/SafetyState \
-  | rg "state: SPEED_LIMITED|runtime_speed_limit_mps: 0.2|effective_speed_limit_mps: 0.2"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /safety_state robot_interfaces/msg/SafetyState)"
+rg "state: SPEED_LIMITED" <<<"${_rg_out}"
+rg "runtime_speed_limit_mps: 0.2" <<<"${_rg_out}"
+rg "effective_speed_limit_mps: 0.2" <<<"${_rg_out}"
 
 python3 - <<'PY'
 import math
@@ -84,8 +88,10 @@ if not seen_limited:
     raise SystemExit("cmd_vel did not reflect dynamic speed limit")
 PY
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
-  "{speed_limit_mps: 0.0, reason: clear aisle}" \
-  | rg "success=True|runtime_speed_limit_mps=0.0|effective_speed_limit_mps=0.6"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
+  "{speed_limit_mps: 0.0, reason: clear aisle}")"
+rg "success=True" <<<"${_rg_out}"
+rg "runtime_speed_limit_mps=0.0" <<<"${_rg_out}"
+rg "effective_speed_limit_mps=0.6" <<<"${_rg_out}"
 
 echo "dynamic speed limit passed"

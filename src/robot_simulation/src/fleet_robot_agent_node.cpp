@@ -29,6 +29,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "robot_interfaces_fleet/srv/list_fleet_robots.hpp"
 #include "robot_interfaces_fleet/srv/list_remote_tasks.hpp"
+#include "robot_simulation/agent_idle.hpp"
 #include "robot_interfaces_fleet/srv/update_remote_task_state.hpp"
 #include "robot_interfaces_mission/msg/traffic_grant.hpp"
 #include "robot_interfaces_mission/msg/traffic_state.hpp"
@@ -638,8 +639,10 @@ class FleetTaskAgent final : public rclcpp::Node {
                       r->priorities.empty() ? 0 : r->priorities[0]);
             return;
           }
-          if (r->task_ids.empty() && phase_ == Phase::kIdle && return_home_when_idle_ &&
-              current_station_ != home_station_id_ && task_id_.empty()) {
+          if (r->task_ids.empty() &&
+              robot_simulation::ShouldReturnHomeWhenIdle(
+                  return_home_when_idle_, !task_id_.empty(), phase_ == Phase::kIdle,
+                  completed_any_task_, current_station_, home_station_id_)) {
             goal_ = Goal::kHome;
             goal_station_ = home_station_id_;
             priority_ = 0;
@@ -1062,6 +1065,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     message << "finished by " << robot_id_ << " duration_s=" << (finished - task_started_t_)
             << " wait_route_s=" << task_wait_s_ << " distance_m=" << task_distance_m_;
     UpdateTaskState("FINISHED", message.str());
+    completed_any_task_ = true;
     std::ostringstream event;
     event.setf(std::ios::fixed);
     event.precision(3);
@@ -1119,6 +1123,8 @@ class FleetTaskAgent final : public rclcpp::Node {
   double whole_route_retry_s_ = 2.0;
   double rolling_rerequest_s_ = 2.0;
   bool return_home_when_idle_ = true;
+  // 至少完成过一个任务后，空闲时才回停车位（见 agent_idle.hpp）。
+  bool completed_any_task_ = false;
   double control_period_s_ = 0.05;
 
   Phase phase_ = Phase::kLoadMap;

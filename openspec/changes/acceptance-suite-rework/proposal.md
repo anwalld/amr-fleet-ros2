@@ -43,6 +43,8 @@ M4-core 已经实现，正等着做全栈验证；M5 要按 M1 的方式拆出 `
 
 ### Modified Capabilities
 
+- `fleet-robot-agent`：空闲回停车位改为仅在至少完成过一个任务之后（夜跑 #1 发现：给了 `home_stations` 的车一启动就同时驶回停车位，在场景布置好之前自己堵成环，阶段 6 由 9/9 掉到 1/9）。
+
 - `acceptance-validation`：
   - 运行器：用例表、按用例选栈、分档 timeout、xtrace；
   - 阶段 3 判定改为全部 PASS，并用映射表对照；

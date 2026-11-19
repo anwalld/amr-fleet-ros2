@@ -3,7 +3,7 @@
 # 用法：scripts/run_deadlock_scenarios.sh <输出目录> [遍数，默认 3]
 # 环境变量：SCENARIOS="head_on ring3 outside_wait"（默认全部）、ROUND_TIMEOUT（每遍秒数上限，默认 420）
 #
-# 每遍整栈重启：以 start_stations 把车摆到场景需要的站点，拉起 fleet_sim（workshop_2way，
+# 每遍整栈重启：以 start_stations 把车摆到场景需要的站点（home_stations 把停车位放在停车区），拉起 fleet_sim（workshop_2way，
 # 死锁解除开启，不开 Gazebo），再由 deadlock_scenarios.py 下单、判定，结果追加到
 # <输出目录>/deadlock_scenarios.tsv（场景、遍次、是否检出、解除动作、让路车、解除耗时毫秒、结论）。
 # 每遍的启动日志与判定输出：<输出目录>/scenario_<场景>_<遍次>.{launch.log,out}
@@ -47,6 +47,7 @@ trap stop_stack EXIT
 fails=0
 for scenario in ${SCENARIO_LIST}; do
   stations="$(python3 "${SCRIPT_DIR}/deadlock_scenarios.py" --scenario "${scenario}" --print-start-stations)"
+  homes="$(python3 "${SCRIPT_DIR}/deadlock_scenarios.py" --scenario "${scenario}" --print-home-stations)"
   robots="$(awk -F, '{ print NF }' <<<"${stations}")"
   for round in $(seq 1 "${ROUNDS}"); do
     tag="scenario_${scenario}_${round}"
@@ -55,6 +56,7 @@ for scenario in ${SCENARIO_LIST}; do
     setsid ros2 launch robot_bringup fleet_sim.launch.py \
       fleet_size:="${robots}" network:=workshop_2way traffic_reservation_mode:=rolling \
       traffic_deadlock_resolution_enabled:=true start_stations:="${stations}" \
+      home_stations:="${homes}" \
       > "${OUT_DIR}/${tag}.launch.log" 2>&1 < /dev/null &
     LAUNCH_PGID=$!
 

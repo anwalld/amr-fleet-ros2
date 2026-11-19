@@ -58,6 +58,17 @@ TSV_HEADER = ["scenario", "round", "detected", "action", "yield_robot", "resolut
               "detect_s", "tasks_done", "violations", "verdict", "note"]
 
 
+# 场景车辆的停车位（空闲时回去的站点）：放在停车区。起点都在横穿段上，若停车位等于起点，
+# 办完单回"家"的车会停在别的车的终点或必经站点上（outside_wait 里 robot_3 回 jn_n 挡住
+# robot_1 的终点），那是停车占位问题，不是死锁解除要测的东西。
+SCENARIO_HOMES = ["park_1", "park_2", "park_3"]
+
+
+def home_stations(scenario):
+    """供 shell 脚本取各车停车位（与 start_stations 同序）。"""
+    return ",".join(SCENARIO_HOMES[:len(SCENARIOS[scenario]["orders"])])
+
+
 def start_stations(scenario):
     """供 shell 脚本取各车起点（robot_1, robot_2, ... 的顺序）。"""
     orders = SCENARIOS[scenario]["orders"]
@@ -240,9 +251,13 @@ def main():
     parser.add_argument("--detect-timeout", type=float, default=60.0)
     parser.add_argument("--finish-timeout", type=float, default=240.0)
     parser.add_argument("--print-start-stations", action="store_true")
+    parser.add_argument("--print-home-stations", action="store_true")
     args = parser.parse_args()
     if args.print_start_stations:
         print(start_stations(args.scenario))
+        return
+    if args.print_home_stations:
+        print(home_stations(args.scenario))
         return
     rclpy.init()
     node = Scenario(args)

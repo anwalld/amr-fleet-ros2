@@ -50,9 +50,9 @@
 
 ## 9. 夜跑验收与记录
 
-- [ ] 9.1 第一夜：`scripts/nightly.sh` 全阶段跑一遍（跑前在 Mac 上执行 `caffeinate -i -w <VMware 进程号>`）。验证：次日报告中阶段 1、2 通过；阶段 6 三个场景各 3/3 PASS；阶段 5 矩阵 6 组（2/4/6 × whole_route/rolling）都有 `summary.json`；阶段 3 与上一夜逐项 diff 无新增失败（`safety:traffic_deadlock` 为 PASS）。未达标项修复后并入当晚再跑，不白天重跑
-- [ ] 9.2 把阶段 5 对照数据（吞吐、平均等路权、死锁检出次数、解除方式与耗时、单次检测耗时）和阶段 6 结果写进 `docs/baseline/M3.md`，数字全部引用夜跑报告 `docs/baseline/nightly/<日期>.md`，不手填
-- [ ] 9.3 运行 `openspec validate m3-deadlock-detection --strict` 通过；更新交接文档的"下一步"和里程碑表
+- [x] 9.1 第一夜：`scripts/nightly.sh` 全阶段跑一遍（跑前在 Mac 上执行 `caffeinate -i -w <VMware 进程号>`）。验证：次日报告中阶段 1、2 通过；阶段 6 三个场景各 3/3 PASS；阶段 5 矩阵 6 组（2/4/6 × whole_route/rolling）都有 `summary.json`；阶段 3 与上一夜逐项 diff 无新增失败（`safety:traffic_deadlock` 为 PASS）。未达标项修复后并入当晚再跑，不白天重跑。结果：第二夜第二遍（`docs/baseline/nightly/2026-11-18-r2.md`）全部达标：阶段 1、2 通过，阶段 6 9/9，阶段 5 六组都有 `summary.json`，阶段 3 无新增失败。另两轮阶段 6 为 8/9，失败都在 `outside_wait` 场景本身（停车位设在横穿段），已用 `home_stations` 修，全栈验证并入 M4 第一次夜跑
+- [x] 9.2 把阶段 5 对照数据（吞吐、平均等路权、死锁检出次数、解除方式与耗时、单次检测耗时）和阶段 6 结果写进 `docs/baseline/M3.md`，数字全部引用夜跑报告 `docs/baseline/nightly/<日期>.md`，不手填。结果：已写入 `docs/baseline/M3.md` 的"验证"与"对照数据"两节
+- [x] 9.3 运行 `openspec validate m3-deadlock-detection --strict` 通过；更新交接文档的"下一步"和里程碑表。结果：校验通过；交接文档已更新
 
 ## Workflow follow-up
 

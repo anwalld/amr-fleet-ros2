@@ -10,6 +10,8 @@ dispatcher（不在车队里），所以车队任务全部派给代理执行。
 M3：network 增加 workshop_2way（含双向段与短环，用于死锁压测与场景）；
 traffic_deadlock_resolution_enabled（默认 true）透传给任务中枢，false 时只检测不解除。
 start_stations:=a,b,c 覆盖各车起点（也是停车位），死锁场景脚本用它把车摆到指定站点。
+home_stations:=x,y,z 另给停车位（空闲时回去的站点），不给则停车位就是起点。死锁场景用它把
+停车位放到停车区，免得办完单的车回到横穿段上的起点，挡住别的车的终点。
 """
 
 from launch import LaunchDescription
@@ -39,6 +41,12 @@ def _agents(context):
         homes = [station.strip() for station in start_stations.split(",") if station.strip()]
     if fleet_size > len(homes):
         raise RuntimeError(f"network {network} only has {len(homes)} start stations")
+    parking = homes
+    home_stations = LaunchConfiguration("home_stations").perform(context).strip()
+    if home_stations:
+        parking = [station.strip() for station in home_stations.split(",") if station.strip()]
+        if fleet_size > len(parking):
+            raise RuntimeError(f"home_stations lists only {len(parking)} stations")
     nodes = []
     for index in range(fleet_size):
         robot_id = f"robot_{index + 1}"
@@ -53,7 +61,7 @@ def _agents(context):
                         "robot_id": robot_id,
                         "topic_namespace": f"/{robot_id}",
                         "initial_station_id": homes[index],
-                        "home_station_id": homes[index],
+                        "home_station_id": parking[index],
                         "kinematic_sim": True,
                         "traffic_reservation_mode": mode,
                         "max_linear_mps": max_linear,
@@ -84,6 +92,8 @@ def generate_launch_description():
             DeclareLaunchArgument("traffic_deadlock_resolution_enabled", default_value="true"),
             DeclareLaunchArgument("start_stations", default_value="",
                                   description="逗号分隔的各车起点，空 = 路网默认停车位"),
+            DeclareLaunchArgument("home_stations", default_value="",
+                                  description="逗号分隔的各车停车位，空 = 与起点相同"),
             DeclareLaunchArgument("agent_max_linear_mps", default_value="0.8"),
             DeclareLaunchArgument("agent_dwell_s", default_value="3.0"),
             IncludeLaunchDescription(

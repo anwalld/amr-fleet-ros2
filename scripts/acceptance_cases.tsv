@@ -59,9 +59,7 @@ business	vda5050_state	check_vda5050_state_bridge.sh	self	30	60	upstream
 business	vda5050_instant	check_vda5050_instant_actions.sh	self	20	60	upstream
 business	vda5050_mqtt	check_vda5050_mqtt_mock_bridge.sh	self	80	160	upstream
 business	business_benchmark	run_business_order_benchmark.sh	self	40	80	upstream
-business	fleet_preview	check_fleet_preview.sh	amr_demo	80	160	upstream
-business	fleet_runtime	check_fleet_runtime_state.sh	amr_demo	90	180	upstream
-business	fleet_task_pool	check_fleet_task_pool.sh	amr_demo	80	160	upstream
+business	fleet_dispatch	check_fleet_dispatch.sh	amr_demo	150	300	rework
 business	remote_fleet	check_remote_fleet_dispatch.sh	amr_demo	40	80	upstream
 business	scenario_tasks	check_scenario_tasks.sh	amr_demo	80	160	upstream
 business	scenario_workflows	check_scenario_workflows.sh	amr_demo	110	220	upstream

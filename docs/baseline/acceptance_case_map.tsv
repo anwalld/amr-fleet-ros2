@@ -8,3 +8,6 @@ business:webhook	-	脚本全文就是 source check_external_callbacks_and_idempo
 ops:interfaces_split	lint:interfaces_split	不需要起栈的静态检查，归入 lint 套件
 ops:operator_static	lint:operator_static	不需要起栈的静态检查，归入 lint 套件
 amr_sim:assets	lint:assets	不需要起栈的静态检查，归入 lint 套件
+business:fleet_preview	business:fleet_dispatch	三个用例各测一组车队服务又各自完整跑同一种本地 fleet_station 任务；合并后全部断言保留并加强，任务只跑一遍
+business:fleet_runtime	business:fleet_dispatch	三个用例各测一组车队服务又各自完整跑同一种本地 fleet_station 任务；合并后全部断言保留并加强，任务只跑一遍
+business:fleet_task_pool	business:fleet_dispatch	三个用例各测一组车队服务又各自完整跑同一种本地 fleet_station 任务；合并后全部断言保留并加强，任务只跑一遍

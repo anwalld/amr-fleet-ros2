@@ -133,6 +133,53 @@ write_long_mission() {
   } > "${file}"
 }
 
+# ---- 解析 ros2 service call 的响应（repr 形式），供逐项断言（acceptance-suite-rework design D7）----
+# resp_scalar <字段>          从标准输入的响应里取标量字段，去掉引号；取不到时输出空并返回 1。
+resp_scalar() {
+  python3 -c '
+import re, sys
+text, name = sys.stdin.read(), sys.argv[1]
+m = re.search(r"\b" + re.escape(name) + r"=(\x27(?:[^\x27\\]|\\.)*\x27|\"(?:[^\"\\]|\\.)*\"|[^,()\s]+)", text)
+if not m:
+    sys.exit(1)
+v = m.group(1)
+print(v[1:-1] if v[:1] in "\x27\"" else v)
+' "$1"
+}
+
+# resp_row <键数组> <键> <字段数组>   在并列数组里找到键所在下标，输出字段数组同一下标的值。
+resp_row() {
+  python3 -c '
+import ast, re, sys
+text, key_field, key, field = sys.stdin.read(), *sys.argv[1:4]
+def arr(n):
+    m = re.search(r"\b" + re.escape(n) + r"=(\[[^\]]*\])", text)
+    return ast.literal_eval(m.group(1)) if m else None
+keys, vals = arr(key_field), arr(field)
+if not keys or key not in keys or vals is None:
+    sys.exit(1)
+print(vals[keys.index(key)])
+' "$1" "$2" "$3"
+}
+
+# expect_eq <说明> <实际> <期望>
+expect_eq() {
+  if [[ "$2" != "$3" ]]; then
+    echo "expect failed: $1: got '$2', want '$3'" >&2
+    return 1
+  fi
+  echo "ok: $1 = $3"
+}
+
+# expect_close <说明> <实际> <期望> [容差，默认 0.05]
+expect_close() {
+  if ! awk -v a="$2" -v b="$3" -v t="${4:-0.05}" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(a != "" && b != "" && d <= t) }'; then
+    echo "expect failed: $1: got '$2', want '$3' (±${4:-0.05})" >&2
+    return 1
+  fi
+  echo "ok: $1 ≈ $3"
+}
+
 wait_topic_type() {
   local topic_name="$1"
   local expected_type="$2"

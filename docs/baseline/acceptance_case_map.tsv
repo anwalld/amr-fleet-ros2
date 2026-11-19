@@ -5,3 +5,6 @@ old_key	new_key	reason
 amr_sim:full	-	按顺序重跑 sensor、slam、nav2、default、gazebo_entities、station_motion 6 个已有用例（每个最多 2 次），完全重复
 business:fulfillment_benchmark	-	只是跑一遍 check_warehouse_fulfillment.sh 再写一个内容固定为 PASS 的 CSV，与 business:warehouse_fulfillment 重复
 business:webhook	-	脚本全文就是 source check_external_callbacks_and_idempotency.sh，与 business:callbacks 完全相同
+ops:interfaces_split	lint:interfaces_split	不需要起栈的静态检查，归入 lint 套件
+ops:operator_static	lint:operator_static	不需要起栈的静态检查，归入 lint 套件
+amr_sim:assets	lint:assets	不需要起栈的静态检查，归入 lint 套件

@@ -39,7 +39,7 @@
 - [x] 5.1 删除 `amr_sim:full`、`business:fulfillment_benchmark`、`business:webhook` 的用例表行；脚本文件如果没有别的引用，也一并删除。新建 `docs/baseline/acceptance_case_map.tsv`，为这 3 个用例写 `new_key=-` 和理由。验证：`grep` 确认这几个脚本没有其他引用。
 - [ ] 5.2 合并为 `business:fleet_dispatch`：三个旧脚本的全部断言都保留（并加强），本地任务只跑一遍；映射表写 3 行。验证：逐条核对旧断言在新脚本里都有对应（核对表附在提交说明里）；进夜跑。
 - [ ] 5.3 新增 GoogleTest：载入 `industry_scenarios.yaml` 和对应的站点文件，断言 12 个模板的每一步都能解析出有效路径。新增 `business:scenario_workflow_shapes`：两种执行形态各完整跑一个，再对 12 个模板做下单受理检查。删除两个 industry 旧用例，映射表写 2 行。验证：`colcon test --packages-select robot_tasks` 全绿；进夜跑。
-- [ ] 5.4 把 `interfaces_split`、`legacy_usage`、`operator_static`、`amr_sim:assets` 改名到 `lint:` 套件，栈为 `none`，映射表写 4 行。验证：本机运行这 4 个 lint 用例全部通过。
+- [x] 5.4 把 `interfaces_split`、`operator_static`、`amr_sim:assets` 改名到 `lint:` 套件，栈为 `none`，映射表写 3 行；`legacy_usage` 因带在线审计留在 `ops`（见 design D2）。验证：本机运行这几个 lint 用例全部通过。
 - [ ] 5.5 单测：用例表变动时，检查映射表里的每个 `new_key` 都在用例表中、每个被删除的键都写了理由。验证：本机运行通过；故意写错一个键时失败。
 
 ## 6. 断言加强（design D7）

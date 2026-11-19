@@ -61,7 +61,7 @@
 | 删除 | `business:webhook` | 脚本全文就是 `source check_external_callbacks_and_idempotency.sh`，和 `business:callbacks` 完全一样 |
 | 合并 | `fleet_preview` + `fleet_runtime` + `fleet_task_pool` → `business:fleet_dispatch` | 三个各测一组车队服务，又各自完整跑一遍同样的本地 fleet_station 任务。合并后三者的全部断言都保留（并加强），任务只跑一遍 |
 | 换层 | `industry_workflows` + `more_industry_workflows` → `business:scenario_workflow_shapes` | 11 个模板只有两种执行形态：两步都是 fleet_station；fleet_station 加 station_sequence。验收里每种形态完整跑一个，再对全部 12 个模板只做下单受理检查。"每个模板都能解析出有效路径"改由新增的 GoogleTest 校验 `industry_scenarios.yaml` |
-| 归入 lint | `interfaces_split`、`legacy_usage`、`operator_static`、`amr_sim:assets` | 不需要起栈。改名到 `lint:` 套件下，白天和 CI 也能跑 |
+| 归入 lint | `interfaces_split`、`operator_static`、`amr_sim:assets` | 不需要起栈。改名到 `lint:` 套件下，白天和 CI 也能跑。`legacy_usage` 原列在此，实施时发现它还有一段在运行中的 ROS 图上扫描旧服务客户端的在线审计，无栈时会静默跳过，所以留在 `ops`、仍用 `amr_demo` 栈（2026-11-19 更正） |
 
 合并时的规则：旧用例的每条断言都要出现在新用例里。确实要丢掉某条断言，必须在这份 design 里写明理由。
 

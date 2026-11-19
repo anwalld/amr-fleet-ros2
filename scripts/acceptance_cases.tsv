@@ -43,7 +43,6 @@ amr_sim	robot2	check_amr_sim_robot2_namespace.sh	self	90	180	upstream
 amr_sim	traffic_wait	check_amr_sim_two_robot_traffic_wait.sh	self	100	200	upstream
 amr_sim	visualization	check_amr_sim_visualization.sh	self	110	220	upstream
 amr_sim	rviz_topics	check_amr_rviz_showcase_topics.sh	self	50	100	upstream
-amr_sim	assets	check_amr_showcase_demo_assets.sh	self	10	60	upstream
 amr_sim	task_dashboard	check_amr_task_dashboard_showcase.sh	self	30	60	upstream
 amr_sim	gazebo_sensor	check_gazebo_sensor_stack.sh	self	60	120	upstream
 amr_sim	gazebo_slam	check_gazebo_slam_runtime.sh	self	20	60	upstream
@@ -89,9 +88,7 @@ ops	rest_gateway	check_rest_gateway.sh	self	40	80	upstream
 ops	rest_workflow	check_rest_workflow_controls.sh	self	40	80	upstream
 ops	operator_snapshot	check_operator_snapshot.sh	amr_demo	80	160	upstream
 ops	operator_permissions	check_operator_permissions.sh	self	10	60	upstream
-ops	operator_static	check_operator_console_static.sh	none	10	60	upstream
 ops	udp_chassis	udp_sim_acceptance.sh	self	20	60	upstream
-ops	interfaces_split	check_robot_interfaces_split.sh	none	10	60	upstream
 ops	legacy_usage	check_robot_interfaces_legacy_usage.sh	amr_demo	20	60	upstream
 ops	site_config_validation	check_site_config_validation.sh	amr_demo	10	60	upstream
 ops	site_config_activation	check_site_config_activation.sh	amr_demo	20	60	upstream
@@ -99,4 +96,7 @@ ops	map_manager	check_map_manager.sh	mock_bringup	10	60	upstream
 ops	map_zones	check_map_zones.sh	mock_bringup	10	60	upstream
 ops	tf_tree	check_tf_tree.sh	mock_bringup	10	60	upstream
 ops	topics	check_topics.sh	amr_demo	10	60	upstream
+lint	assets	check_amr_showcase_demo_assets.sh	none	10	60	upstream
+lint	operator_static	check_operator_console_static.sh	none	10	60	upstream
+lint	interfaces_split	check_robot_interfaces_split.sh	none	10	60	upstream
 lint	script_timeouts	lint_script_timeouts.py	none	10	60	rework

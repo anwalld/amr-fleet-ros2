@@ -100,3 +100,4 @@ lint	assets	check_amr_showcase_demo_assets.sh	none	10	60	upstream
 lint	operator_static	check_operator_console_static.sh	none	10	60	upstream
 lint	interfaces_split	check_robot_interfaces_split.sh	none	10	60	upstream
 lint	script_timeouts	lint_script_timeouts.py	none	10	60	rework
+lint	case_map	lint_case_map.py	none	10	60	rework

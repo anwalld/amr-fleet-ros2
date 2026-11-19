@@ -10,7 +10,7 @@
 # 八个阶段（阶段之间互不依赖，一个失败不中断后面的；每阶段自带超时，阶段间清掉全部 ROS/Gazebo 进程）：
 #   1 编译        全量 colcon build                              build.log
 #   2 单测        colcon test 全部包                              测试汇总
-#   3 全量验收    run_acceptance_baseline.sh 99 个用例             results.tsv + 与上一夜逐项 diff
+#   3 全量验收    run_acceptance_baseline.sh 跑用例表全部用例       results.tsv；全部 PASS 才通过，与上一夜对照只作报告
 #   4 一键演示    headless amr_demo 跑一遍，按关键日志行判定        demo.log 判定结果
 #   5 交通压测    2/4/6 台 × whole_route/rolling，每组 30 分       stress_*/、metrics.tsv
 #   6 死锁场景    两车对向、三车成环、环外有车等待，各 3 遍         deadlock_scenarios.tsv
@@ -198,39 +198,21 @@ stage_3() {
   local results="${SDIR}/acceptance/results.tsv"
   [[ -f "${results}" ]] || { summary "运行器没有产出 results.tsv"; exit 1; }
   cp "${results}" "${SDIR}/results.tsv"
-  local total pass
-  total=$(tail -n +2 "${results}" | wc -l)
-  pass=$(awk -F'\t' 'NR>1 && $4=="PASS"' "${results}" | wc -l)
-  summary "通过 ${pass}/${total}"
 
-  local prev ref_label
+  # 对比基准：上一夜的结果；找不到时用新基线 docs/baseline/acceptance_baseline.tsv。
+  local prev
   prev="$(prev_night_file "stage3_acceptance/results.tsv")"
-  ref_label="上一夜 ${prev}"
-  if [[ -z "${prev}" && -f "${ROOT_DIR}/docs/baseline/m2_acceptance.tsv" ]]; then
-    prev="${ROOT_DIR}/docs/baseline/m2_acceptance.tsv"; ref_label="M2 基线 docs/baseline/m2_acceptance.tsv"
+  if [[ -z "${prev}" && -f "${ROOT_DIR}/docs/baseline/acceptance_baseline.tsv" ]]; then
+    prev="${ROOT_DIR}/docs/baseline/acceptance_baseline.tsv"
   fi
-  if [[ -z "${prev}" ]]; then
-    summary "没有可比对的上一夜结果，本夜作为基线"
-    exit 0
-  fi
-  # 逐项对比：suite:case → 状态。新失败 = 上次 PASS、这次不是；新通过 = 反过来。
-  awk -F'\t' -v OFS='\t' '
-    FNR==1 { next }
-    NR==FNR { before[$1":"$2]=$4; next }
-    { now=$4; key=$1":"$2; was=(key in before)?before[key]:"(无)";
-      if (was!=now) print key, was, now }' "${prev}" "${results}" > "${SDIR}/diff.tsv"
-  local new_fail new_pass
-  new_fail=$(awk -F'\t' '$2=="PASS" && $3!="PASS"' "${SDIR}/diff.tsv" | wc -l)
-  new_pass=$(awk -F'\t' '$2!="PASS" && $3=="PASS"' "${SDIR}/diff.tsv" | wc -l)
-  summary "对比 ${ref_label}：新失败 ${new_fail}，新通过 ${new_pass}，状态变化 $(wc -l < "${SDIR}/diff.tsv") 项"
-  if [[ -s "${SDIR}/diff.tsv" ]]; then
-    summary ""
-    summary "| 用例 | 之前 | 本夜 |"
-    summary "| --- | --- | --- |"
-    awk -F'\t' '{ printf "| `%s` | %s | %s |\n", $1, $2, $3 }' "${SDIR}/diff.tsv" >> "${SDIR}/summary.md"
-  fi
-  # 结论：没有新失败即 PASS（已知的稳定失败不算本夜回归）。
-  (( new_fail == 0 ))
+  # 判定：本夜全部用例 PASS 才算通过；对比（经映射表换算）、新增、已删除、超预算只写进报告
+  # （acceptance-suite-rework design D10）。
+  python3 "${SCRIPT_DIR}/acceptance_compare.py" "${results}" "${prev}" \
+    "${SCRIPT_DIR}/acceptance_cases.tsv" "${ROOT_DIR}/docs/baseline/acceptance_case_map.tsv" \
+    "${SDIR}/compare.md" > /dev/null
+  local rc=$?
+  cat "${SDIR}/compare.md" >> "${SDIR}/summary.md"
+  exit "${rc}"
 }
 
 # 一键演示判定：编排器的关键日志行（顺序即演示流程）全部出现，且没有动作失败。

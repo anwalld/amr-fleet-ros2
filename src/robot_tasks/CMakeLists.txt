@@ -55,6 +55,7 @@ add_library(robot_tasks_mission_profile
   src/station_transport_workflow.cpp
   src/station_catalog.cpp
   src/submit_order_router.cpp
+  src/traffic_deadlock.cpp
   src/traffic_reservation.cpp
   src/workflow_control.cpp)
 target_include_directories(robot_tasks_mission_profile PUBLIC
@@ -173,6 +174,8 @@ if(BUILD_TESTING)
   target_link_libraries(fulfillment_workflow_test robot_tasks_mission_profile)
   ament_add_gtest(traffic_reservation_test test/traffic_reservation_test.cpp)
   target_link_libraries(traffic_reservation_test robot_tasks_mission_profile)
+  ament_add_gtest(traffic_deadlock_test test/traffic_deadlock_test.cpp)
+  target_link_libraries(traffic_deadlock_test robot_tasks_mission_profile)
   ament_add_gtest(docking_workflow_test test/docking_workflow_test.cpp)
   target_link_libraries(docking_workflow_test robot_tasks_mission_profile)
   ament_add_gtest(docking_behavior_tree_test test/docking_behavior_tree_test.cpp)

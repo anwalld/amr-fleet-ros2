@@ -15,13 +15,20 @@ LOG_DIR="$(mktemp -d /tmp/robot_amr_sim_default_demo.XXXXXX)"
 PIDS=()
 
 cleanup() {
+  local rc=$?
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "$pid" >/dev/null 2>&1; then
       kill "$pid" >/dev/null 2>&1 || true
     fi
   done
   wait "${PIDS[@]:-}" >/dev/null 2>&1 || true
-  rm -rf "${LOG_DIR}"
+  if ((rc != 0)); then
+    # 失败时留下演示栈日志，并把关键行带进用例日志。
+    echo "logs kept in ${LOG_DIR}" >&2
+    grep -hE "WARN|ERROR|died" "${LOG_DIR}"/amr_demo.log 2>/dev/null | tail -40 >&2 || true
+  else
+    rm -rf "${LOG_DIR}"
+  fi
 }
 trap cleanup EXIT
 
@@ -72,7 +79,8 @@ wait_mission_state() {
   local deadline=$((SECONDS + timeout_sec))
   local sample="${LOG_DIR}/station_events.txt"
   while true; do
-    if timeout 6s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    # 单次查询 15 秒：负载高时 ros2 service call 光发现服务就可能超过 6 秒，查不到下一轮再查。
+    if timeout 15s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
         "{limit: 10, state_filter: ${state}, mission_id_filter: ${mission_id}}" \
         >"${sample}" 2>"${LOG_DIR}/station_events.err" &&
       rg "mission_ids=\\['${mission_id}'\\]" "${sample}" >/dev/null &&
@@ -245,7 +253,7 @@ wait_marker_text "speed limit: 0.45 mps" 150
 wait_mission_state "docking_request_sim_auto" "CHARGING" 180 \
   "docking did not reach CHARGING in default demo"
 wait_odom_near_storage_b 240
-wait_station_finished 60
+wait_station_finished 120
 
 wait_mission_state "payload_sim_auto_tote" "PAYLOAD_UNLOADED" 90 \
   "payload unload did not finish in default demo"

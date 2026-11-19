@@ -6,9 +6,9 @@ ros2 service type /pause_mission_profile | rg "std_srvs/srv/Trigger"
 ros2 service type /resume_mission_profile | rg "std_srvs/srv/Trigger"
 ros2 service type /cancel_mission_profile | rg "std_srvs/srv/Trigger"
 
-ros2 service call /start_mission_profile std_srvs/srv/Trigger {} | rg "success=True"
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /start_mission_profile std_srvs/srv/Trigger {} | rg "success=True"
 sleep 1
-ros2 service call /pause_mission_profile std_srvs/srv/Trigger {} | rg "success=True"
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /pause_mission_profile std_srvs/srv/Trigger {} | rg "success=True"
 
 deadline=$((SECONDS + 8))
 while true; do
@@ -24,9 +24,9 @@ while true; do
   sleep 1
 done
 
-ros2 service call /resume_mission_profile std_srvs/srv/Trigger {} | rg "success=True"
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /resume_mission_profile std_srvs/srv/Trigger {} | rg "success=True"
 sleep 1
-ros2 service call /cancel_mission_profile std_srvs/srv/Trigger {} | rg "success=True"
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /cancel_mission_profile std_srvs/srv/Trigger {} | rg "success=True"
 
 deadline=$((SECONDS + 8))
 while true; do

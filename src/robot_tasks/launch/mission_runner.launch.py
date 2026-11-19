@@ -53,6 +53,12 @@ def generate_launch_description():
     preflight_default_speed_limit_mps = LaunchConfiguration("preflight_default_speed_limit_mps")
     traffic_intersection_locks_enabled = LaunchConfiguration("traffic_intersection_locks_enabled")
     traffic_reservation_mode = LaunchConfiguration("traffic_reservation_mode")
+    # M3 死锁检测与解除。
+    traffic_deadlock_resolution_enabled = LaunchConfiguration("traffic_deadlock_resolution_enabled")
+    traffic_wait_starvation_s = LaunchConfiguration("traffic_wait_starvation_s")
+    traffic_whole_route_wait_ttl_s = LaunchConfiguration("traffic_whole_route_wait_ttl_s")
+    traffic_yield_hold_s = LaunchConfiguration("traffic_yield_hold_s")
+    traffic_yield_timeout_s = LaunchConfiguration("traffic_yield_timeout_s")
     fleet_size = LaunchConfiguration("fleet_size")
     payload_capacity_kg = LaunchConfiguration("payload_capacity_kg")
     top_module_type = LaunchConfiguration("top_module_type")
@@ -135,6 +141,11 @@ def generate_launch_description():
             DeclareLaunchArgument("traffic_intersection_locks_enabled", default_value="true"),
             # rolling（默认）= 边走边申请、拿不到排队；whole_route = 旧行为，入队锁整条路径。
             DeclareLaunchArgument("traffic_reservation_mode", default_value="rolling"),
+            DeclareLaunchArgument("traffic_deadlock_resolution_enabled", default_value="true"),
+            DeclareLaunchArgument("traffic_wait_starvation_s", default_value="20.0"),
+            DeclareLaunchArgument("traffic_whole_route_wait_ttl_s", default_value="6.0"),
+            DeclareLaunchArgument("traffic_yield_hold_s", default_value="5.0"),
+            DeclareLaunchArgument("traffic_yield_timeout_s", default_value="10.0"),
             # 车队文件有 6 台，只加载前 fleet_size 台（<=0 全部）；默认 2 与旧行为一致。
             DeclareLaunchArgument("fleet_size", default_value="2"),
             DeclareLaunchArgument("payload_capacity_kg", default_value="30.0"),
@@ -191,6 +202,11 @@ def generate_launch_description():
                         "preflight_default_speed_limit_mps": preflight_default_speed_limit_mps,
                         "traffic_intersection_locks_enabled": traffic_intersection_locks_enabled,
                         "traffic_reservation_mode": traffic_reservation_mode,
+                        "traffic_deadlock_resolution_enabled": traffic_deadlock_resolution_enabled,
+                        "traffic_wait_starvation_s": traffic_wait_starvation_s,
+                        "traffic_whole_route_wait_ttl_s": traffic_whole_route_wait_ttl_s,
+                        "traffic_yield_hold_s": traffic_yield_hold_s,
+                        "traffic_yield_timeout_s": traffic_yield_timeout_s,
                         "fleet_size": fleet_size,
                         "payload_capacity_kg": payload_capacity_kg,
                         "top_module_type": top_module_type,

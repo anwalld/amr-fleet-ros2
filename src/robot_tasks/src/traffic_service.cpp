@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
 #include <set>
+#include <sstream>
 
 #include "robot_tasks/sanitize_id.hpp"
 #include "robot_tasks/station_catalog.hpp"
+#include "robot_tasks/traffic_deadlock.hpp"
 #include "robot_tasks/traffic_reservation.hpp"
 
 namespace robot_tasks {
@@ -75,17 +78,47 @@ TrafficService::TrafficService(rclcpp::Node* node, MissionContext& context)
       node_->create_publisher<robot_interfaces_mission::msg::TrafficState>("/traffic/state", 10);
   traffic_grant_pub_ = node_->create_publisher<robot_interfaces_mission::msg::TrafficGrant>(
       "/traffic/grants", rclcpp::QoS(50).reliable());
-  // 1 Hz：兜底补授予（资源可能被任务清理等途径删掉）并发布交通状态。
+  traffic_yield_pub_ = node_->create_publisher<robot_interfaces_mission::msg::TrafficYield>(
+      "/traffic/yield", rclcpp::QoS(50).reliable());
+
+  // M3 参数。
+  wait_starvation_s_ = node_->declare_parameter<double>("traffic_wait_starvation_s", 20.0);
+  whole_route_wait_ttl_s_ =
+      node_->declare_parameter<double>("traffic_whole_route_wait_ttl_s", 6.0);
+  yield_hold_s_ = node_->declare_parameter<double>("traffic_yield_hold_s", 5.0);
+  yield_timeout_s_ = node_->declare_parameter<double>("traffic_yield_timeout_s", 10.0);
+  deadlock_resolution_enabled_ =
+      node_->declare_parameter<bool>("traffic_deadlock_resolution_enabled", true);
+  RCLCPP_INFO(
+      node_->get_logger(),
+      "traffic deadlock: resolution=%s starvation=%.1fs whole_route_wait_ttl=%.1fs "
+      "yield_hold=%.1fs yield_timeout=%.1fs",
+      deadlock_resolution_enabled_ ? "on" : "off", wait_starvation_s_, whole_route_wait_ttl_s_,
+      yield_hold_s_, yield_timeout_s_);
+
+  // 1 Hz：兜底补授予（资源可能被任务清理等途径删掉）、全量死锁检测，并发布交通状态。
   traffic_timer_ = node_->create_wall_timer(std::chrono::seconds(1), [this]() {
     GrantWaiters({});
+    RunDeadlockCheck();
     PublishTrafficState();
   });
 }
 
+double TrafficService::NowSeconds() const {
+  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
 RouteSegmentDecision TrafficService::RequestRouteSegment(
     const std::string& robot_id, const std::string& from_station, const std::string& to_station,
-    const int priority, const std::vector<std::string>& station_path) {
+    const int priority, const std::vector<std::string>& station_path,
+    const std::string& goal_station) {
   RouteSegmentDecision decision;
+  if (frozen_robot_ids_.count(robot_id) != 0U) {
+    decision.message = "robot " + robot_id +
+                       " is paused by deadlock fallback; clear its reservation to resume";
+    return decision;
+  }
   const auto catalog = robot_tasks::LoadStationCatalog(context_.station_file);
   if (!catalog.has_value()) {
     decision.message = "failed to load station catalog: " + context_.station_file;
@@ -119,10 +152,17 @@ RouteSegmentDecision TrafficService::RequestRouteSegment(
     }
   }
 
+  std::string goal = goal_station;
+  if (!goal.empty() && robot_tasks::FindStation(*catalog, goal) == nullptr) {
+    goal.clear();  // 按为空处理，消息里说明
+  }
+
   RouteSegmentRequest request;
   request.robot_id = robot_id;
   request.priority = priority;
   request.allow_queue = Rolling();
+  request.goal_station = goal;
+  request.now_s = NowSeconds();
   if (path.size() >= 2U) {
     request.from_station = path.front();
     request.to_station = path.back();
@@ -140,11 +180,29 @@ RouteSegmentDecision TrafficService::RequestRouteSegment(
   }
   decision = robot_tasks::PlanRouteSegmentRequest(
       request, context_.route_locks, context_.route_wait_queues,
-      &context_.next_route_wait_sequence);
+      &context_.next_route_wait_sequence, &context_.route_holds);
+  if (goal != goal_station) {
+    decision.message += " (unknown goal_station ignored: " + goal_station + ")";
+  }
+  bool check_deadlock = false;
   if (decision.granted) {
     ++grant_count_;
+    context_.whole_route_retry_waits.erase(robot_id);
   } else if (decision.newly_queued) {
     ++queue_count_;
+    check_deadlock = true;
+  } else if (!Rolling() && !decision.replan_required && !decision.blocking_resource_ids.empty()) {
+    // whole_route 被拒：记为重试等待，在有效期内计入等待图。
+    auto& retry = context_.whole_route_retry_waits[robot_id];
+    const bool fresh = retry.robot_id.empty() || retry.expires_s <= request.now_s ||
+                       retry.blocking_resource_ids != decision.blocking_resource_ids;
+    retry = WholeRouteRetryWait{
+        robot_id, request.from_station, request.to_station, goal, priority,
+        decision.blocking_resource_ids, request.now_s + whole_route_wait_ttl_s_};
+    check_deadlock = fresh;
+  }
+  if (check_deadlock) {
+    RunDeadlockCheck();
   }
   return decision;
 }
@@ -161,14 +219,21 @@ RouteSegmentReleaseDecision TrafficService::ReleaseRouteSegment(
 
 void TrafficService::WithdrawRouteWaits(const std::string& robot_id) {
   robot_tasks::WithdrawRouteWaits(robot_id, context_.route_wait_queues);
+  context_.whole_route_retry_waits.erase(robot_id);
 }
 
 void TrafficService::GrantWaiters(const std::vector<std::string>& candidate_resource_ids) {
   if (context_.route_wait_queues.empty()) {
+    context_.route_holds.clear();
     return;
   }
+  RouteWaitGrantOptions options;
+  options.now_s = NowSeconds();
+  options.starvation_s = wait_starvation_s_;
+  options.frozen_robot_ids = &frozen_robot_ids_;
   const auto granted = robot_tasks::PlanRouteWaitGrants(
-      candidate_resource_ids, context_.route_locks, context_.route_wait_queues);
+      candidate_resource_ids, context_.route_locks, context_.route_wait_queues, options,
+      &context_.route_holds);
   for (const auto& grant : granted) {
     NotifyGrant("granted", grant);
   }
@@ -220,6 +285,18 @@ void TrafficService::PublishTrafficState() {
   }
   msg.grant_count = grant_count_;
   msg.queue_count = queue_count_;
+  msg.deadlock_check_count = deadlock_check_count_;
+  msg.deadlock_count = deadlock_count_;
+  msg.deadlock_robot_ids = deadlock_robot_ids_;
+  msg.last_resolution_action = last_resolution_action_;
+  msg.last_resolution_robot_id = last_resolution_robot_id_;
+  msg.last_resolution_ms = last_resolution_ms_;
+  msg.resolved_count = resolved_count_;
+  msg.last_detection_us = last_detection_us_;
+  msg.max_detection_us = max_detection_us_;
+  msg.reroute_count = reroute_count_;
+  msg.backoff_count = backoff_count_;
+  msg.pause_count = pause_count_;
   traffic_state_pub_->publish(msg);
 }
 
@@ -233,7 +310,8 @@ void TrafficService::RequestRouteSegmentService(
   }
   const auto decision = RequestRouteSegment(
       SanitizeId(request->robot_id), SanitizeId(request->from_station),
-      SanitizeId(request->to_station), request->priority, path);
+      SanitizeId(request->to_station), request->priority, path,
+      SanitizeId(request->goal_station));
   response->success = decision.granted || decision.queued;
   response->granted = decision.granted;
   response->queued = decision.queued;
@@ -271,11 +349,11 @@ std::vector<std::string> TrafficService::BuildRouteLockIds(
 }
 
 bool TrafficService::ReserveRouteLocksForMission(
-    const std::string& mission_id, const std::vector<std::string>& route_lock_ids,
-    std::string* message) {
+    const std::string& mission_id, const std::string& owner_id,
+    const std::vector<std::string>& route_lock_ids, std::string* message) {
   return robot_tasks::ReserveRouteLocksForMission(
-      context_.route_locks, context_.route_locks_by_mission, mission_id, route_lock_ids,
-      message);
+      context_.route_locks, context_.route_locks_by_mission, mission_id, owner_id,
+      route_lock_ids, message);
 }
 
 void TrafficService::ReleaseRouteLocksForMission(const std::string& mission_id) {
@@ -360,8 +438,10 @@ void TrafficService::ClearTrafficReservation(
     context_.route_locks.erase(decision.resource_id);
   }
   if (!decision.release_mission_id.empty()) {
-    // 占用者可能是任务号（whole_route）也可能是车辆号（rolling），都整体释放。
+    // M3 起占用者都是车辆号（旧数据可能残留任务号），释放该占用者持有的全部路权。
     ReleaseRouteLocksForMission(decision.release_mission_id);
+    // 兜底暂停的车：运维清除其中任一辆车的占用即恢复整组。
+    UnfreezePausedGroupOf(decision.release_mission_id);
   }
   GrantWaiters({});
   response->success = decision.success;
@@ -373,13 +453,168 @@ void TrafficService::DetectTrafficDeadlock(
     const std::shared_ptr<robot_interfaces_mission::srv::DetectTrafficDeadlock::Response>&
         response) const {
   response->success = true;
-  const auto decision = robot_tasks::PlanTrafficDeadlockDetection(context_.route_locks);
+  const auto decision = robot_tasks::PlanTrafficDeadlockDetection(
+      context_.route_locks, context_.route_wait_queues, context_.whole_route_retry_waits,
+      context_.route_holds, NowSeconds());
   response->deadlocked = decision.deadlocked;
   response->mission_ids = decision.mission_ids;
   response->conflict_resource_ids = decision.conflict_resource_ids;
   response->conflict_station_ids = decision.conflict_station_ids;
   response->descriptions = decision.descriptions;
   response->message = decision.message;
+}
+
+// ---------------------------------------------------------------------------
+// M3 等待图死锁检测与解除
+// ---------------------------------------------------------------------------
+
+void TrafficService::RunDeadlockCheck() {
+  const double now = NowSeconds();
+  robot_tasks::PruneWholeRouteRetryWaits(context_.whole_route_retry_waits, now);
+
+  const auto started = std::chrono::steady_clock::now();
+  const auto edges = robot_tasks::BuildWaitGraph(
+      context_.route_locks, context_.route_wait_queues, context_.whole_route_retry_waits,
+      context_.route_holds, now);
+  const auto cycles = robot_tasks::FindWaitCycles(edges);
+  last_detection_us_ =
+      std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started)
+          .count();
+  max_detection_us_ = std::max(max_detection_us_, last_detection_us_);
+  ++deadlock_check_count_;
+
+  deadlock_robot_ids_.clear();
+  for (const auto& cycle : cycles) {
+    deadlock_robot_ids_.insert(
+        deadlock_robot_ids_.end(), cycle.robot_ids.begin(), cycle.robot_ids.end());
+  }
+  std::sort(deadlock_robot_ids_.begin(), deadlock_robot_ids_.end());
+
+  const auto update =
+      robot_tasks::TrackDeadlocks(active_deadlocks_, cycles, now, yield_timeout_s_);
+  for (const auto& resolved : update.resolved) {
+    ++resolved_count_;
+    last_resolution_action_ = resolved.deadlock.action;
+    last_resolution_robot_id_ = resolved.deadlock.yield_robot_id;
+    last_resolution_ms_ = resolved.resolution_ms;
+    RCLCPP_INFO(
+        node_->get_logger(), "traffic deadlock resolved after %.0f ms (%s by %s): %s",
+        resolved.resolution_ms,
+        resolved.deadlock.action.empty() ? "no action" : resolved.deadlock.action.c_str(),
+        resolved.deadlock.yield_robot_id.empty() ? "-" : resolved.deadlock.yield_robot_id.c_str(),
+        robot_tasks::DescribeWaitCycle(resolved.deadlock.cycle).c_str());
+  }
+  if (update.new_cycles.empty()) {
+    return;
+  }
+
+  std::optional<StationCatalog> catalog;
+  if (deadlock_resolution_enabled_) {
+    catalog = robot_tasks::LoadStationCatalog(context_.station_file);
+  }
+  for (const auto& cycle : update.new_cycles) {
+    ++deadlock_count_;
+    const auto key = robot_tasks::WaitCycleKey(cycle);
+    const int occurrences = robot_tasks::RecordDeadlockOccurrence(deadlock_history_, key, now);
+    RCLCPP_WARN(
+        node_->get_logger(), "traffic deadlock detected (#%d in 30s, check %.1f us): %s",
+        occurrences, last_detection_us_, robot_tasks::DescribeWaitCycle(cycle).c_str());
+    ActiveDeadlock entry{cycle, now, "", ""};
+
+    if (deadlock_resolution_enabled_) {
+      if (occurrences >= 3) {
+        PauseDeadlockedRobots(cycle, "3rd wait cycle within 30 s");
+        entry.action = "pause";
+      } else if (!catalog.has_value()) {
+        RCLCPP_ERROR(
+            node_->get_logger(), "traffic deadlock: failed to load station catalog %s",
+            context_.station_file.c_str());
+      } else {
+        std::unordered_map<std::string, TrafficWaitInfo> info;
+        for (const auto& robot_id : cycle.robot_ids) {
+          if (const auto wait = robot_tasks::FindTrafficWaitInfo(
+                  robot_id, context_.route_wait_queues, context_.whole_route_retry_waits, now)) {
+            info[robot_id] = *wait;
+          }
+        }
+        // 让路车绕开在等它的车：轮流试环上各车，选第一辆能改道或退避的。
+        const auto plan = robot_tasks::PlanDeadlockResolution(
+            cycle, info, *catalog, context_.route_locks, context_.route_holds, edges,
+            yield_hold_s_);
+        const auto& yielder = plan.robot_id;
+        if (plan.action == "pause") {
+          PauseDeadlockedRobots(cycle, plan.message);
+          entry.action = "pause";
+        } else {
+          // 撤掉让路车的等待：环上它的出边立即断开。
+          robot_tasks::WithdrawRouteWaits(yielder, context_.route_wait_queues);
+          context_.whole_route_retry_waits.erase(yielder);
+          PublishYield(plan);
+          (plan.action == "reroute" ? reroute_count_ : backoff_count_)++;
+          last_resolution_action_ = plan.action;
+          last_resolution_robot_id_ = yielder;
+          last_resolution_ms_ = -1.0;
+          entry.action = plan.action;
+          entry.yield_robot_id = yielder;
+          RCLCPP_WARN(node_->get_logger(), "traffic deadlock resolution: %s", plan.message.c_str());
+        }
+      }
+    }
+    active_deadlocks_[key] = entry;
+  }
+  // 这里不立即补授予：本函数可能在任务中枢自己的申请调用里被触发，立即授予会重入
+  // 授予回调。暂扣表由 1 Hz 定时器里的补授予重算。
+}
+
+void TrafficService::PauseDeadlockedRobots(const WaitCycle& cycle, const std::string& reason) {
+  const auto key = robot_tasks::WaitCycleKey(cycle);
+  for (const auto& robot_id : cycle.robot_ids) {
+    frozen_robot_ids_.insert(robot_id);
+    paused_group_of_[robot_id] = key;
+    DeadlockYieldPlan plan;
+    plan.robot_id = robot_id;
+    plan.action = "pause";
+    plan.cycle_robot_ids = cycle.robot_ids;
+    PublishYield(plan);
+  }
+  ++pause_count_;
+  last_resolution_action_ = "pause";
+  last_resolution_robot_id_ = key;
+  last_resolution_ms_ = -1.0;
+  RCLCPP_ERROR(
+      node_->get_logger(),
+      "traffic deadlock fallback: pausing %s (%s); clear one of their reservations via "
+      "/v2/clear_traffic_reservation to resume",
+      key.c_str(), reason.c_str());
+}
+
+void TrafficService::UnfreezePausedGroupOf(const std::string& robot_id) {
+  const auto it = paused_group_of_.find(robot_id);
+  if (it == paused_group_of_.end()) {
+    return;
+  }
+  const auto key = it->second;
+  for (auto group = paused_group_of_.begin(); group != paused_group_of_.end();) {
+    if (group->second == key) {
+      frozen_robot_ids_.erase(group->first);
+      group = paused_group_of_.erase(group);
+    } else {
+      ++group;
+    }
+  }
+  RCLCPP_INFO(node_->get_logger(), "traffic deadlock fallback: resumed %s", key.c_str());
+}
+
+void TrafficService::PublishYield(const DeadlockYieldPlan& plan) {
+  robot_interfaces_mission::msg::TrafficYield msg;
+  msg.stamp = node_->now();
+  msg.robot_id = plan.robot_id;
+  msg.action = plan.action;
+  msg.cycle_robot_ids = plan.cycle_robot_ids;
+  msg.avoid_resource_ids = plan.avoid_resource_ids;
+  msg.station_path = plan.station_path;
+  msg.hold_s = plan.hold_s;
+  traffic_yield_pub_->publish(msg);
 }
 
 }  // namespace robot_tasks

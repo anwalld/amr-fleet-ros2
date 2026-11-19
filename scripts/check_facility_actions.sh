@@ -8,7 +8,7 @@ wait_service_type /v2/list_facility_resources "robot_interfaces_facility/srv/Lis
 wait_service_type /v2/release_facility_resource "robot_interfaces_facility/srv/ReleaseFacilityResource" 10 /tmp/robot_facility_action_release.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_facility_action_state_topic.err
 
-ros2 service call /v2/execute_facility_action robot_interfaces_facility/srv/ExecuteFacilityAction \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/execute_facility_action robot_interfaces_facility/srv/ExecuteFacilityAction \
   "{request_id: door_alpha, resource_id: receiving_door, resource_type: door, action: open, priority: 70, start_if_idle: true, preempt_current: false, hold_after_action: true}" \
   | rg "success=True|facility_action_door_alpha"
 
@@ -41,15 +41,15 @@ while true; do
   sleep 1
 done
 
-ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
   "{resource_type: door, include_disabled: false}" \
   | rg "occupied|facility_action_door_alpha"
 
-ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
   "{resource_id: receiving_door, holder_id: facility_action_door_alpha}" \
   | rg "success=True"
 
-ros2 service call /v2/execute_facility_action robot_interfaces_facility/srv/ExecuteFacilityAction \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/execute_facility_action robot_interfaces_facility/srv/ExecuteFacilityAction \
   "{request_id: elevator_alpha, resource_id: freight_elevator, resource_type: elevator, action: call, priority: 65, start_if_idle: true, preempt_current: false, hold_after_action: false}" \
   | rg "success=True|facility_action_elevator_alpha"
 
@@ -82,7 +82,7 @@ while true; do
   sleep 1
 done
 
-ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
   "{resource_type: elevator, include_disabled: false}" \
   | rg "available=\\[True"
 

@@ -83,22 +83,22 @@ while true; do
   sleep 1
 done
 
-ros2 service call /v2/request_relocalization robot_interfaces_navigation/srv/RequestRelocalization \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/request_relocalization robot_interfaces_navigation/srv/RequestRelocalization \
   "{reason: operator requested station reset}" \
   | rg "success=True|state='RELOCALIZING'|localized=False"
 
-ros2 service call /v2/set_initial_pose_from_station robot_interfaces_navigation/srv/SetInitialPoseFromStation \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/set_initial_pose_from_station robot_interfaces_navigation/srv/SetInitialPoseFromStation \
   "{station_id: dock}" \
   | rg "success=True|station_id='dock'|state='RECOVERED'|localized=True"
 
 ros2 topic echo --once /localization_health robot_interfaces/msg/LocalizationHealth \
   | rg "localized: true|state: RECOVERED|station_id: dock"
 
-ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: LOCALIZATION_LOST, mission_id_filter: localization}" \
   | rg "success=True|LOCALIZATION_LOST|covariance"
 
-ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: LOCALIZATION_RECOVERED, mission_id_filter: localization}" \
   | rg "success=True|LOCALIZATION_RECOVERED|initial pose set from station dock"
 

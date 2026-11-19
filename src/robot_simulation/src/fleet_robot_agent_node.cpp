@@ -6,6 +6,8 @@
 //     /v2/release_route_segment，任务进度回报 /v2/update_remote_task_state。
 //     kinematic_sim:=true 时不需要 Gazebo：按自己算出的速度指令积分位置，发布 <ns>/odom。
 //     traffic_reservation_mode:=whole_route 时改为整条路径一次申请、拿不到隔几秒重试（对照组）。
+//     M3：申请时带本程目的地 goal_station；按授予应答给出的资源号释放（不自己拼资源号）；
+//     执行 /traffic/yield 的让路指令（reroute 改道 / backoff 退到避让点 / pause 暂停）。
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -30,6 +32,7 @@
 #include "robot_interfaces_fleet/srv/update_remote_task_state.hpp"
 #include "robot_interfaces_mission/msg/traffic_grant.hpp"
 #include "robot_interfaces_mission/msg/traffic_state.hpp"
+#include "robot_interfaces_mission/msg/traffic_yield.hpp"
 #include "robot_interfaces_mission/srv/list_station_routes.hpp"
 #include "robot_interfaces_mission/srv/release_route_segment.hpp"
 #include "robot_interfaces_mission/srv/request_route_segment.hpp"
@@ -336,11 +339,35 @@ struct DirectedEdge {
   double distance_m = 0.0;
 };
 
-std::string RouteEdgeLockId(const std::string& a, const std::string& b) {
-  return a <= b ? "route_edge:" + a + "__" + b : "route_edge:" + b + "__" + a;
+// 资源号只由路权服务生成（规格里写明了格式）。代理只解析，不拼接：
+//   route_edge:<a>__<b> → 无序站点对；route_node:<站点> → 站点。
+using EdgeKey = std::pair<std::string, std::string>;
+
+EdgeKey MakeEdgeKey(const std::string& a, const std::string& b) {
+  return a <= b ? EdgeKey{a, b} : EdgeKey{b, a};
 }
 
-std::string RouteNodeLockId(const std::string& station) { return "route_node:" + station; }
+std::optional<EdgeKey> ParseEdgeResource(const std::string& resource_id) {
+  const std::string prefix = "route_edge:";
+  if (resource_id.rfind(prefix, 0) != 0) {
+    return std::nullopt;
+  }
+  const auto separator = resource_id.find("__", prefix.size());
+  if (separator == std::string::npos) {
+    return std::nullopt;
+  }
+  return MakeEdgeKey(
+      resource_id.substr(prefix.size(), separator - prefix.size()),
+      resource_id.substr(separator + 2));
+}
+
+std::optional<std::string> ParseNodeResource(const std::string& resource_id) {
+  const std::string prefix = "route_node:";
+  if (resource_id.rfind(prefix, 0) != 0 || resource_id.size() == prefix.size()) {
+    return std::nullopt;
+  }
+  return resource_id.substr(prefix.size());
+}
 
 geometry_msgs::msg::Quaternion QuaternionFromYaw(const double yaw) {
   geometry_msgs::msg::Quaternion q;
@@ -410,13 +437,40 @@ class FleetTaskAgent final : public rclcpp::Node {
         });
     traffic_state_sub_ = create_subscription<robot_interfaces_mission::msg::TrafficState>(
         "/traffic/state", 10, [this](robot_interfaces_mission::msg::TrafficState::SharedPtr msg) {
-          std::set<std::string> blocked;
+          std::set<EdgeKey> blocked;
+          bool own_any = false;
           for (std::size_t i = 0; i < msg->resource_ids.size() && i < msg->owner_ids.size(); ++i) {
             if (msg->owner_ids[i].rfind("traffic_block:", 0) == 0) {
-              blocked.insert(msg->resource_ids[i]);
+              if (const auto edge = ParseEdgeResource(msg->resource_ids[i])) {
+                blocked.insert(*edge);
+              }
             }
+            own_any = own_any || msg->owner_ids[i] == robot_id_;
           }
           blocked_edges_ = std::move(blocked);
+          if (paused_ && !own_any) {
+            // 兜底暂停后运维清除了本车的路权：恢复，先重新占住所在路口。
+            paused_ = false;
+            held_.clear();
+            phase_ = Phase::kReclaim;
+            RCLCPP_WARN(get_logger(), "%s: resumed after deadlock pause", robot_id_.c_str());
+          }
+        });
+    yield_sub_ = create_subscription<robot_interfaces_mission::msg::TrafficYield>(
+        "/traffic/yield", rclcpp::QoS(50).reliable(),
+        [this](robot_interfaces_mission::msg::TrafficYield::SharedPtr msg) {
+          if (msg->robot_id != robot_id_) {
+            return;
+          }
+          RCLCPP_WARN(
+              get_logger(), "%s: yield %s (%zu stations, hold %.1fs)", robot_id_.c_str(),
+              msg->action.c_str(), msg->station_path.size(), msg->hold_s);
+          if (msg->action == "pause") {
+            paused_ = true;
+            pending_yield_.reset();
+            return;
+          }
+          pending_yield_ = *msg;
         });
 
     timer_ = create_wall_timer(
@@ -430,7 +484,9 @@ class FleetTaskAgent final : public rclcpp::Node {
   }
 
  private:
-  enum class Phase { kLoadMap, kClaimStart, kIdle, kRoute, kWaitGrant, kDrive, kDwell };
+  enum class Phase {
+    kLoadMap, kClaimStart, kIdle, kRoute, kWaitGrant, kDrive, kDwell, kYieldHold, kReclaim
+  };
   enum class Goal { kNone, kPickup, kDropoff, kHome };
 
   struct StationPose {
@@ -471,6 +527,8 @@ class FleetTaskAgent final : public rclcpp::Node {
       case Phase::kWaitGrant: WaitGrant(); break;
       case Phase::kDrive: CheckArrival(); break;
       case Phase::kDwell: Dwell(); break;
+      case Phase::kYieldHold: YieldHold(); break;
+      case Phase::kReclaim: Reclaim(); break;
     }
   }
 
@@ -547,6 +605,7 @@ class FleetTaskAgent final : public rclcpp::Node {
       if (!r->granted) {
         return;  // 下一秒重试（rolling 下已在队列里）
       }
+      held_.insert(r->resource_ids.begin(), r->resource_ids.end());
       UpdateFleetState("available", current_station_);
       phase_ = Phase::kIdle;
       RCLCPP_INFO(get_logger(), "%s ready at %s", robot_id_.c_str(), current_station_.c_str());
@@ -589,8 +648,23 @@ class FleetTaskAgent final : public rclcpp::Node {
         });
   }
 
+  // 兜底暂停解除后：重新占住所在路口，再继续本程。
+  void Reclaim() {
+    if (request_pending_ || !t_ok(last_claim_, 1.0)) {
+      return;
+    }
+    SendRouteRequest("", current_station_, {}, [this](const auto& r) {
+      if (!r->granted || phase_ != Phase::kReclaim) {
+        return;
+      }
+      held_.insert(r->resource_ids.begin(), r->resource_ids.end());
+      phase_ = goal_ == Goal::kNone ? Phase::kIdle : Phase::kRoute;
+    });
+  }
+
   void StartTask(const std::string& task_id, const std::string& pickup,
                  const std::string& dropoff, const int priority) {
+    ClearYieldState();
     task_id_ = task_id;
     pickup_ = pickup;
     dropoff_ = dropoff;
@@ -630,7 +704,9 @@ class FleetTaskAgent final : public rclcpp::Node {
         continue;
       }
       for (const auto& e : it->second) {
-        if (blocked_edges_.count(RouteEdgeLockId(u, e.to)) != 0U) {
+        const auto key = MakeEdgeKey(u, e.to);
+        if (blocked_edges_.count(key) != 0U || avoid_edges_.count(key) != 0U ||
+            (e.to != to && avoid_nodes_.count(e.to) != 0U)) {
           continue;
         }
         const double nd = d + e.distance_m;
@@ -660,14 +736,14 @@ class FleetTaskAgent final : public rclcpp::Node {
         return;
       }
     }
-    if (current_station_ == goal_station_) {
-      LegArrived();
+    if (current_station_ == RouteTarget()) {
+      ArrivedAtTarget();
       return;
     }
-    path_ = ShortestPath(current_station_, goal_station_);
+    path_ = ShortestPath(current_station_, RouteTarget());
     if (path_.size() < 2U) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%s: no path %s -> %s",
-                           robot_id_.c_str(), current_station_.c_str(), goal_station_.c_str());
+                           robot_id_.c_str(), current_station_.c_str(), RouteTarget().c_str());
       return;
     }
     path_index_ = 1;
@@ -681,7 +757,12 @@ class FleetTaskAgent final : public rclcpp::Node {
     if (task_id_.empty() && goal_ == Goal::kHome) {
       PollTasks();  // 在站点等路权时也可以改去接新任务
     }
-    if (request_pending_ || phase_ != Phase::kWaitGrant) {
+    if (request_pending_ || phase_ != Phase::kWaitGrant || paused_) {
+      return;
+    }
+    if (pending_yield_.has_value()) {
+      ApplyYield(*pending_yield_);
+      pending_yield_.reset();
       return;
     }
     const double t = Now();
@@ -704,9 +785,10 @@ class FleetTaskAgent final : public rclcpp::Node {
       if (phase_ != Phase::kWaitGrant) {
         // 等待期间改了目标（接到新任务）：这份授予用不上，还回去，只留当前路口。
         if (r->granted) {
+          held_.insert(r->resource_ids.begin(), r->resource_ids.end());
           std::vector<std::string> unused;
           for (const auto& id : r->resource_ids) {
-            if (id != RouteNodeLockId(current_station_)) {
+            if (ParseNodeResource(id) != std::optional<std::string>(current_station_)) {
               unused.push_back(id);
             }
           }
@@ -715,6 +797,7 @@ class FleetTaskAgent final : public rclcpp::Node {
         return;
       }
       if (r->granted) {
+        held_.insert(r->resource_ids.begin(), r->resource_ids.end());
         task_wait_s_ += Now() - wait_started_t_;
         if (!task_id_.empty()) {
           total_wait_s_ += Now() - wait_started_t_;
@@ -724,8 +807,10 @@ class FleetTaskAgent final : public rclcpp::Node {
         return;
       }
       if (r->replan_required) {
-        for (std::size_t i = 0; i < r->blocking_resource_ids.size(); ++i) {
-          blocked_edges_.insert(r->blocking_resource_ids[i]);
+        for (const auto& id : r->blocking_resource_ids) {
+          if (const auto edge = ParseEdgeResource(id)) {
+            blocked_edges_.insert(*edge);
+          }
         }
         phase_ = Phase::kRoute;
         return;
@@ -749,6 +834,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     req->to_station = to;
     req->priority = priority_;
     req->station_path = path;
+    req->goal_station = goal_station_;
     request_client_->async_send_request(
         req, [this, on_done](
                  rclcpp::Client<robot_interfaces_mission::srv::RequestRouteSegment>::SharedFuture f) {
@@ -760,6 +846,9 @@ class FleetTaskAgent final : public rclcpp::Node {
   void Release(const std::vector<std::string>& ids) {
     if (ids.empty()) {
       return;
+    }
+    for (const auto& id : ids) {
+      held_.erase(id);
     }
     auto req = std::make_shared<robot_interfaces_mission::srv::ReleaseRouteSegment::Request>();
     req->robot_id = robot_id_;
@@ -818,19 +907,18 @@ class FleetTaskAgent final : public rclcpp::Node {
         std::hypot(it->second.x - pose_.x, it->second.y - pose_.y) > goal_tolerance_m_) {
       return;
     }
-    const std::string previous = current_station_;
     current_station_ = target_station_;
     if (!WholeRoute()) {
-      // 到达后释放身后的边和上一个路口，继续占着当前路口。
-      Release({RouteEdgeLockId(previous, current_station_), RouteNodeLockId(previous)});
+      // 到达后释放身后的边和上一个路口（即授予过的资源中除当前路口外的全部）。
+      ReleaseAllExceptCurrent();
     }
     ++path_index_;
-    if (current_station_ == goal_station_) {
+    if (current_station_ == RouteTarget()) {
       if (WholeRoute()) {
         ReleaseAllExceptCurrent();
       }
       UpdateFleetState(task_id_.empty() ? "available" : "busy", current_station_);
-      LegArrived();
+      ArrivedAtTarget();
       return;
     }
     if (WholeRoute()) {
@@ -844,16 +932,103 @@ class FleetTaskAgent final : public rclcpp::Node {
     WaitGrant();
   }
 
+  // 释放本车持有（授予应答给过）的资源中除当前路口外的全部。
   void ReleaseAllExceptCurrent() {
     std::vector<std::string> ids;
-    for (std::size_t i = 1; i < path_.size(); ++i) {
-      ids.push_back(RouteEdgeLockId(path_[i - 1], path_[i]));
-      ids.push_back(RouteNodeLockId(path_[i - 1]));
+    for (const auto& id : held_) {
+      if (ParseNodeResource(id) != std::optional<std::string>(current_station_)) {
+        ids.push_back(id);
+      }
     }
     Release(ids);
   }
 
+  // ---------------------------------------------------------------- yield (M3)
+  // 当前要去的站点：退避中是避让点，否则是本程目的地。
+  const std::string& RouteTarget() const {
+    return backoff_station_.empty() ? goal_station_ : backoff_station_;
+  }
+
+  void ArrivedAtTarget() {
+    if (!backoff_station_.empty() && current_station_ == backoff_station_) {
+      yield_hold_until_ = Now() + backoff_hold_s_;
+      phase_ = Phase::kYieldHold;
+      return;
+    }
+    LegArrived();
+  }
+
+  void YieldHold() {
+    if (Now() < yield_hold_until_) {
+      return;
+    }
+    backoff_station_.clear();
+    phase_ = Phase::kRoute;  // 从避让点重新寻路去原目的地
+  }
+
+  void ClearYieldState() {
+    avoid_edges_.clear();
+    avoid_nodes_.clear();
+    backoff_station_.clear();
+    pending_yield_.reset();
+  }
+
+  // 路径首站是当前站点、相邻两站之间在路网里有边。
+  bool ValidPath(const std::vector<std::string>& path) const {
+    if (path.size() < 2U || path.front() != current_station_) {
+      return false;
+    }
+    for (std::size_t i = 1; i < path.size(); ++i) {
+      const auto it = graph_.find(path[i - 1]);
+      if (it == graph_.end() ||
+          std::none_of(it->second.begin(), it->second.end(),
+                       [&](const DirectedEdge& e) { return e.to == path[i]; })) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void ApplyYield(const robot_interfaces_mission::msg::TrafficYield& msg) {
+    if (msg.action == "reroute") {
+      for (const auto& id : msg.avoid_resource_ids) {
+        if (const auto edge = ParseEdgeResource(id)) {
+          avoid_edges_.insert(*edge);
+        } else if (const auto node = ParseNodeResource(id)) {
+          if (*node != current_station_) {
+            avoid_nodes_.insert(*node);
+          }
+        }
+      }
+      path_ = ValidPath(msg.station_path) && msg.station_path.back() == goal_station_
+                  ? msg.station_path
+                  : ShortestPath(current_station_, goal_station_);
+    } else if (msg.action == "backoff") {
+      if (msg.station_path.empty()) {
+        return;
+      }
+      backoff_station_ = msg.station_path.back();
+      backoff_hold_s_ = msg.hold_s;
+      path_ = ValidPath(msg.station_path) ? msg.station_path
+                                          : ShortestPath(current_station_, backoff_station_);
+    } else {
+      return;
+    }
+    if (path_.size() < 2U) {
+      RCLCPP_WARN(get_logger(), "%s: yield %s has no usable path; staying", robot_id_.c_str(),
+                  msg.action.c_str());
+      backoff_station_.clear();
+      phase_ = Phase::kRoute;
+      return;
+    }
+    path_index_ = 1;
+    last_request_t_ = 0.0;
+    grant_hint_ = true;
+    phase_ = Phase::kWaitGrant;
+  }
+
   void LegArrived() {
+    ClearYieldState();
     switch (goal_) {
       case Goal::kPickup:
       case Goal::kDropoff:
@@ -950,7 +1125,16 @@ class FleetTaskAgent final : public rclcpp::Node {
   Goal goal_ = Goal::kNone;
   std::map<std::string, StationPose> stations_;
   std::map<std::string, std::vector<DirectedEdge>> graph_;
-  std::set<std::string> blocked_edges_;
+  std::set<EdgeKey> blocked_edges_;
+  // M3：本车持有的资源（来自授予应答）；改道时临时绕开的路段与路口；退避目标。
+  std::set<std::string> held_;
+  std::set<EdgeKey> avoid_edges_;
+  std::set<std::string> avoid_nodes_;
+  std::string backoff_station_;
+  double backoff_hold_s_ = 0.0;
+  double yield_hold_until_ = 0.0;
+  bool paused_ = false;
+  std::optional<robot_interfaces_mission::msg::TrafficYield> pending_yield_;
   std::string current_station_;
   std::string goal_station_;
   std::string target_station_;
@@ -992,6 +1176,7 @@ class FleetTaskAgent final : public rclcpp::Node {
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<robot_interfaces_mission::msg::TrafficGrant>::SharedPtr grant_sub_;
   rclcpp::Subscription<robot_interfaces_mission::msg::TrafficState>::SharedPtr traffic_state_sub_;
+  rclcpp::Subscription<robot_interfaces_mission::msg::TrafficYield>::SharedPtr yield_sub_;
   rclcpp::Client<robot_interfaces_mission::srv::ListStations>::SharedPtr stations_client_;
   rclcpp::Client<robot_interfaces_mission::srv::ListStationRoutes>::SharedPtr routes_client_;
   rclcpp::Client<robot_interfaces_fleet::srv::ListRemoteTasks>::SharedPtr tasks_client_;

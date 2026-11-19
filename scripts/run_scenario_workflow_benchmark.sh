@@ -74,7 +74,7 @@ wait_mission_finished() {
   local deadline=$((SECONDS + SAMPLE_TIMEOUT_SEC))
   local out_file="${LOG_DIR}/${mission_id}_finished.out"
   while true; do
-    ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 50, state_filter: FINISHED, mission_id_filter: ${mission_id}}" \
       >"${out_file}" || true
     if rg "success=True" "${out_file}" >/dev/null && rg "states=\\['FINISHED'\\]" "${out_file}" >/dev/null; then
@@ -97,7 +97,7 @@ EVENT_OUT="${LOG_DIR}/mission_events.out"
 : >"${EVENT_OUT}"
 for mission_id in "${MISSION_IDS[@]}"; do
   mission_event_out="${LOG_DIR}/${mission_id}_events.out"
-  ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: '', mission_id_filter: ${mission_id}}" \
     >"${mission_event_out}"
   rg "success=True" "${mission_event_out}"

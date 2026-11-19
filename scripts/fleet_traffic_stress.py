@@ -9,8 +9,11 @@
 - 判定（10 Hz）：
   1. 任意时刻一个资源只有一个占用者（/traffic/state 里同一资源不出现两次）；
   2. 同一路段上两车距离 > 0.5 m；另记录任意两车的最小距离、车在路段上却没持有该路段的次数。
-- 记录：每秒一行 <out>/state.csv（占用数、排队数、各车位置），任务完成明细 tasks.csv，
-  违规明细 violations.csv，汇总 summary.json。
+- 记录：每秒一行 <out>/state.csv（占用数、排队数、死锁计数、各车位置），任务完成明细 tasks.csv，
+  违规明细 violations.csv，死锁解除明细 deadlocks.csv，汇总 summary.json。
+- M3 死锁指标取自 /traffic/state 的死锁统计字段与 /traffic/yield 的让路指令：
+  检出次数、各解除方式次数、每次解除耗时、单次检测耗时（按 1 Hz 采样最近一次检测耗时）。
+- 资源号只解析不拼接：route_edge:<a>__<b> 解析成无序站点对，再与车所在路段比对。
 """
 
 import argparse
@@ -29,7 +32,7 @@ from std_msgs.msg import String
 
 from robot_interfaces_business.srv import SubmitOrder
 from robot_interfaces_fleet.srv import ListFleetRobots
-from robot_interfaces_mission.msg import TrafficState
+from robot_interfaces_mission.msg import TrafficState, TrafficYield
 from robot_interfaces_mission.srv import ListStationRoutes, ListStations
 
 WORK_STATIONS = ["receiving", "machining", "assembly", "packing", "storage"]
@@ -45,8 +48,21 @@ def point_segment(px, py, ax, ay, bx, by):
     return math.hypot(px - (ax + t * dx), py - (ay + t * dy)), t
 
 
-def edge_id(a, b):
-    return f"route_edge:{a}__{b}" if a <= b else f"route_edge:{b}__{a}"
+def parse_edge_resource(resource_id):
+    """route_edge:<a>__<b> → frozenset({a, b})；不是路段锁返回 None。"""
+    prefix = "route_edge:"
+    if not resource_id.startswith(prefix) or "__" not in resource_id[len(prefix):]:
+        return None
+    a, b = resource_id[len(prefix):].split("__", 1)
+    return frozenset((a, b)) if a and b else None
+
+
+def edge_name(edge):
+    return "-".join(sorted(edge))
+
+
+DEADLOCK_COUNTERS = ("deadlock_count", "reroute_count", "backoff_count", "pause_count",
+                     "resolved_count")
 
 
 class Stress(Node):
@@ -75,11 +91,21 @@ class Stress(Node):
         self.submit_pending = False
         self.max_queue = 0
         self.queue_samples = []
+        # M3 死锁指标。
+        self.counters_at_start = None
+        self.last_resolved_count = None
+        self.yields = []          # /traffic/yield 收到的指令（压测开始后）
+        self.deadlock_rows = []   # deadlocks.csv
+        self.detection_us_samples = []
+        self.max_detection_us = 0.0
 
         for robot in self.robots:
             self.create_subscription(
                 Odometry, f"/{robot}/odom", lambda msg, r=robot: self.on_odom(r, msg), 10)
         self.create_subscription(TrafficState, "/traffic/state", self.on_traffic, 10)
+        self.create_subscription(
+            TrafficYield, "/traffic/yield", self.on_yield,
+            QoSProfile(depth=50, reliability=ReliabilityPolicy.RELIABLE))
         self.create_subscription(
             String, "/fleet/agent_events", self.on_event,
             QoSProfile(depth=100, reliability=ReliabilityPolicy.RELIABLE))
@@ -92,7 +118,7 @@ class Stress(Node):
         self.state_file = open(f"{out}/state.csv", "w", newline="")
         self.state_csv = csv.writer(self.state_file)
         header = ["t_s", "mode", "robots", "owned_resources", "waiting_entries", "grant_count",
-                  "queue_count"]
+                  "queue_count", "deadlocks", "reroute", "backoff", "pause", "resolved"]
         for robot in self.robots:
             header += [f"{robot}_x", f"{robot}_y"]
         self.state_csv.writerow(header)
@@ -152,6 +178,47 @@ class Stress(Node):
         waiting = len(msg.waiting_robot_ids)
         self.max_queue = max(self.max_queue, waiting)
         self.queue_samples.append(waiting)
+        self.on_deadlock_stats(msg)
+
+    def deadlock_counters(self, msg):
+        return {k: getattr(msg, k) for k in DEADLOCK_COUNTERS}
+
+    def on_deadlock_stats(self, msg):
+        if self.counters_at_start is None:
+            self.counters_at_start = self.deadlock_counters(msg)
+            self.last_resolved_count = msg.resolved_count
+            return
+        if msg.last_detection_us > 0.0:
+            self.detection_us_samples.append(msg.last_detection_us)
+        self.max_detection_us = max(self.max_detection_us, msg.max_detection_us)
+        if msg.resolved_count == self.last_resolved_count:
+            return
+        # 解开了新的环：1 Hz 快照只带最近一次的细节，同一秒内多次解开时中间的细节会漏（计数不漏）。
+        skipped = msg.resolved_count - self.last_resolved_count - 1
+        self.last_resolved_count = msg.resolved_count
+        yielder = msg.last_resolution_robot_id
+        cycle = next((y["cycle"] for y in reversed(self.yields) if y["robot"] == yielder
+                      or y["cycle"] == yielder), "")
+        self.deadlock_rows.append({
+            "t_s": round(time.time() - self.start, 2),
+            "cycle_robots": cycle,
+            "yield_robot": yielder,
+            "action": msg.last_resolution_action or "none",
+            "resolution_ms": round(msg.last_resolution_ms, 1),
+            "skipped_details": skipped,
+        })
+
+    def on_yield(self, msg):
+        if self.start is None:
+            return
+        entry = {"t_s": round(time.time() - self.start, 2), "robot": msg.robot_id,
+                 "action": msg.action, "cycle": ",".join(msg.cycle_robot_ids)}
+        self.yields.append(entry)
+        if msg.action == "pause" and msg.robot_id == (msg.cycle_robot_ids or [""])[0]:
+            # 兜底暂停没有"解开"时刻，按指令逐条记一行（耗时留空）。
+            self.deadlock_rows.append({
+                "t_s": entry["t_s"], "cycle_robots": entry["cycle"], "yield_robot": "",
+                "action": "pause", "resolution_ms": "", "skipped_details": 0})
 
     def on_event(self, msg):
         try:
@@ -219,7 +286,7 @@ class Stress(Node):
             bx, by = self.stations[b]
             d, t = point_segment(x, y, ax, ay, bx, by)
             if d < 0.3 and 0.05 < t < 0.95 and (best is None or d < best[0]):
-                best = (d, edge_id(a, b))
+                best = (d, frozenset((a, b)))
         return best[1] if best else None
 
     def check(self):
@@ -228,7 +295,10 @@ class Stress(Node):
         self.samples += 1
         owners = {}
         if self.traffic is not None:
-            owners = dict(zip(self.traffic.resource_ids, self.traffic.owner_ids))
+            for resource, owner in zip(self.traffic.resource_ids, self.traffic.owner_ids):
+                edge = parse_edge_resource(resource)
+                if edge is not None:
+                    owners[edge] = owner
         on_edge = {}
         for robot, (x, y) in self.poses.items():
             edge = self.robot_edge(x, y)
@@ -244,7 +314,7 @@ class Stress(Node):
                 since = self.unowned_since.setdefault(robot, now)
                 if now - since > 1.5 and since >= 0:
                     self.unowned_long += 1
-                    self.violation("robot_on_unowned_edge", f"{robot} on {edge} > 1.5s")
+                    self.violation("robot_on_unowned_edge", f"{robot} on {edge_name(edge)} > 1.5s")
                     self.unowned_since[robot] = -1.0  # 同一次只记一回
             else:
                 self.unowned_since.pop(robot, None)
@@ -257,7 +327,8 @@ class Stress(Node):
                 if a in on_edge and on_edge.get(a) == on_edge.get(b):
                     self.min_same_edge = min(self.min_same_edge, d)
                     if d <= 0.5:
-                        self.violation("same_edge_distance", f"{a}-{b} on {on_edge[a]} d={d:.2f}")
+                        self.violation(
+                            "same_edge_distance", f"{a}-{b} on {edge_name(on_edge[a])} d={d:.2f}")
 
     def log_row(self):
         if self.start is None:
@@ -266,6 +337,8 @@ class Stress(Node):
         row = [round(time.time() - self.start, 2), self.args.mode, len(self.robots),
                len(t.resource_ids) if t else 0, len(t.waiting_robot_ids) if t else 0,
                t.grant_count if t else 0, t.queue_count if t else 0]
+        base = self.counters_at_start or {}
+        row += [(getattr(t, k) - base.get(k, 0)) if t else 0 for k in DEADLOCK_COUNTERS]
         for robot in self.robots:
             x, y = self.poses.get(robot, (float("nan"), float("nan")))
             row += [round(x, 3), round(y, 3)]
@@ -279,6 +352,8 @@ class Stress(Node):
             return 2
         self.start = time.time()
         self.end = self.start + self.args.minutes * 60.0
+        # 死锁计数以压测开始时为零点（就绪阶段的计数不算）。
+        self.counters_at_start = None
         self.get_logger().info(
             f"stress start: robots={len(self.robots)} mode={self.args.mode} "
             f"minutes={self.args.minutes}")
@@ -299,10 +374,21 @@ class Stress(Node):
             writer = csv.DictWriter(f, fieldnames=["t_s", "kind", "detail"])
             writer.writeheader()
             writer.writerows(self.violations)
+        with open(f"{self.args.out}/deadlocks.csv", "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["t_s", "cycle_robots", "yield_robot", "action",
+                                                   "resolution_ms", "skipped_details"])
+            writer.writeheader()
+            writer.writerows(self.deadlock_rows)
         mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
+        base = self.counters_at_start or {}
+        final = self.deadlock_counters(self.traffic) if self.traffic else {}
+        delta = {k: final.get(k, 0) - base.get(k, 0) for k in DEADLOCK_COUNTERS}
+        resolve_ms = [r["resolution_ms"] for r in self.deadlock_rows
+                      if isinstance(r["resolution_ms"], float) and r["resolution_ms"] >= 0.0]
         summary = {
             "robots": len(self.robots),
             "mode": self.args.mode,
+            "network": self.args.network,
             "seed": self.args.seed,
             "duration_s": round(duration_s, 1),
             "orders_submitted": self.submitted,
@@ -331,6 +417,18 @@ class Stress(Node):
             "mean_waiting_entries": round(mean(self.queue_samples), 2),
             "final_grant_count": self.traffic.grant_count if self.traffic else 0,
             "final_queue_count": self.traffic.queue_count if self.traffic else 0,
+            # M3 死锁指标（键名与 scripts/nightly.sh 阶段 5 的 metrics.tsv 对齐）。
+            "deadlock_resolution_enabled": self.args.deadlock_resolution,
+            "deadlocks_detected": delta["deadlock_count"],
+            "deadlock_reroute": delta["reroute_count"],
+            "deadlock_backoff": delta["backoff_count"],
+            "deadlock_pause": delta["pause_count"],
+            "deadlock_resolved": delta["resolved_count"],
+            "resolution_ms_mean": round(mean(resolve_ms), 1) if resolve_ms else None,
+            "resolution_ms_max": round(max(resolve_ms), 1) if resolve_ms else None,
+            "detection_us_mean": round(mean(self.detection_us_samples), 1)
+            if self.detection_us_samples else None,
+            "detection_us_max": round(self.max_detection_us, 1) if self.traffic else None,
         }
         with open(f"{self.args.out}/summary.json", "w") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
@@ -346,6 +444,8 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--seed", type=int, default=20261116)
     parser.add_argument("--ready-timeout", type=float, default=120.0)
+    parser.add_argument("--network", default="workshop")
+    parser.add_argument("--deadlock-resolution", default="true")
     args = parser.parse_args()
     rclpy.init()
     node = Stress(args)

@@ -45,7 +45,7 @@ wait_finished_event() {
   local deadline=$((SECONDS + timeout_sec))
   while true; do
     output="$(
-      ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+      timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
         "{limit: 20, state_filter: FINISHED, mission_id_filter: ${mission_id}}" \
         2>"${LOG_DIR}/list_events.err" || true
     )"
@@ -79,7 +79,7 @@ start_bg station_auto_confirm station_auto_confirm_loop acceptance_tote "${LOG_D
 start_x="$(read_odom_field pose.pose.position.x)"
 start_y="$(read_odom_field pose.pose.position.y)"
 
-ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
   "{order_id: sim_station_motion, order_type: station_transport, priority: 20, payload_json: 'pickup_station=receiving;dropoff_station=storage_b;start_if_idle=true;preempt_current=false', tags: [amr_sim_station_motion]}" \
   | rg "accepted=True|station_order_sim_station_motion"
 

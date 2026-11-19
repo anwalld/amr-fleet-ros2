@@ -88,7 +88,7 @@ TrafficReservationDecision PlanTrafficUnblock(
   }
   decision.owner_id = lock->second;
   if (!IsTrafficBlockOwner(lock->second)) {
-    decision.message = "route resource is reserved by mission: " + lock->second;
+    decision.message = "route resource is reserved by: " + lock->second;
     return decision;
   }
   decision.success = true;
@@ -118,68 +118,6 @@ TrafficClearDecision PlanTrafficReservationClear(
   return decision;
 }
 
-TrafficDeadlockDecision PlanTrafficDeadlockDetection(const RouteLockMap& route_locks) {
-  TrafficDeadlockDecision decision;
-  std::unordered_map<std::string, std::vector<std::string>> station_to_missions;
-  std::unordered_map<std::string, std::vector<std::string>> station_to_resources;
-  for (const auto& [resource_id, owner_id] : route_locks) {
-    if (IsTrafficBlockOwner(owner_id)) {
-      continue;
-    }
-    const auto lock = ParseRouteLock(resource_id);
-    if (!lock.has_value()) {
-      continue;
-    }
-    station_to_missions[lock->first].push_back(owner_id);
-    station_to_missions[lock->second].push_back(owner_id);
-    station_to_resources[lock->first].push_back(resource_id);
-    station_to_resources[lock->second].push_back(resource_id);
-  }
-
-  std::unordered_set<std::string> conflict_missions;
-  std::unordered_set<std::string> conflict_resources;
-  std::unordered_set<std::string> conflict_stations;
-  for (const auto& [station_id, mission_ids] : station_to_missions) {
-    std::unordered_set<std::string> unique_missions(mission_ids.begin(), mission_ids.end());
-    if (unique_missions.size() < 2U) {
-      continue;
-    }
-    conflict_stations.insert(station_id);
-    std::vector<std::string> ordered_missions(unique_missions.begin(), unique_missions.end());
-    std::sort(ordered_missions.begin(), ordered_missions.end());
-    for (const auto& mission_id : ordered_missions) {
-      conflict_missions.insert(mission_id);
-    }
-    const auto resource_it = station_to_resources.find(station_id);
-    if (resource_it != station_to_resources.end()) {
-      for (const auto& resource_id : resource_it->second) {
-        conflict_resources.insert(resource_id);
-      }
-    }
-    std::ostringstream desc;
-    desc << "station " << station_id << " shared by missions ";
-    for (std::size_t index = 0; index < ordered_missions.size(); ++index) {
-      if (index > 0) {
-        desc << ", ";
-      }
-      desc << ordered_missions[index];
-    }
-    decision.descriptions.push_back(desc.str());
-  }
-
-  decision.deadlocked = !conflict_stations.empty();
-  decision.mission_ids.assign(conflict_missions.begin(), conflict_missions.end());
-  std::sort(decision.mission_ids.begin(), decision.mission_ids.end());
-  decision.conflict_resource_ids.assign(conflict_resources.begin(), conflict_resources.end());
-  std::sort(decision.conflict_resource_ids.begin(), decision.conflict_resource_ids.end());
-  decision.conflict_station_ids.assign(conflict_stations.begin(), conflict_stations.end());
-  std::sort(decision.conflict_station_ids.begin(), decision.conflict_station_ids.end());
-  if (decision.deadlocked) {
-    decision.message = "traffic deadlock candidates detected";
-  }
-  return decision;
-}
-
 std::vector<std::string> BuildRouteLockIds(
     const std::vector<std::string>& station_path, const bool include_intersection_locks) {
   std::vector<std::string> lock_ids;
@@ -198,9 +136,18 @@ bool ReserveRouteLocksForMission(
     RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
     const std::string& mission_id, const std::vector<std::string>& route_lock_ids,
     std::string* message) {
+  return ReserveRouteLocksForMission(
+      route_locks, route_locks_by_mission, mission_id, mission_id, route_lock_ids, message);
+}
+
+bool ReserveRouteLocksForMission(
+    RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
+    const std::string& mission_id, const std::string& owner_id,
+    const std::vector<std::string>& route_lock_ids, std::string* message) {
+  const std::string owner = owner_id.empty() ? mission_id : owner_id;
   for (const auto& lock_id : route_lock_ids) {
     const auto existing = route_locks.find(lock_id);
-    if (existing != route_locks.end() && existing->second != mission_id) {
+    if (existing != route_locks.end() && existing->second != owner) {
       if (message != nullptr) {
         *message = "route resource locked: " + lock_id + " by " + existing->second;
       }
@@ -208,9 +155,9 @@ bool ReserveRouteLocksForMission(
     }
   }
   for (const auto& lock_id : route_lock_ids) {
-    route_locks[lock_id] = mission_id;
+    route_locks[lock_id] = owner;
   }
-  route_locks_by_mission[mission_id] = RouteLockReservation{mission_id, route_lock_ids};
+  route_locks_by_mission[mission_id] = RouteLockReservation{mission_id, route_lock_ids, owner};
   if (message != nullptr) {
     *message = "reserved " + std::to_string(route_lock_ids.size()) + " route lock(s)";
   }
@@ -221,23 +168,39 @@ bool ReleaseRouteLocksForMission(
     RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
     const std::string& mission_id) {
   bool released = false;
+  std::string owner = mission_id;
   const auto reservation = route_locks_by_mission.find(mission_id);
   if (reservation != route_locks_by_mission.end()) {
-    for (const auto& lock_id : reservation->second.route_lock_ids) {
+    if (!reservation->second.owner_id.empty()) {
+      owner = reservation->second.owner_id;
+    }
+    const auto lock_ids = reservation->second.route_lock_ids;
+    route_locks_by_mission.erase(reservation);
+    // 同一占用者的其他未结束工单还引用的资源不放。
+    std::unordered_set<std::string> still_needed;
+    for (const auto& [other_mission, other] : route_locks_by_mission) {
+      const std::string other_owner = other.owner_id.empty() ? other_mission : other.owner_id;
+      if (other_owner == owner) {
+        still_needed.insert(other.route_lock_ids.begin(), other.route_lock_ids.end());
+      }
+    }
+    for (const auto& lock_id : lock_ids) {
       const auto lock = route_locks.find(lock_id);
-      if (lock != route_locks.end() && lock->second == mission_id) {
+      if (lock != route_locks.end() && lock->second == owner && still_needed.count(lock_id) == 0U) {
         route_locks.erase(lock);
         released = true;
       }
     }
-    route_locks_by_mission.erase(reservation);
   }
-  for (auto lock = route_locks.begin(); lock != route_locks.end();) {
-    if (lock->second == mission_id) {
-      lock = route_locks.erase(lock);
-      released = true;
-    } else {
-      ++lock;
+  if (owner == mission_id) {
+    // 占用者就是任务号（旧调用或残留）：清掉它占着的全部资源。
+    for (auto lock = route_locks.begin(); lock != route_locks.end();) {
+      if (lock->second == mission_id) {
+        lock = route_locks.erase(lock);
+        released = true;
+      } else {
+        ++lock;
+      }
     }
   }
   return released;
@@ -337,7 +300,7 @@ std::vector<std::string> BuildRoutePathResourceIds(
 
 RouteSegmentDecision PlanRouteSegmentRequest(
     const RouteSegmentRequest& request, RouteLockMap& route_locks,
-    RouteWaitQueueMap& wait_queues, std::uint64_t* next_sequence) {
+    RouteWaitQueueMap& wait_queues, std::uint64_t* next_sequence, const RouteHoldMap* holds) {
   RouteSegmentDecision decision;
   decision.resource_ids = request.resource_ids;
   if (request.robot_id.empty()) {
@@ -347,7 +310,19 @@ RouteSegmentDecision PlanRouteSegmentRequest(
 
   for (const auto& resource_id : request.resource_ids) {
     const auto lock = route_locks.find(resource_id);
-    if (lock == route_locks.end() || lock->second == request.robot_id) {
+    if (lock == route_locks.end()) {
+      // 空闲但暂扣给了别的（优先级不低于本次申请的）车：同样算阻塞。
+      if (holds != nullptr) {
+        const auto hold = holds->find(resource_id);
+        if (hold != holds->end() && hold->second.robot_id != request.robot_id &&
+            hold->second.priority >= request.priority) {
+          decision.blocking_resource_ids.push_back(resource_id);
+          decision.blocking_owner_ids.push_back(hold->second.robot_id);
+        }
+      }
+      continue;
+    }
+    if (lock->second == request.robot_id) {
       continue;
     }
     decision.blocking_resource_ids.push_back(resource_id);
@@ -390,11 +365,14 @@ RouteSegmentDecision PlanRouteSegmentRequest(
   waiter.to_station = request.to_station;
   waiter.priority = request.priority;
   waiter.resource_ids = request.resource_ids;
+  waiter.goal_station = request.goal_station;
   if (previous.has_value() && previous->resource_ids == request.resource_ids &&
       previous->priority == request.priority) {
     waiter.sequence = previous->sequence;  // 重复申请保留原来的排位
+    waiter.since_s = previous->since_s;
   } else {
     waiter.sequence = next_sequence != nullptr ? (*next_sequence)++ : 0;
+    waiter.since_s = request.now_s;
     decision.newly_queued = true;
   }
   for (const auto& resource_id : decision.blocking_resource_ids) {
@@ -433,44 +411,79 @@ RouteSegmentReleaseDecision PlanRouteSegmentRelease(
 std::vector<RouteGrant> PlanRouteWaitGrants(
     const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
     RouteWaitQueueMap& wait_queues) {
-  // 收集候选等待者，按优先级、到达顺序统一排序后依次尝试授予，
-  // 保证先到的车不会因为资源遍历顺序被后到的车插队；整组资源拿不齐的跳过。
-  std::vector<RouteWaiter> candidates;
-  const auto collect = [&](const std::vector<RouteWaiter>& queue) {
+  return PlanRouteWaitGrants(
+      candidate_resource_ids, route_locks, wait_queues, RouteWaitGrantOptions{}, nullptr);
+}
+
+std::vector<RouteGrant> PlanRouteWaitGrants(
+    const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
+    RouteWaitQueueMap& wait_queues, const RouteWaitGrantOptions& options, RouteHoldMap* holds) {
+  // 全部等待者按优先级、到达顺序统一排序后依次过一遍，保证先到的车不会因为资源遍历
+  // 顺序被后到的车插队；整组资源拿不齐的跳过。只有候选等待者会被授予，
+  // 但所有等待者都参与防饿死的暂扣（暂扣是全局的）。
+  std::vector<RouteWaiter> waiters;
+  std::unordered_set<std::string> seen;
+  for (const auto& [resource_id, queue] : wait_queues) {
     for (const auto& waiter : queue) {
-      const bool seen = std::any_of(
-          candidates.begin(), candidates.end(),
-          [&](const RouteWaiter& other) { return other.robot_id == waiter.robot_id; });
-      if (!seen) {
-        candidates.push_back(waiter);
-      }
-    }
-  };
-  if (candidate_resource_ids.empty()) {
-    for (const auto& [resource_id, queue] : wait_queues) {
-      collect(queue);
-    }
-  } else {
-    for (const auto& resource_id : candidate_resource_ids) {
-      const auto queue_it = wait_queues.find(resource_id);
-      if (queue_it != wait_queues.end()) {
-        collect(queue_it->second);
+      if (seen.insert(waiter.robot_id).second) {
+        waiters.push_back(waiter);
       }
     }
   }
-  std::sort(candidates.begin(), candidates.end(), WaiterGoesBefore);
+  std::sort(waiters.begin(), waiters.end(), WaiterGoesBefore);
 
+  std::unordered_set<std::string> candidates;
+  const bool all_candidates = candidate_resource_ids.empty();
+  for (const auto& resource_id : candidate_resource_ids) {
+    const auto queue_it = wait_queues.find(resource_id);
+    if (queue_it != wait_queues.end()) {
+      for (const auto& waiter : queue_it->second) {
+        candidates.insert(waiter.robot_id);
+      }
+    }
+  }
+
+  const auto frozen = [&](const std::string& robot_id) {
+    return options.frozen_robot_ids != nullptr && options.frozen_robot_ids->count(robot_id) != 0U;
+  };
+
+  RouteHoldMap new_holds;
   std::vector<RouteGrant> granted;
-  for (const auto& waiter : candidates) {
-    if (!ResourcesAvailableFor(waiter.robot_id, waiter.resource_ids, route_locks)) {
+  for (const auto& waiter : waiters) {
+    if (frozen(waiter.robot_id)) {
       continue;
     }
-    for (const auto& granted_id : waiter.resource_ids) {
-      route_locks[granted_id] = waiter.robot_id;
+    bool available = ResourcesAvailableFor(waiter.robot_id, waiter.resource_ids, route_locks);
+    if (available) {
+      for (const auto& resource_id : waiter.resource_ids) {
+        const auto hold = new_holds.find(resource_id);
+        if (hold != new_holds.end() && hold->second.robot_id != waiter.robot_id) {
+          available = false;
+          break;
+        }
+      }
     }
-    EraseWaiter(waiter.robot_id, wait_queues);
-    granted.push_back(
-        RouteGrant{waiter.robot_id, waiter.from_station, waiter.to_station, waiter.resource_ids});
+    if (available && (all_candidates || candidates.count(waiter.robot_id) != 0U)) {
+      for (const auto& granted_id : waiter.resource_ids) {
+        route_locks[granted_id] = waiter.robot_id;
+      }
+      EraseWaiter(waiter.robot_id, wait_queues);
+      granted.push_back(RouteGrant{
+          waiter.robot_id, waiter.from_station, waiter.to_station, waiter.resource_ids});
+      continue;
+    }
+    const bool starving =
+        options.starvation_s > 0.0 && options.now_s - waiter.since_s >= options.starvation_s;
+    if (!available && starving) {
+      for (const auto& resource_id : waiter.resource_ids) {
+        if (route_locks.count(resource_id) == 0U && new_holds.count(resource_id) == 0U) {
+          new_holds[resource_id] = RouteHold{waiter.robot_id, waiter.priority};
+        }
+      }
+    }
+  }
+  if (holds != nullptr) {
+    *holds = std::move(new_holds);
   }
   return granted;
 }

@@ -81,16 +81,16 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
   "${LOG_DIR}/wait_events.err"
 wait_topic_type /safety_state "robot_interfaces/msg/SafetyState" 20 "${LOG_DIR}/wait_safety.err"
 
-ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
 
-ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
   "{blockage_id: pallet_aisle, reason: pallet blocking aisle, pause_active: true}" \
   | rg "success=True|state='OBSTACLE_BLOCKED'|blockage_id='pallet_aisle'"
 
 ros2 topic echo --once /safety_state robot_interfaces/msg/SafetyState \
   | rg "obstacle_blocked: true|safety_stop: true|state: OBSTACLE_BLOCKED|blockage_id: pallet_aisle"
 
-ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/report_obstacle_blockage robot_interfaces_navigation/srv/ReportObstacleBlockage \
   "{blockage_id: fallen_box, reason: second obstacle should not overwrite active pause, pause_active: false}" \
   | rg "success=False|obstacle blockage already active: pallet_aisle|blockage_id='pallet_aisle'"
 
@@ -112,18 +112,18 @@ while true; do
   sleep 1
 done
 
-ros2 service call /v2/clear_obstacle_blockage robot_interfaces_navigation/srv/ClearObstacleBlockage \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/clear_obstacle_blockage robot_interfaces_navigation/srv/ClearObstacleBlockage \
   "{blockage_id: pallet_aisle, resolution: operator removed pallet, resume_active: true}" \
   | rg "success=True|state='OK'"
 
 ros2 topic echo --once /safety_state robot_interfaces/msg/SafetyState \
   | rg "obstacle_blocked: false|safety_stop: false|state: OK"
 
-ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: OBSTACLE_BLOCKED, mission_id_filter: safety_pallet_aisle}" \
   | rg "success=True|OBSTACLE_BLOCKED|pallet blocking aisle"
 
-ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: OBSTACLE_CLEARED, mission_id_filter: safety_pallet_aisle}" \
   | rg "success=True|OBSTACLE_CLEARED|operator removed pallet"
 

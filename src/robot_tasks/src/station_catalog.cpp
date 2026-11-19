@@ -170,6 +170,10 @@ std::optional<StationCatalog> LoadStationCatalog(const std::filesystem::path& pa
       current_station.frame_id = value->empty() ? default_frame_id : *value;
       continue;
     }
+    if (auto value = ValueAfterColon(line, "yield_point")) {
+      current_station.yield_point = ParseBool(*value);
+      continue;
+    }
     if (auto value = ValueAfterColon(line, "x")) {
       if (auto parsed = ParseDouble(*value)) {
         current_station.x = *parsed;
@@ -208,6 +212,13 @@ const Station* FindStation(const StationCatalog& catalog, const std::string& id)
     }
   }
   return nullptr;
+}
+
+bool IsYieldPoint(const Station& station) {
+  if (station.yield_point.has_value()) {
+    return *station.yield_point;
+  }
+  return station.id.rfind("park_", 0) == 0;
 }
 
 std::optional<double> EstimateRouteDistance(

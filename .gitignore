@@ -37,3 +37,25 @@ CLAUDE.md
 
 # --- IDE ---
 .idea/
+
+# --- 参照常见 ROS2 / CMake / Qt / JetBrains 仓库补充 ---
+# CLion 默认构建目录与 CMake 中间产物（在包内直接 cmake 时）
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+# Qt Creator 本地工程配置（M4 调度台）
+CMakeLists.txt.user*
+*.pro.user*
+# Python 测试与打包缓存
+.pytest_cache/
+*.egg-info/
+.coverage
+# ROS 录包（体积大，按需另存）
+*.bag
+*.mcap
+*.db3
+# 系统与编辑器临时文件
+.DS_Store
+*.swp
+*~
+core.[0-9]*

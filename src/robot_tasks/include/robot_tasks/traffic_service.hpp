@@ -3,6 +3,8 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
@@ -11,6 +13,7 @@
 #include "robot_interfaces_mission/srv/detect_traffic_deadlock.hpp"
 #include "robot_interfaces_mission/msg/traffic_grant.hpp"
 #include "robot_interfaces_mission/msg/traffic_state.hpp"
+#include "robot_interfaces_mission/msg/traffic_yield.hpp"
 #include "robot_interfaces_mission/srv/list_traffic_reservations.hpp"
 #include "robot_interfaces_mission/srv/release_route_segment.hpp"
 #include "robot_interfaces_mission/srv/request_route_segment.hpp"
@@ -29,6 +32,10 @@ namespace robot_tasks {
 // M2 起还负责滚动申请：/v2/request_route_segment、/v2/release_route_segment 两个服务，
 // /traffic/state（1 Hz）与 /traffic/grants（授予 / 重规划通知）两个话题。
 // 任务中枢自己的车（robot_1）走同一套 C++ 接口，授予通知通过回调送回节点。
+//
+// M3 起负责等待图死锁检测与解除：申请新进入等待时、以及每秒一次检测等待环；
+// 检出后选让路车，改道 / 退避指令发到 /traffic/yield，反复成环则暂停这组车；
+// 统计写进 /traffic/state。纯函数在 traffic_deadlock.hpp。
 class TrafficService {
  public:
   // event 为 "granted" 或 "replan"。
@@ -42,10 +49,11 @@ class TrafficService {
 
   // 申请一段路（station_path 非空时按整条路径申请）。rolling 下拿不到排队，
   // whole_route 下拿不到拒绝。会校验站点和路段存在。
+  // goal_station：本程目的地（可为空），供死锁解除用。
   RouteSegmentDecision RequestRouteSegment(
       const std::string& robot_id, const std::string& from_station,
       const std::string& to_station, int priority,
-      const std::vector<std::string>& station_path = {});
+      const std::vector<std::string>& station_path = {}, const std::string& goal_station = "");
   // resource_ids 为空 = 释放该车持有的全部资源。新授予会发 /traffic/grants 并回调。
   RouteSegmentReleaseDecision ReleaseRouteSegment(
       const std::string& robot_id, const std::vector<std::string>& resource_ids);
@@ -54,8 +62,8 @@ class TrafficService {
 
   std::vector<std::string> BuildRouteLockIds(const std::vector<std::string>& station_path) const;
   bool ReserveRouteLocksForMission(
-      const std::string& mission_id, const std::vector<std::string>& route_lock_ids,
-      std::string* message);
+      const std::string& mission_id, const std::string& owner_id,
+      const std::vector<std::string>& route_lock_ids, std::string* message);
   void ReleaseRouteLocksForMission(const std::string& mission_id);
 
  private:
@@ -90,12 +98,44 @@ class TrafficService {
   void GrantWaiters(const std::vector<std::string>& candidate_resource_ids);
   void NotifyGrant(const std::string& event, const RouteGrant& grant);
   void PublishTrafficState();
+  // M3：检测一次等待环，按需解除并更新统计。
+  void RunDeadlockCheck();
+  void PauseDeadlockedRobots(const WaitCycle& cycle, const std::string& reason);
+  void PublishYield(const DeadlockYieldPlan& plan);
+  // 运维清除了某车的占用：解除它所在暂停组。
+  void UnfreezePausedGroupOf(const std::string& robot_id);
+  double NowSeconds() const;
 
   rclcpp::Node* node_;
   MissionContext& context_;
   GrantCallback grant_callback_;
   std::uint64_t grant_count_ = 0;
   std::uint64_t queue_count_ = 0;
+  // M3 参数。
+  double wait_starvation_s_ = 20.0;
+  double whole_route_wait_ttl_s_ = 6.0;
+  double yield_hold_s_ = 5.0;
+  double yield_timeout_s_ = 10.0;
+  bool deadlock_resolution_enabled_ = true;
+  // M3 状态。
+  DeadlockHistory deadlock_history_;
+  ActiveDeadlockMap active_deadlocks_;
+  std::unordered_set<std::string> frozen_robot_ids_;
+  std::unordered_map<std::string, std::string> paused_group_of_;
+  std::vector<std::string> deadlock_robot_ids_;
+  // M3 统计（进 /traffic/state）。
+  std::uint64_t deadlock_check_count_ = 0;
+  std::uint64_t deadlock_count_ = 0;
+  std::uint64_t resolved_count_ = 0;
+  std::uint64_t reroute_count_ = 0;
+  std::uint64_t backoff_count_ = 0;
+  std::uint64_t pause_count_ = 0;
+  std::string last_resolution_action_;
+  std::string last_resolution_robot_id_;
+  double last_resolution_ms_ = -1.0;
+  double last_detection_us_ = 0.0;
+  double max_detection_us_ = 0.0;
+  rclcpp::Publisher<robot_interfaces_mission::msg::TrafficYield>::SharedPtr traffic_yield_pub_;
   rclcpp::Service<robot_interfaces_mission::srv::RequestRouteSegment>::SharedPtr
       v2_request_route_segment_srv_;
   rclcpp::Service<robot_interfaces_mission::srv::ReleaseRouteSegment>::SharedPtr

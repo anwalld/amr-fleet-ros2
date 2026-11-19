@@ -10,7 +10,7 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-ros2 service call /v2/list_scenario_workflows robot_interfaces_business/srv/ListScenarioWorkflows \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_scenario_workflows robot_interfaces_business/srv/ListScenarioWorkflows \
   "{scenario_id: ''}" \
   | rg "retail|restaurant|library|airport|factory_qc|store_restock_and_recovery|service_and_dish_return|returns_and_floor_round|security_and_gate_supply|sample_and_rework_loop"
 

@@ -18,22 +18,22 @@ call_submit_order pause_alpha scenario_workflow 30 \
   scenario_workflow \
   | rg "accepted=True|station_order_fleet_pause_alpha_step_1|station_order_fleet_pause_alpha_step_2"
 
-ros2 service call /v2/pause_workflow robot_interfaces_business/srv/PauseWorkflow \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/pause_workflow robot_interfaces_business/srv/PauseWorkflow \
   "{order_id: pause_alpha, pause_active: true}" \
   | rg "success=True|active_pause_requested=False|station_order_fleet_pause_alpha_step_1|station_order_fleet_pause_alpha_step_2"
 
-ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
   "{order_id: pause_alpha}" \
   | rg "success=True|state='PAUSED'|paused=True|queued_steps=2|station_order_fleet_pause_alpha_step_2"
 
-ros2 service call /v2/resume_workflow robot_interfaces_business/srv/ResumeWorkflow \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/resume_workflow robot_interfaces_business/srv/ResumeWorkflow \
   "{order_id: pause_alpha, resume_active: true}" \
   | rg "success=True|active_resume_requested=False|station_order_fleet_pause_alpha_step_1|station_order_fleet_pause_alpha_step_2"
 
 for mission in station_order_fleet_pause_alpha_step_1 station_order_fleet_pause_alpha_step_2; do
   deadline=$((SECONDS + 90))
   while true; do
-    if ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission}}" \
       2>/tmp/robot_workflow_pause_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
       break
@@ -46,7 +46,7 @@ for mission in station_order_fleet_pause_alpha_step_1 station_order_fleet_pause_
   done
 done
 
-ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
+timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
   "{order_id: pause_alpha}" \
   | rg "success=True|state='FINISHED'|finished_steps=2|total_steps=2"
 

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 
+#include "robot_tasks/traffic_deadlock.hpp"
 #include "robot_tasks/traffic_reservation.hpp"
 
 namespace robot_tasks {
@@ -20,6 +21,9 @@ struct MissionContext {
   // 各资源的等待队列（rolling 模式）与等待者编号。
   RouteWaitQueueMap route_wait_queues;
   std::uint64_t next_route_wait_sequence = 1;
+  // M3：防饿死暂扣表（每次补授予重算）与 whole_route 被拒申请的重试等待（计入等待图）。
+  RouteHoldMap route_holds;
+  WholeRouteRetryWaitMap whole_route_retry_waits;
 };
 
 }  // namespace robot_tasks

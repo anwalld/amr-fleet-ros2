@@ -4086,8 +4086,9 @@ class MissionRunnerNode final : public rclcpp::Node {
     // rolling：入队只校验路径存在（上面的 gate），不锁；执行时按边申请。
     if (!traffic_service_->Rolling()) {
       std::string route_lock_message;
+      // M3：占用者统一为车辆号，按任务号记录这张工单锁了哪些资源。
       if (!traffic_service_->ReserveRouteLocksForMission(
-              profile->mission_id, gate.route_lock_ids, &route_lock_message)) {
+              profile->mission_id, robot_id_, gate.route_lock_ids, &route_lock_message)) {
         response->success = false;
         response->mission_id = profile->mission_id;
         response->message = "station transport route lock rejected: " + route_lock_message;
@@ -5451,7 +5452,8 @@ class MissionRunnerNode final : public rclcpp::Node {
     const std::string from = record.leg_path[record.leg_index - 1];
     const std::string next = record.leg_path[record.leg_index];
     const auto decision =
-        traffic_service_->RequestRouteSegment(robot_id_, from, next, record.priority);
+        traffic_service_->RequestRouteSegment(
+            robot_id_, from, next, record.priority, {}, record.leg_path.back());
     if (decision.granted) {
       if (record.waiting_route) {
         RecordMissionEventFor(

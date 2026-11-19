@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -12,6 +13,8 @@ namespace robot_tasks {
 struct RouteLockReservation {
   std::string mission_id;
   std::vector<std::string> route_lock_ids;
+  // 路权表里记的占用者。M3 起 whole_route 也用车辆号；为空表示占用者就是任务号（旧调用）。
+  std::string owner_id;
 };
 
 using RouteLockMap = std::unordered_map<std::string, std::string>;
@@ -69,7 +72,18 @@ struct RouteWaiter {
   int priority = 0;
   std::uint64_t sequence = 0;
   std::vector<std::string> resource_ids;
+  // M3：本程目的地（可为空）与开始等待的时刻（秒，单调时钟），用于死锁解除与防饿死。
+  std::string goal_station;
+  double since_s = 0.0;
 };
+
+// M3 防饿死：等待过久的等待者把它所需的空闲资源暂扣下来（资源 → 暂扣者）。
+// 暂扣不是占用，不写进路权表；只影响补授予、新申请和等待图。
+struct RouteHold {
+  std::string robot_id;
+  int priority = 0;
+};
+using RouteHoldMap = std::unordered_map<std::string, RouteHold>;
 
 // 资源 → 等待者（已按优先级降序、到达顺序升序排好）。
 using RouteWaitQueueMap = std::unordered_map<std::string, std::vector<RouteWaiter>>;
@@ -82,6 +96,9 @@ struct RouteSegmentRequest {
   int priority = 0;
   // false：整条路径一次锁完，拿不到就拒绝（whole_route 对照组），不进队列。
   bool allow_queue = true;
+  // M3：本程目的地（可为空）与当前时刻（秒，单调时钟）。
+  std::string goal_station;
+  double now_s = 0.0;
 };
 
 struct RouteSegmentDecision {
@@ -123,13 +140,21 @@ TrafficReservationDecision PlanTrafficUnblock(
     const RouteLockMap& route_locks);
 TrafficClearDecision PlanTrafficReservationClear(
     const std::string& resource_id, const RouteLockMap& route_locks);
-TrafficDeadlockDecision PlanTrafficDeadlockDetection(const RouteLockMap& route_locks);
+// 死锁检测（M3 起为等待图找环）见 traffic_deadlock.hpp。
 std::vector<std::string> BuildRouteLockIds(
     const std::vector<std::string>& station_path, bool include_intersection_locks);
 bool ReserveRouteLocksForMission(
     RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
     const std::string& mission_id, const std::vector<std::string>& route_lock_ids,
     std::string* message);
+// M3：以 owner_id（执行车辆号）占用，按 mission_id 记录这张工单锁了哪些资源。
+// 已归 owner_id 所有的资源不算冲突（同一辆车的多张工单可以共用）。
+bool ReserveRouteLocksForMission(
+    RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
+    const std::string& mission_id, const std::string& owner_id,
+    const std::vector<std::string>& route_lock_ids, std::string* message);
+// 释放一张工单锁的资源：只放掉仍归它的占用者所有、且不被同一占用者其他工单引用的资源。
+// 占用者就是任务号（旧调用）时，另外清掉该任务号占着的全部残留资源。
 bool ReleaseRouteLocksForMission(
     RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
     const std::string& mission_id);
@@ -148,9 +173,12 @@ std::vector<std::string> BuildRoutePathResourceIds(
 // 申请一段路。整组资源都空闲或已归该车所有 → 授予并锁上；否则按 allow_queue 排队或拒绝。
 // 同一辆车同一时刻只等一组资源：新申请会替换它先前的等待。
 // *next_sequence 用来给新等待者编号，调用后加一。
+// holds 非空时，被暂扣给其他车（且暂扣者优先级不低于本次申请）的空闲资源也算阻塞，
+// 阻塞占用者记为暂扣者。
 RouteSegmentDecision PlanRouteSegmentRequest(
     const RouteSegmentRequest& request, RouteLockMap& route_locks,
-    RouteWaitQueueMap& wait_queues, std::uint64_t* next_sequence);
+    RouteWaitQueueMap& wait_queues, std::uint64_t* next_sequence,
+    const RouteHoldMap* holds = nullptr);
 
 // 释放该车持有的资源（resource_ids 为空 = 全部）。等在这些资源上的车按优先级、
 // 到达顺序依次尝试授予，整组资源拿不齐的跳过（可能授予多辆车）。
@@ -163,6 +191,23 @@ RouteSegmentReleaseDecision PlanRouteSegmentRelease(
 std::vector<RouteGrant> PlanRouteWaitGrants(
     const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
     RouteWaitQueueMap& wait_queues);
+
+// M3 补授予选项：防饿死与兜底暂停。
+struct RouteWaitGrantOptions {
+  double now_s = 0.0;
+  // 等待超过这么多秒的等待者暂扣它所需的空闲资源；<= 0 关闭防饿死。
+  double starvation_s = 0.0;
+  // 被兜底暂停的车：不授予，也不暂扣。
+  const std::unordered_set<std::string>* frozen_robot_ids = nullptr;
+};
+
+// 同上，另按 options 处理暂扣与暂停。所有等待者按优先级、到达顺序依次过一遍：
+// 候选等待者（等在 candidate_resource_ids 上的，为空 = 全部）整组拿得齐、且不撞上
+// 别人的暂扣就授予；拿不齐而又等待过久的，把它所需的空闲资源暂扣给它。
+// 本次算出的暂扣表写入 *holds（替换原内容）。
+std::vector<RouteGrant> PlanRouteWaitGrants(
+    const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
+    RouteWaitQueueMap& wait_queues, const RouteWaitGrantOptions& options, RouteHoldMap* holds);
 
 // 撤掉一辆车的全部等待（取消任务时用）。返回撤掉的等待者（若有）。
 std::optional<RouteWaiter> WithdrawRouteWaits(

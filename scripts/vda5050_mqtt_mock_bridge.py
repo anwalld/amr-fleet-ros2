@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import re
 import subprocess
 import time
@@ -8,8 +9,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+ROS2_CALL_TIMEOUT = float(os.environ.get("ROS2_CALL_TIMEOUT", "30"))
+
+
 def run_ros2(args):
-    return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # 每次调用带超时：FastDDS 高负载下会丢服务应答，不带超时会一直挂住。超时按调用失败处理。
+    try:
+        return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=ROS2_CALL_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(args, 124, stdout=exc.stdout or "", stderr="timeout")
 
 
 def response_value(text, name, default=""):

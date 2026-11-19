@@ -32,7 +32,7 @@
 ## 4. 待定性的两条（design D1、Open Questions）
 
 - [x] 4.1 `amr_sim:visualization`：读 `amr_sim_visualizer_node`，确认 `mission: ` 文字标记该不该发。如果是脚本过时就改脚本；如果是产品缺陷就修产品，加单测，并用 `/opsx:update` 补规格增量（先告诉用户）。验证：结论写进回查记录；进夜跑。
-- [ ] 4.2 `business:vda5050_mqtt`：先改为失败时保留桥的输出目录，再夜跑一次定性，处理方式同 4.1。验证：同上。
+- [x] 4.2 `business:vda5050_mqtt`：读桥脚本即可定性（无需再夜跑诊断）：vda5050 单是站点运输，取货站停在 WAIT_LOAD 等上货确认，M0 补自动确认器时漏了本脚本；桥启动前加 `start_station_auto_confirm`，桥内 `ros2 service call` 补超时。脚本问题，不涉及产品。验证：`bash -n`、`py_compile`；进夜跑 #2。
 
 ## 5. 删并与换层（design D2、D10）
 

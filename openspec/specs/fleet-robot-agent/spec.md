@@ -6,7 +6,7 @@
 ## Requirements
 
 ### Requirement: 多车轻量仿真启动
-系统 SHALL 提供启动文件 `fleet_sim.launch.py`，参数 `fleet_size`（默认 6）、`network`（`workshop` 或 `warehouse`）、`traffic_reservation_mode`，拉起任务中枢（车辆号为 `dispatcher`，不在车队里）、不依赖 Nav2 的导航序列服务和 `fleet_size` 个任务代理（`robot_1` … `robot_N`），各车起点即其停车位，按路网的停车位列表依次分配。车数超过该路网停车位数时 SHALL 启动失败。
+系统 SHALL 提供启动文件 `fleet_sim.launch.py`，参数 `fleet_size`（默认 6）、`network`（`workshop`、`workshop_2way` 或 `warehouse`）、`traffic_reservation_mode`、`traffic_deadlock_resolution_enabled`（默认 `true`，透传给任务中枢）、`start_stations`（逗号分隔，覆盖各车起点）、`home_stations`（逗号分隔，覆盖各车停车位；不给时停车位即起点），拉起任务中枢（车辆号为 `dispatcher`，不在车队里）、不依赖 Nav2 的导航序列服务和 `fleet_size` 个任务代理（`robot_1` … `robot_N`），未给 `start_stations` 与 `home_stations` 时，各车起点即其停车位，按路网的停车位列表依次分配。车数超过该路网停车位数时 SHALL 启动失败。
 
 #### Scenario: 6 台车启动
 - **WHEN** 以 `fleet_size:=6 network:=workshop` 启动
@@ -15,6 +15,14 @@
 #### Scenario: 车数超过停车位
 - **WHEN** 以 `fleet_size:=6 network:=warehouse` 启动（该路网只有 5 个起点）
 - **THEN** 启动失败并说明该路网只有 5 个起点
+
+#### Scenario: 起点与停车位分开
+- **WHEN** 以 `fleet_size:=3 start_stations:=jn_s,machining,jn_n home_stations:=park_1,park_2,park_3` 启动
+- **THEN** 三台车分别在 jn_s、machining、jn_n 就绪，办完单空闲时分别回 park_1、park_2、park_3
+
+#### Scenario: 双向路网启动
+- **WHEN** 以 `fleet_size:=6 network:=workshop_2way` 启动
+- **THEN** 六个代理在 `workshop_2way` 路网的停车位上就绪，任务中枢加载同一路网
 
 ### Requirement: 起点占位
 代理启动后 SHALL 先申请自己起点站的路口锁；拿到后才在车队里登记为 `available` 并开始领任务。拿不到时每秒重试。
@@ -31,7 +39,7 @@
 - **THEN** robot_3 领取该任务，任务状态变为 `RUNNING`，消息含 `accepted by robot_3`
 
 ### Requirement: 按段申请与释放路权
-rolling 模式下代理 SHALL 用路网的最短路径逐段前进：为"下一条边 + 下一个路口"申请路权，授予后才驶向下一站；到达后释放身后的边和上一个路口，只继续持有当前路口。未授予时 SHALL 留在原地，收到 `/traffic/grants` 中给自己的通知立即重申请，否则每 2 秒重申请一次。
+rolling 模式下代理 SHALL 用路网的最短路径逐段前进：为"下一条边 + 下一个路口"申请路权，申请时带上本程目的地 `goal_station`，授予后才驶向下一站；到达后释放身后的边和上一个路口，只继续持有当前路口。代理 SHALL 按授予应答（或授予通知）给出的资源号决定释放哪些资源，不自行拼接资源号。未授予时 SHALL 留在原地，收到 `/traffic/grants` 中给自己的通知立即重申请，否则每 2 秒重申请一次。
 
 #### Scenario: 拿到路权才出发
 - **WHEN** robot_2 下一段的路口被 robot_1 占用
@@ -39,7 +47,7 @@ rolling 模式下代理 SHALL 用路网的最短路径逐段前进：为"下一�
 
 #### Scenario: 到站后释放身后资源
 - **WHEN** robot_2 从 A 到达 B
-- **THEN** robot_2 释放 `route_edge:A__B`（按字典序命名）和 `route_node:A`，仍持有 `route_node:B`
+- **THEN** robot_2 释放 A → B 这次授予给出的资源中除 `route_node:B` 外的全部（即该路段锁），以及上一次授予留下的 `route_node:A`，仍持有 `route_node:B`
 
 #### Scenario: 等待期间改了目标
 - **WHEN** 代理在等路权期间改去接新任务，之后旧申请被授予
@@ -86,3 +94,18 @@ rolling 模式下代理 SHALL 用路网的最短路径逐段前进：为"下一�
 #### Scenario: 演示模式不申请路权
 - **WHEN** 代理以 `mode:=follow_fleet_station` 运行
 - **THEN** 它不调用路权申请服务，只跟随车队状态中的站点行驶
+
+### Requirement: 执行让路指令
+代理 SHALL 订阅 `/traffic/yield` 中发给自己的指令：`reroute` 时把指令中的资源加入临时绕行集合，按指令给出的新路径（或自行绕开这些资源重新寻路）继续本程；`backoff` 时先驶往指令中的避让点，在那里停留指令给出的时长，再从避让点重新寻路去原目的地；`pause` 时停在原地不再申请，直到自己持有的路权被运维清除。临时绕行集合 SHALL 在本程结束时清空。
+
+#### Scenario: 收到改道指令
+- **WHEN** robot_2 在 jn_s 等待时收到绕开 `route_node:machining` 的 `reroute` 指令
+- **THEN** robot_2 改走不经过 machining 的路径并申请其第一段
+
+#### Scenario: 收到退避指令
+- **WHEN** robot_2 收到目标 park_3、停留 5 秒的 `backoff` 指令
+- **THEN** robot_2 逐段申请驶往 park_3，到达后停留约 5 秒，再申请去原目的地的路径
+
+#### Scenario: 收到暂停指令
+- **WHEN** robot_2 收到 `pause` 指令
+- **THEN** robot_2 停在当前站点，不再发出路权申请

@@ -11,14 +11,21 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/estimate_station_sequence robot_interfaces_mission/srv/EstimateStationSequence \
-  "{station_ids: [receiving, storage_a, packing, dock], nominal_speed_mps: 0.5, battery_voltage: 24.5}" \
-  | rg "success=True|estimate_station_sequence|waypoint_count=4|distance_m=3.9|battery_sufficient=True"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/estimate_station_sequence robot_interfaces_mission/srv/EstimateStationSequence \
+  "{station_ids: [receiving, storage_a, packing, dock], nominal_speed_mps: 0.5, battery_voltage: 24.5}")"
+rg "success=True" <<<"${_rg_out}"
+rg "estimate_station_sequence" <<<"${_rg_out}"
+rg "waypoint_count=4" <<<"${_rg_out}"
+rg "distance_m=3.9" <<<"${_rg_out}"
+rg "battery_sufficient=True" <<<"${_rg_out}"
 
-call_submit_order sequence_alpha station_sequence 35 \
+_rg_out="$(call_submit_order sequence_alpha station_sequence 35 \
   "station_ids=receiving,storage_a,packing,dock;start_if_idle=true;preempt_current=false" \
-  station_sequence \
-  | rg "accepted=True|station_sequence_sequence_alpha_leg_1|station_sequence_sequence_alpha_leg_2|station_sequence_sequence_alpha_leg_3"
+  station_sequence)"
+rg "accepted=True" <<<"${_rg_out}"
+rg "station_sequence_sequence_alpha_leg_1" <<<"${_rg_out}"
+rg "station_sequence_sequence_alpha_leg_2" <<<"${_rg_out}"
+rg "station_sequence_sequence_alpha_leg_3" <<<"${_rg_out}"
 
 seen_first=false
 seen_second=false
@@ -32,17 +39,17 @@ while true; do
 
   if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: FINISHED, mission_id_filter: station_sequence_sequence_alpha_leg_1}" \
-    2>/tmp/robot_station_sequence_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
+    2>/tmp/robot_station_sequence_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
     seen_first=true
   fi
   if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: FINISHED, mission_id_filter: station_sequence_sequence_alpha_leg_2}" \
-    2>/tmp/robot_station_sequence_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
+    2>/tmp/robot_station_sequence_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
     seen_second=true
   fi
   if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: FINISHED, mission_id_filter: station_sequence_sequence_alpha_leg_3}" \
-    2>/tmp/robot_station_sequence_events.err | rg "loaded 1 mission event|states=\\['FINISHED'\\]" >/dev/null; then
+    2>/tmp/robot_station_sequence_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
     seen_third=true
   fi
   if ${seen_first} && ${seen_second} && ${seen_third} && grep -q "FINISHED" <<<"${state}"; then

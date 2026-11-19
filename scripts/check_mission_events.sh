@@ -38,12 +38,17 @@ while true; do
   sleep 1
 done
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
-  "{limit: 20, state_filter: '', mission_id_filter: demo_patrol}" \
-  | rg "success=True|demo_patrol|FINISHED|STARTING"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  "{limit: 20, state_filter: '', mission_id_filter: demo_patrol}")"
+rg "success=True" <<<"${_rg_out}"
+rg "demo_patrol" <<<"${_rg_out}"
+rg "FINISHED" <<<"${_rg_out}"
+rg "STARTING" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
-  "{limit: 5, state_filter: FINISHED, mission_id_filter: demo_patrol}" \
-  | rg "success=True|states=\\['FINISHED'\\]|demo_patrol"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  "{limit: 5, state_filter: FINISHED, mission_id_filter: demo_patrol}")"
+rg "success=True" <<<"${_rg_out}"
+rg "states=\\['FINISHED'\\]" <<<"${_rg_out}"
+rg "demo_patrol" <<<"${_rg_out}"
 
 echo "mission event audit workflow passed"

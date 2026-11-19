@@ -66,7 +66,7 @@ assert_no_route_owner() {
   timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
     >"${traffic_file}" 2>"${traffic_file}.err"
   rg "success=True" "${traffic_file}"
-  if rg "${mission_id}|route_edge:receiving__storage_a|route_node:storage_a" "${traffic_file}" \
+  if rg "${mission_id}|route_edge:receiving__storage_a|route_node:storage_a" "${traffic_file}" \  # lint:allow-alternation 否定检查：这些资源一个都不能残留
       >/dev/null; then
     echo "route locks were not released for ${mission_id}" >&2
     cat "${traffic_file}" >&2

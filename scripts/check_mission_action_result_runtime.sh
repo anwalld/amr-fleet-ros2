@@ -185,10 +185,10 @@ wait_active_mission() {
     timeout 4s ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state >"${state_file}" 2>"${state_file}.err" || true
     if rg "${mission_id}" "${active_file}" >/dev/null &&
-        rg "STARTING|RUNNING|PAUSED" "${state_file}" >/dev/null; then
+        rg "STARTING|RUNNING|PAUSED" "${state_file}" >/dev/null; then  # lint:allow-alternation 等任务进入任一活动状态
       return 0
     fi
-    if rg "FAILED|ERROR|CANCELED|FINISHED" "${state_file}" >/dev/null; then
+    if rg "FAILED|ERROR|CANCELED|FINISHED" "${state_file}" >/dev/null; then  # lint:allow-alternation 出现任一终态即停止轮询
       echo "mission ${mission_id} left active state too early" >&2
       cat "${state_file}" >&2 || true
       cat "${active_file}" >&2 || true

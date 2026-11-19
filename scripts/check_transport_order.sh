@@ -6,10 +6,11 @@ source "${SCRIPT_DIR}/robot_wait.sh"
 wait_submit_order 10 /tmp/robot_transport_order_service.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_transport_order_topic.err
 
-call_submit_order order_alpha transport 20 \
+_rg_out="$(call_submit_order order_alpha transport 20 \
   "frame_id=map;pickup_x=0.2;pickup_y=0.0;pickup_yaw=0.0;dropoff_x=0.8;dropoff_y=0.4;dropoff_yaw=1.57;start_if_idle=true" \
-  transport_order \
-  | rg "accepted=True|transport_order_order_alpha"
+  transport_order)"
+rg "accepted=True" <<<"${_rg_out}"
+rg "transport_order_order_alpha" <<<"${_rg_out}"
 
 seen_order=false
 deadline=$((SECONDS + 25))

@@ -45,9 +45,12 @@ timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${second}\", priority: 1, start_if_idle: false}" | rg "success=True"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/reprioritize_queued_mission robot_interfaces_mission/srv/ReprioritizeQueuedMission \
-  "{mission_id: reprio_second, priority: 20}" \
-  | rg "success=True|reprio_second|20|queue_size=2"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/reprioritize_queued_mission robot_interfaces_mission/srv/ReprioritizeQueuedMission \
+  "{mission_id: reprio_second, priority: 20}")"
+rg "success=True" <<<"${_rg_out}"
+rg "reprio_second" <<<"${_rg_out}"
+rg "20" <<<"${_rg_out}"
+rg "queue_size=2" <<<"${_rg_out}"
 
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
 

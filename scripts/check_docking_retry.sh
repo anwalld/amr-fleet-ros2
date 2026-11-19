@@ -80,7 +80,7 @@ done
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_mission_recovery_state robot_interfaces_mission/srv/GetMissionRecoveryState "{}" \
   >"${LOG_DIR}/recovery.out"
 rg "success=True" "${LOG_DIR}/recovery.out"
-rg "retry_count=(0|1)(,|\\)|$)" "${LOG_DIR}/recovery.out"
+rg "retry_count=(0|1)(,|\\)|$)" "${LOG_DIR}/recovery.out"  # lint:allow-alternation 允许的取值集合：重试计数为 0 或 1
 rg "last_recovery_action='retry'" "${LOG_DIR}/recovery.out"
 rg "last_failure_message='docking contact failed'" "${LOG_DIR}/recovery.out"
 

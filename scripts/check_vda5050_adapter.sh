@@ -10,7 +10,7 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 start_station_auto_confirm
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
-  "{order_id: vda_alpha, order_type: vda5050, priority: 55, payload_json: 'serial_number=robot_1;pickup_node_id=receiving;dropoff_node_id=storage_a;start_if_idle=true;preempt_current=false', tags: [vda5050_adapter]}")"
+  "{order_id: vda_alpha, order_type: vda5050, priority: 55, payload_json: 'serial_number=robot_1;pickup_node_id=receiving;dropoff_node_id=storage_a;start_if_idle=true;preempt_current=false', tags: [vda5050_adapter]}" | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "station_order_vda5050_vda_alpha" <<<"${_rg_out}"
 

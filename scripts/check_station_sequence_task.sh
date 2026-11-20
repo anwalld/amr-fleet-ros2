@@ -12,16 +12,25 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 start_station_auto_confirm
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/estimate_station_sequence robot_interfaces_mission/srv/EstimateStationSequence \
-  "{station_ids: [receiving, storage_a, packing, dock], nominal_speed_mps: 0.5, battery_voltage: 24.5}")"
+  "{station_ids: [receiving, storage_a, packing, dock], nominal_speed_mps: 0.5, battery_voltage: 24.5}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "estimate_station_sequence" <<<"${_rg_out}"
 rg "waypoint_count=4" <<<"${_rg_out}"
-rg "distance_m=3.9" <<<"${_rg_out}"
+# 原来写死的 3.9 是 warehouse 站点的距离，本用例跑在 amr_demo 上；改为与逐段估算之和一致。
+seq_distance="$(resp_scalar distance_m <<<"${_rg_out}")"
+leg_sum=0
+for leg in "receiving storage_a" "storage_a packing" "packing dock"; do
+  read -r from to <<<"${leg}"
+  leg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/estimate_station_transport robot_interfaces_mission/srv/EstimateStationTransport \
+    "{pickup_station: ${from}, dropoff_station: ${to}, nominal_speed_mps: 0.5, battery_voltage: 24.5}" | response_only)"
+  leg_sum="$(awk -v a="${leg_sum}" -v b="$(resp_scalar distance_m <<<"${leg_out}")" 'BEGIN { print a + b }')"
+done
+expect_close "sequence distance = sum of legs" "${seq_distance}" "${leg_sum}" 0.05
 rg "battery_sufficient=True" <<<"${_rg_out}"
 
 _rg_out="$(call_submit_order sequence_alpha station_sequence 35 \
   "station_ids=receiving,storage_a,packing,dock;start_if_idle=true;preempt_current=false" \
-  station_sequence)"
+  station_sequence | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "station_sequence_sequence_alpha_leg_1" <<<"${_rg_out}"
 rg "station_sequence_sequence_alpha_leg_2" <<<"${_rg_out}"

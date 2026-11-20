@@ -24,7 +24,7 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-call() { timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "$@"; }
+call() { timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "$@" | response_only; }
 list_robots() {
   call /v2/list_fleet_robots robot_interfaces_fleet/srv/ListFleetRobots "{capability: station_transport, include_disabled: false}"
 }

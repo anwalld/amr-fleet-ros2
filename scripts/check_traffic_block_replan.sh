@@ -40,7 +40,7 @@ timeout 40 ros2 topic echo /traffic/grants robot_interfaces_mission/msg/TrafficG
 ECHO_PID=$!
 sleep 3
 out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
-  "{from_station: packing, to_station: storage_a, reason: block_replan_check}")"
+  "{from_station: packing, to_station: storage_a, reason: block_replan_check}" | response_only)"
 echo "${out}"
 expect_eq "block success" "$(resp_scalar success <<<"${out}")" True
 expect_eq "block resource_id" "$(resp_scalar resource_id <<<"${out}")" "route_edge:packing__storage_a"
@@ -69,7 +69,7 @@ expect_eq "beta queued while blocked" "$(resp_scalar queued <<<"${out}")" False
 
 # 5. 解封、alpha 释放后 beta 获授予
 out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
-  "{from_station: packing, to_station: storage_a}")"
+  "{from_station: packing, to_station: storage_a}" | response_only)"
 expect_eq "unblock success" "$(resp_scalar success <<<"${out}")" True
 out="$(call_release_route_segment robot_alpha)"
 expect_eq "alpha release success" "$(resp_scalar success <<<"${out}")" True

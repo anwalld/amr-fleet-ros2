@@ -15,20 +15,20 @@ start_station_auto_confirm
 
 _rg_out="$(call_submit_order pause_alpha scenario_workflow 30 \
   "scenario_id=warehouse;workflow_id=inbound_crossdock;order_id=pause_alpha;start_if_idle=false;preempt_current=false" \
-  scenario_workflow)"
+  scenario_workflow | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "station_order_fleet_pause_alpha_step_1" <<<"${_rg_out}"
 rg "station_order_fleet_pause_alpha_step_2" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/pause_workflow robot_interfaces_business/srv/PauseWorkflow \
-  "{order_id: pause_alpha, pause_active: true}")"
+  "{order_id: pause_alpha, pause_active: true}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "active_pause_requested=False" <<<"${_rg_out}"
 rg "station_order_fleet_pause_alpha_step_1" <<<"${_rg_out}"
 rg "station_order_fleet_pause_alpha_step_2" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
-  "{order_id: pause_alpha}")"
+  "{order_id: pause_alpha}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "state='PAUSED'" <<<"${_rg_out}"
 rg "paused=True" <<<"${_rg_out}"
@@ -36,7 +36,7 @@ rg "queued_steps=2" <<<"${_rg_out}"
 rg "station_order_fleet_pause_alpha_step_2" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/resume_workflow robot_interfaces_business/srv/ResumeWorkflow \
-  "{order_id: pause_alpha, resume_active: true}")"
+  "{order_id: pause_alpha, resume_active: true}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "active_resume_requested=False" <<<"${_rg_out}"
 rg "station_order_fleet_pause_alpha_step_1" <<<"${_rg_out}"
@@ -59,7 +59,7 @@ for mission in station_order_fleet_pause_alpha_step_1 station_order_fleet_pause_
 done
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_workflow_status robot_interfaces_business/srv/GetWorkflowStatus \
-  "{order_id: pause_alpha}")"
+  "{order_id: pause_alpha}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "state='FINISHED'" <<<"${_rg_out}"
 rg "finished_steps=2" <<<"${_rg_out}"

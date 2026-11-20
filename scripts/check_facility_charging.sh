@@ -12,18 +12,18 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 expect_facility_resource charger charger_main available "" True
 
 out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/reserve_facility_resource robot_interfaces_facility/srv/ReserveFacilityResource \
-  "{resource_id: receiving_door, holder_id: operator_a, mission_id: manual_door_check, release_existing_for_holder: true}")"
+  "{resource_id: receiving_door, holder_id: operator_a, mission_id: manual_door_check, release_existing_for_holder: true}" | response_only)"
 rg "success=True" <<<"${out}"
 rg "holder_id='operator_a'" <<<"${out}"
 rg "status='reserved'" <<<"${out}"
 
 out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
-  "{resource_id: receiving_door, holder_id: operator_a}")"
+  "{resource_id: receiving_door, holder_id: operator_a}" | response_only)"
 rg "success=True" <<<"${out}"
 rg "status='available'" <<<"${out}"
 
 out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_charging robot_interfaces_mission/srv/RequestCharging \
-  "{request_id: charge_alpha, charger_id: charger_main, priority: 80, start_if_idle: true, preempt_current: false}")"
+  "{request_id: charge_alpha, charger_id: charger_main, priority: 80, start_if_idle: true, preempt_current: false}" | response_only)"
 rg "success=True" <<<"${out}"
 rg "mission_id='charging_request_charge_alpha'" <<<"${out}"
 rg "charger_id='charger_main'" <<<"${out}"
@@ -33,7 +33,7 @@ wait_active_mission charging_request_charge_alpha 60
 expect_facility_resource charger charger_main occupied charging_request_charge_alpha False
 
 out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
-  "{resource_id: charger_main, holder_id: charging_request_charge_alpha}")"
+  "{resource_id: charger_main, holder_id: charging_request_charge_alpha}" | response_only)"
 rg "success=True" <<<"${out}"
 expect_facility_resource charger charger_main available "" True
 

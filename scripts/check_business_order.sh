@@ -9,7 +9,7 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 
 _rg_out="$(call_submit_order biz_alpha business 0 \
   "business_order_id=biz_alpha;business_type=campus_mail;start_if_idle=true;preempt_current=false" \
-  business_order)"
+  business_order | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "campus" <<<"${_rg_out}"
 rg "full_mail_route" <<<"${_rg_out}"

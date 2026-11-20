@@ -39,14 +39,14 @@ while true; do
 done
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
-  "{limit: 20, state_filter: '', mission_id_filter: demo_patrol}")"
+  "{limit: 200, state_filter: '', mission_id_filter: demo_patrol}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "demo_patrol" <<<"${_rg_out}"
 rg "FINISHED" <<<"${_rg_out}"
 rg "STARTING" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
-  "{limit: 5, state_filter: FINISHED, mission_id_filter: demo_patrol}")"
+  "{limit: 5, state_filter: FINISHED, mission_id_filter: demo_patrol}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "states=\\['FINISHED'\\]" <<<"${_rg_out}"
 rg "demo_patrol" <<<"${_rg_out}"

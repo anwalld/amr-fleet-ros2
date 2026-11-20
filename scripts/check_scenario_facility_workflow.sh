@@ -12,7 +12,7 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 start_station_auto_confirm
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
-  "{scenario_id: warehouse}")"
+  "{scenario_id: warehouse}" | response_only)"
 rg "open_receiving_door" <<<"${_rg_out}"
 rg "facility_action" <<<"${_rg_out}"
 rg "receiving_door" <<<"${_rg_out}"
@@ -22,7 +22,7 @@ rg "station_transport" <<<"${_rg_out}"
 
 _rg_out="$(call_submit_order facility_workflow_alpha scenario_workflow 0 \
   "scenario_id=warehouse;workflow_id=door_assisted_inbound;order_id=facility_workflow_alpha;start_if_idle=true;preempt_current=false" \
-  scenario_workflow)"
+  scenario_workflow | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "facility_action_facility_workflow_alpha_step_1" <<<"${_rg_out}"
 rg "station_order_fleet_facility_workflow_alpha_step_2" <<<"${_rg_out}"
@@ -46,9 +46,7 @@ for mission_id in facility_action_facility_workflow_alpha_step_1 station_order_f
   done
 done
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
-  "{resource_type: door, include_disabled: false}")"
-rg "receiving_door" <<<"${_rg_out}"
-rg "available=True" <<<"${_rg_out}"
+# 场景里开门任务 hold_after_action=false：完成后门应恢复可用（列表响应是并列数组，按资源号逐项断言）。
+expect_facility_resource door receiving_door available "" True
 
 echo "scenario facility workflow passed"

@@ -48,7 +48,7 @@ wait_service_type /v2/release_facility_resource "robot_interfaces_facility/srv/R
   "${LOG_DIR}/wait_release.err"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_lift_state robot_interfaces_facility/srv/GetLiftState \
-  "{lift_id: freight_elevator}")"
+  "{lift_id: freight_elevator}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "lift_id='freight_elevator'" <<<"${_rg_out}"
 rg "station_id='packing'" <<<"${_rg_out}"
@@ -56,37 +56,37 @@ rg "available=True" <<<"${_rg_out}"
 rg "status='available'" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_lift_session robot_interfaces_facility/srv/RequestLiftSession \
-  "{session_id: lift_session_alpha, lift_id: freight_elevator, requester_id: robot_1, from_station: receiving, to_station: packing, release_existing_for_requester: true}")"
+  "{session_id: lift_session_alpha, lift_id: freight_elevator, requester_id: robot_1, from_station: receiving, to_station: packing, release_existing_for_requester: true}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "session_id='lift_session_alpha'" <<<"${_rg_out}"
 rg "lift_id='freight_elevator'" <<<"${_rg_out}"
 rg "status='lift_session'" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_lift_state robot_interfaces_facility/srv/GetLiftState \
-  "{lift_id: freight_elevator}")"
+  "{lift_id: freight_elevator}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "available=False" <<<"${_rg_out}"
 rg "holder_id='robot_1'" <<<"${_rg_out}"
 rg "status='lift_session'" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_lift_session robot_interfaces_facility/srv/RequestLiftSession \
-  "{session_id: lift_session_beta, lift_id: freight_elevator, requester_id: robot_2, from_station: receiving, to_station: packing, release_existing_for_requester: false}")"
+  "{session_id: lift_session_beta, lift_id: freight_elevator, requester_id: robot_2, from_station: receiving, to_station: packing, release_existing_for_requester: false}" | response_only)"
 rg "success=False" <<<"${_rg_out}"
 rg "lift already reserved by robot_1" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_lift_session robot_interfaces_facility/srv/ReleaseLiftSession \
-  "{session_id: lift_session_alpha, lift_id: freight_elevator}")"
+  "{session_id: lift_session_alpha, lift_id: freight_elevator}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "status='available'" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_lift_state robot_interfaces_facility/srv/GetLiftState \
-  "{lift_id: freight_elevator}")"
+  "{lift_id: freight_elevator}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "available=True" <<<"${_rg_out}"
 rg "status='available'" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_door_state robot_interfaces_facility/srv/GetDoorState \
-  "{door_id: receiving_door}")"
+  "{door_id: receiving_door}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "door_id='receiving_door'" <<<"${_rg_out}"
 rg "station_id='receiving'" <<<"${_rg_out}"
@@ -94,19 +94,19 @@ rg "available=True" <<<"${_rg_out}"
 rg "status='available'" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/reserve_facility_resource robot_interfaces_facility/srv/ReserveFacilityResource \
-  "{resource_id: receiving_door, holder_id: operator_a, mission_id: door_hold_alpha, release_existing_for_holder: true}")"
+  "{resource_id: receiving_door, holder_id: operator_a, mission_id: door_hold_alpha, release_existing_for_holder: true}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "status='reserved'" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_door_state robot_interfaces_facility/srv/GetDoorState \
-  "{door_id: receiving_door}")"
+  "{door_id: receiving_door}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "available=False" <<<"${_rg_out}"
 rg "holder_id='operator_a'" <<<"${_rg_out}"
 rg "status='reserved'" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_facility_resource robot_interfaces_facility/srv/ReleaseFacilityResource \
-  "{resource_id: receiving_door, holder_id: operator_a}")"
+  "{resource_id: receiving_door, holder_id: operator_a}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "status='available'" <<<"${_rg_out}"
 

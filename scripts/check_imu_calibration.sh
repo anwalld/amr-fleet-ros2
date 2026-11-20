@@ -22,7 +22,7 @@ expect_state() {
 expect_state idle
 for step in "start magnetic_calibration_active" "stop idle"; do
   read -r verb state <<<"${step}"
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "/imu_100d4/${verb}_magnetic_calibration" std_srvs/srv/Trigger "{}")"
+  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "/imu_100d4/${verb}_magnetic_calibration" std_srvs/srv/Trigger "{}" | response_only)"
   expect_eq "${verb} success" "$(resp_scalar success <<<"${out}")" True
   expect_state "${state}"
 done

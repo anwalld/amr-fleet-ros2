@@ -66,7 +66,7 @@ timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/update_fleet_robot_stat
   | rg "success=True"
 _rg_out="$(call_submit_order remote_rest_control fleet_station 20 \
   "task_id=remote_rest_control;required_capability=station_transport;pickup_station=receiving;dropoff_station=storage_a;start_if_idle=true;preempt_current=false" \
-  fleet_station_task)"
+  fleet_station_task | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "remote_fleet_task_remote_rest_control" <<<"${_rg_out}"
 

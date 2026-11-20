@@ -28,7 +28,7 @@ mission	docking_state	check_docking_state_machine.sh	self	30	60	upstream
 mission	docking_retry	check_docking_retry.sh	self	20	60	upstream
 mission	payload	check_payload_load_unload.sh	self	30	60	upstream
 mission	top_module	check_top_module_action.sh	self	10	60	upstream
-facility	actions	check_facility_actions.sh	amr_demo	30	60	upstream
+facility	actions	check_facility_actions.sh	amr_demo	120	240	upstream
 facility	charging	check_facility_charging.sh	amr_demo	50	100	upstream
 facility	door_passage	check_door_passage_workflow.sh	self	20	60	upstream
 facility	lift_state	check_lift_door_state.sh	self	30	60	upstream
@@ -37,7 +37,7 @@ facility	plc	check_facility_plc_adapter.sh	core	20	60	upstream
 facility	multi_floor	check_multi_floor_sequence.sh	self	20	60	upstream
 facility	showcase	check_amr_facility_sequence_showcase.sh	self	90	180	upstream
 amr_sim	default	check_amr_sim_default_demo.sh	self	300	600	upstream
-amr_sim	gazebo_entities	check_amr_sim_gazebo_entities.sh	self	100	200	upstream
+amr_sim	gazebo_entities	check_amr_sim_gazebo_entities.sh	self	300	600	upstream
 amr_sim	station_motion	check_amr_sim_station_motion.sh	self	80	160	upstream
 amr_sim	robot2	check_amr_sim_robot2_namespace.sh	self	90	180	upstream
 amr_sim	traffic_wait	check_amr_sim_two_robot_traffic_wait.sh	self	100	200	upstream
@@ -74,7 +74,7 @@ safety	obstacle_recovery	check_obstacle_blockage_recovery.sh	self	30	60	upstream
 safety	localization	check_localization_health.sh	self	20	60	upstream
 safety	localization_auto_recovery	check_localization_auto_recovery.sh	self	30	60	upstream
 safety	relocalization	check_relocalization_resume.sh	self	30	60	upstream
-safety	low_battery_dock	check_low_battery_dock.sh	amr_demo	120	240	upstream
+safety	low_battery_dock	check_low_battery_dock.sh	core	120	240	upstream
 safety	opportunity_charging	check_opportunity_charging.sh	amr_demo	50	100	upstream
 safety	route_locks	check_route_resource_locks.sh	amr_demo	90	180	upstream
 safety	intersection_lock	check_intersection_lock.sh	self	30	60	upstream

@@ -14,7 +14,8 @@ expect_bool_topic() {
   local topic="$1" want="$2" deadline=$((SECONDS + 10)) got=""
   while (( SECONDS < deadline )); do
     got="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once "${topic}" std_msgs/msg/Bool --field data 2>/dev/null | head -1 || true)"
-    [[ "${got}" == "${want}" ]] && { echo "ok: ${topic} = ${want}"; return 0; }
+    # --field 打印的是 Python 布尔值（True/False），按不区分大小写比较。
+    [[ "${got,,}" == "${want,,}" ]] && { echo "ok: ${topic} = ${want}"; return 0; }
     sleep 0.5
   done
   echo "${topic}: got '${got}', want '${want}'" >&2
@@ -22,7 +23,7 @@ expect_bool_topic() {
 }
 
 for value in true false; do
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /set_manual_takeover std_srvs/srv/SetBool "{data: ${value}}")"
+  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /set_manual_takeover std_srvs/srv/SetBool "{data: ${value}}" | response_only)"
   expect_eq "set_manual_takeover ${value}" "$(resp_scalar success <<<"${out}")" True
   for topic in /manual_takeover/state /cmd_vel_mux/manual_takeover /cmd_vel_mux/manual_takeover_lock; do
     expect_bool_topic "${topic}" "${value}"

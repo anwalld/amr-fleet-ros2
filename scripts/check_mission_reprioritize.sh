@@ -46,7 +46,7 @@ timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile
   "{mission_file: \"${second}\", priority: 1, start_if_idle: false}" | rg "success=True"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/reprioritize_queued_mission robot_interfaces_mission/srv/ReprioritizeQueuedMission \
-  "{mission_id: reprio_second, priority: 20}")"
+  "{mission_id: reprio_second, priority: 20}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "reprio_second" <<<"${_rg_out}"
 rg "20" <<<"${_rg_out}"

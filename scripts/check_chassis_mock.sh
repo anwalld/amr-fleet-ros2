@@ -27,7 +27,7 @@ expect_eq "restore diff_drive" "$(resp_scalar success <<<"${out}")" True
 rg -q "kinematics=diff_drive" <<<"${out}"
 
 for svc in /clear_odometry /reset_odom_path; do
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "${svc}" std_srvs/srv/Empty "{}")"
+  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "${svc}" std_srvs/srv/Empty "{}" | response_only)"
   rg -q "Empty_Response" <<<"${out}" || { echo "${svc} call failed: ${out}" >&2; exit 1; }
   echo "ok: ${svc}"
 done

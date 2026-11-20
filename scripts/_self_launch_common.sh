@@ -36,11 +36,11 @@ start_bg() {
 stop_all_bg() {
   local pid
   for pid in "${PIDS[@]:-}"; do
-    [[ -n "${pid}" ]] && kill -INT -- "-${pid}" >/dev/null 2>&1
+    [[ -n "${pid}" ]] && kill -INT -- "-${pid}" >/dev/null 2>&1 || true
   done
   sleep 2
   for pid in "${PIDS[@]:-}"; do
-    [[ -n "${pid}" ]] && kill -KILL -- "-${pid}" >/dev/null 2>&1
+    [[ -n "${pid}" ]] && kill -KILL -- "-${pid}" >/dev/null 2>&1 || true
   done
   PIDS=()
 }

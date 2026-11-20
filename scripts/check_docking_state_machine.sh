@@ -45,13 +45,13 @@ wait_service_type /v2/get_dock_state "robot_interfaces_mission/srv/GetDockState"
 wait_service_type /v2/list_facility_resources "robot_interfaces_facility/srv/ListFacilityResources" 20 "${LOG_DIR}/wait_facilities.err"
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 20 "${LOG_DIR}/wait_events.err"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_docks robot_interfaces_mission/srv/ListDocks "{include_disabled: false}")"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_docks robot_interfaces_mission/srv/ListDocks "{include_disabled: false}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "dock_ids=\\['main_dock'\\]" <<<"${_rg_out}"
 rg "states=\\['AVAILABLE'\\]" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_docking robot_interfaces_mission/srv/RequestDocking \
-  "{dock_id: main_dock, request_id: alpha, priority: 50, start_if_idle: true, preempt_current: false, simulate_contact_success: true}")"
+  "{dock_id: main_dock, request_id: alpha, priority: 50, start_if_idle: true, preempt_current: false, simulate_contact_success: true}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "dock_id='main_dock'" <<<"${_rg_out}"
 rg "mission_id='docking_request_alpha'" <<<"${_rg_out}"
@@ -74,31 +74,31 @@ while true; do
 done
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_facility_resources robot_interfaces_facility/srv/ListFacilityResources \
-  "{resource_type: charger, include_disabled: false}")"
+  "{resource_type: charger, include_disabled: false}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "resource_ids=\\['charger_main'\\]" <<<"${_rg_out}"
 rg "status=\\['CHARGING'\\]" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_docking robot_interfaces_mission/srv/RequestDocking \
-  "{dock_id: main_dock, request_id: beta, priority: 50, start_if_idle: false, preempt_current: false, simulate_contact_success: true}")"
+  "{dock_id: main_dock, request_id: beta, priority: 50, start_if_idle: false, preempt_current: false, simulate_contact_success: true}" | response_only)"
 rg "success=False" <<<"${_rg_out}"
 rg "dock unavailable" <<<"${_rg_out}"
 rg "state='CHARGING'" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
-  "{limit: 20, state_filter: CHARGING, mission_id_filter: docking_request_alpha}")"
+  "{limit: 20, state_filter: CHARGING, mission_id_filter: docking_request_alpha}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "docking_request_alpha" <<<"${_rg_out}"
 rg "CHARGING" <<<"${_rg_out}"
 rg "docked and charging" <<<"${_rg_out}"
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_undocking robot_interfaces_mission/srv/RequestUndocking \
-  "{dock_id: main_dock, request_id: alpha, release_charger: true}")"
+  "{dock_id: main_dock, request_id: alpha, release_charger: true}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "dock_id='main_dock'" <<<"${_rg_out}"
 rg "state='UNDOCKED'" <<<"${_rg_out}"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_dock_state robot_interfaces_mission/srv/GetDockState "{dock_id: main_dock}")"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_dock_state robot_interfaces_mission/srv/GetDockState "{dock_id: main_dock}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "state='UNDOCKED'" <<<"${_rg_out}"
 rg "available=True" <<<"${_rg_out}"

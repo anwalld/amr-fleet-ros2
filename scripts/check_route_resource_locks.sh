@@ -17,7 +17,7 @@ start_station_auto_confirm
 
 _rg_out="$(call_submit_order route_lock_a station_transport 10 \
   "pickup_station=receiving;dropoff_station=storage_a;start_if_idle=false;preempt_current=false" \
-  station_transport_order)"
+  station_transport_order | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "station_order_route_lock_a" <<<"${_rg_out}"
 rg "queue_size=1" <<<"${_rg_out}"
@@ -40,7 +40,7 @@ if rg "station_order_route_lock" /tmp/robot_route_lock_list.out >/dev/null; then
 fi
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
-  "{mission_id: station_order_route_lock_a, cancel_active: false}")"
+  "{mission_id: station_order_route_lock_a, cancel_active: false}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "removed queued mission station_order_route_lock_a" <<<"${_rg_out}"
 rg "queue_size=1" <<<"${_rg_out}"

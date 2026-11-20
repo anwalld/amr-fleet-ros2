@@ -102,7 +102,9 @@ rg "mission_panel" "${LOG_DIR}/markers.txt"
 rg "station_routes" "${LOG_DIR}/markers.txt"
 rg "safety" "${LOG_DIR}/markers.txt"
 rg "localization" "${LOG_DIR}/markers.txt"
-rg "当前阶段:" "${LOG_DIR}/markers.txt"
-rg "下一阶段:" "${LOG_DIR}/markers.txt"
+# 任务看板标记的写法是"当前阶段 phase: …""目标站点 target: …"，没有"下一阶段"（那是 demo_timeline 话题的内容）；
+# 只用英文部分匹配，ros2 topic echo 可能把中文转义。
+rg " phase: " "${LOG_DIR}/markers.txt"
+rg " target: " "${LOG_DIR}/markers.txt"
 
 echo "AMR RViz showcase topics passed"

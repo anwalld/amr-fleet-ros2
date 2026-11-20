@@ -11,13 +11,13 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 start_station_auto_confirm
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
-  "{scenario_id: warehouse}")"
+  "{scenario_id: warehouse}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "inbound_to_storage" <<<"${_rg_out}"
 
 _rg_out="$(call_submit_order scenario_alpha scenario_task 0 \
   "scenario_id=warehouse;task_id=inbound_to_storage;order_id=scenario_alpha;start_if_idle=true;preempt_current=false" \
-  scenario_task)"
+  scenario_task | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "station_order_fleet_scenario_alpha" <<<"${_rg_out}"
 

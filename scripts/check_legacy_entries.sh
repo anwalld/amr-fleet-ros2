@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/robot_wait.sh"
 
-svc() { timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "$@"; }
+svc() { timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "$@" | response_only; }
 wait_service_type /v2/submit_station_transport_order "robot_interfaces_mission/srv/SubmitStationTransportOrder" 20 /tmp/robot_legacy_1.err
 wait_service_type /v2/submit_station_sequence_task "robot_interfaces_mission/srv/SubmitStationSequenceTask" 20 /tmp/robot_legacy_2.err
 wait_service_type /v2/submit_station_order_batch "robot_interfaces_mission/srv/SubmitStationOrderBatch" 20 /tmp/robot_legacy_3.err

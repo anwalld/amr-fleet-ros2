@@ -61,8 +61,8 @@ for script in "${required_scripts[@]}"; do
   fi
 done
 
-rg "任务看板" "${RVIZ_CONFIG}"
-rg "mission_panel" "${RVIZ_CONFIG}"
+# 任务看板是 /amr_simulation/markers 里的标记（mission_panel 命名空间），RViz 配置里没有这一项；
+# 原来的或分支靠下面几项通过，拆开后去掉这两项不存在的期望。
 rg "LaserScan" "${RVIZ_CONFIG}"
 rg "Map" "${RVIZ_CONFIG}"
 rg "Path" "${RVIZ_CONFIG}"

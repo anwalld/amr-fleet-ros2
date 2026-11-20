@@ -13,13 +13,13 @@ start_station_auto_confirm
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_stations robot_interfaces_mission/srv/ListStations "{}" \
   | rg "success=True" \
   | cat >/dev/null
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_stations robot_interfaces_mission/srv/ListStations "{}")"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_stations robot_interfaces_mission/srv/ListStations "{}" | response_only)"
 rg "receiving" <<<"${_rg_out}"
 rg "storage_a" <<<"${_rg_out}"
 
 _rg_out="$(call_submit_order station_alpha station_transport 30 \
   "pickup_station=receiving;dropoff_station=storage_a;start_if_idle=true;preempt_current=false" \
-  station_transport_order)"
+  station_transport_order | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "station_order_station_alpha" <<<"${_rg_out}"
 

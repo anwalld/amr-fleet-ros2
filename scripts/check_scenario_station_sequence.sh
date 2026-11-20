@@ -9,7 +9,7 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_scenario_sequence_state_topic.err
 
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
-  "{scenario_id: campus}")"
+  "{scenario_id: campus}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "full_mail_route" <<<"${_rg_out}"
 rg "station_sequence" <<<"${_rg_out}"
@@ -17,7 +17,7 @@ rg "dock,receiving,storage_a,packing,dock" <<<"${_rg_out}"
 
 _rg_out="$(call_submit_order campus_sequence_alpha scenario_workflow 0 \
   "scenario_id=campus;workflow_id=full_mail_route;order_id=campus_sequence_alpha;start_if_idle=true;preempt_current=false" \
-  scenario_workflow)"
+  scenario_workflow | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "station_sequence_campus_sequence_alpha_step_1_leg_1" <<<"${_rg_out}"
 

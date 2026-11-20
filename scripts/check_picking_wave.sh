@@ -124,11 +124,13 @@ assert_contains "${LOG_DIR}/status.out" "${FULFILLMENT_ID}_pick"
 assert_contains "${LOG_DIR}/status.out" "${FULFILLMENT_ID}_dropoff"
 
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
-  "{limit: 20, state_filter: FULFILLMENT_SHORT_PICK, mission_id_filter: ${FULFILLMENT_ID}}" \
-  >"${LOG_DIR}/short_event.out"
+  "{limit: 20, state_filter: FULFILLMENT_PICK_CONFIRMED, mission_id_filter: ${FULFILLMENT_ID}}" \
+  | response_only >"${LOG_DIR}/short_event.out"
+# 短拣已并进 confirm_pick：记录的是 FULFILLMENT_PICK_CONFIRMED（"picked 8 of 10"），没有单独的
+# FULFILLMENT_SHORT_PICK 事件；原断言靠请求回显里的 state_filter 文字"通过"。
 assert_contains "${LOG_DIR}/short_event.out" "success=True"
-assert_contains "${LOG_DIR}/short_event.out" "FULFILLMENT_SHORT_PICK"
-assert_contains "${LOG_DIR}/short_event.out" "short pick 2 reported by alice"
+assert_contains "${LOG_DIR}/short_event.out" "states=\\['FULFILLMENT_PICK_CONFIRMED'\\]"
+assert_contains "${LOG_DIR}/short_event.out" "picked 8 of 10"
 
 timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: FULFILLMENT_DROPOFF_CONFIRMED, mission_id_filter: ${FULFILLMENT_ID}}" \

@@ -7,7 +7,7 @@ wait_service_type /v2/list_business_order_types "robot_interfaces_business/srv/L
 wait_submit_order 10 /tmp/robot_business_catalog_submit.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_business_catalog_events.err
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_business_order_types robot_interfaces_business/srv/ListBusinessOrderTypes "{}")"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_business_order_types robot_interfaces_business/srv/ListBusinessOrderTypes "{}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "warehouse_inbound" <<<"${_rg_out}"
 rg "campus_mail" <<<"${_rg_out}"
@@ -16,7 +16,7 @@ rg "laboratory_samples" <<<"${_rg_out}"
 
 _rg_out="$(call_submit_order biz_catalog_alpha business 0 \
   "business_order_id=biz_catalog_alpha;business_type=campus_mail;start_if_idle=true;preempt_current=false" \
-  business_order)"
+  business_order | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "campus" <<<"${_rg_out}"
 rg "full_mail_route" <<<"${_rg_out}"

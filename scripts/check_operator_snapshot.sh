@@ -10,14 +10,14 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 5}")"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 5}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "operator snapshot" <<<"${_rg_out}"
 rg "fleet_robot_ids=\\[|facility_resource_ids=\\[|business_types=\\[" <<<"${_rg_out}"
 
 _rg_out="$(call_submit_order operator_alpha business 0 \
   "business_order_id=operator_alpha;business_type=warehouse_inbound;start_if_idle=true;preempt_current=false" \
-  business_order)"
+  business_order | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "warehouse" <<<"${_rg_out}"
 rg "door_assisted_inbound" <<<"${_rg_out}"
@@ -38,7 +38,7 @@ for mission in facility_action_business_operator_alpha_step_1 station_order_flee
   done
 done
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 20}")"
+_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 100}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "FINISHED" <<<"${_rg_out}"
 rg "facility_action_business_operator_alpha_step_1" <<<"${_rg_out}"

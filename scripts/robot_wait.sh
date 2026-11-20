@@ -54,7 +54,7 @@ call_submit_order() {
   local tags
   tags="$(yaml_flow_list "$@")"
   timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
-    "{order_id: $(yaml_single_quote "${order_id}"), order_type: $(yaml_single_quote "${order_type}"), priority: ${priority}, payload_json: $(yaml_single_quote "${payload_json}"), tags: ${tags}}"
+    "{order_id: $(yaml_single_quote "${order_id}"), order_type: $(yaml_single_quote "${order_type}"), priority: ${priority}, payload_json: $(yaml_single_quote "${payload_json}"), tags: ${tags}}" | response_only
 }
 
 # 断言一个设施资源的状态（acceptance-suite-rework design D7，specs/facility-reservation）。
@@ -68,7 +68,7 @@ expect_facility_resource() {
     echo "list_facility_resources call failed for ${resource_type}" >&2
     return 1
   }
-  FACILITY_OUT="${out}" python3 - "${resource_id}" "${want_status}" "${want_holder}" "${want_available}" <<'PY'
+  FACILITY_OUT="$(response_only <<<"${out}")" python3 - "${resource_id}" "${want_status}" "${want_holder}" "${want_available}" <<'PY'
 import ast, os, re, sys
 rid, want_status, want_holder, want_available = sys.argv[1:5]
 out = os.environ["FACILITY_OUT"]
@@ -133,12 +133,20 @@ write_long_mission() {
   } > "${file}"
 }
 
+# ros2 service call 的输出里有一行请求回显（requester: making request: ...），断言若对整段输出做匹配，
+# 会被请求参数里的同名值骗过（如 state_filter: X 让 rg X 通过）。只保留 "response:" 之后的部分；
+# 输出里没有 "response:"（不是服务调用）时原样返回。
+response_only() {
+  awk '/^response:/ { found = 1 } { all = all $0 "\n"; if (found) resp = resp $0 "\n" } END { printf "%s", (found ? resp : all) }'
+}
+
 # ---- 解析 ros2 service call 的响应（repr 形式），供逐项断言（acceptance-suite-rework design D7）----
 # resp_scalar <字段>          从标准输入的响应里取标量字段，去掉引号；取不到时输出空并返回 1。
 resp_scalar() {
   python3 -c '
 import re, sys
 text, name = sys.stdin.read(), sys.argv[1]
+text = text.split("\nresponse:", 1)[-1]
 m = re.search(r"\b" + re.escape(name) + r"=(\x27(?:[^\x27\\]|\\.)*\x27|\"(?:[^\"\\]|\\.)*\"|[^,()\s]+)", text)
 if not m:
     sys.exit(1)
@@ -152,6 +160,7 @@ resp_row() {
   python3 -c '
 import ast, re, sys
 text, key_field, key, field = sys.stdin.read(), *sys.argv[1:4]
+text = text.split("\nresponse:", 1)[-1]
 def arr(n):
     m = re.search(r"\b" + re.escape(n) + r"=(\[[^\]]*\])", text)
     return ast.literal_eval(m.group(1)) if m else None
@@ -344,12 +353,12 @@ call_request_route_segment() {
   local to_station="$3"
   local priority="${4:-0}"
   timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_route_segment robot_interfaces_mission/srv/RequestRouteSegment \
-    "{robot_id: $(yaml_single_quote "${robot_id}"), from_station: $(yaml_single_quote "${from_station}"), to_station: $(yaml_single_quote "${to_station}"), priority: ${priority}, station_path: []}"
+    "{robot_id: $(yaml_single_quote "${robot_id}"), from_station: $(yaml_single_quote "${from_station}"), to_station: $(yaml_single_quote "${to_station}"), priority: ${priority}, station_path: []}" | response_only
 }
 
 call_release_route_segment() {
   local robot_id="$1"
   shift
   timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_route_segment robot_interfaces_mission/srv/ReleaseRouteSegment \
-    "{robot_id: $(yaml_single_quote "${robot_id}"), resource_ids: $(yaml_flow_list "$@")}"
+    "{robot_id: $(yaml_single_quote "${robot_id}"), resource_ids: $(yaml_flow_list "$@")}" | response_only
 }

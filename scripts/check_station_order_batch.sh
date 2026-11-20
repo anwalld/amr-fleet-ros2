@@ -12,7 +12,7 @@ start_station_auto_confirm
 
 _rg_out="$(call_submit_order wms_alpha station_order_batch 50 \
   "batch_id=wms_alpha;order_ids=one,two,three;pickup_station_ids=receiving,storage_a,packing;dropoff_station_ids=storage_a,packing,dock;start_if_idle=true;preempt_current=false;continue_on_error=false" \
-  station_order_batch)"
+  station_order_batch | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "station_order_batch_wms_alpha_order_one" <<<"${_rg_out}"
 rg "station_order_batch_wms_alpha_order_two" <<<"${_rg_out}"

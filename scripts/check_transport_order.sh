@@ -8,7 +8,7 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 
 _rg_out="$(call_submit_order order_alpha transport 20 \
   "frame_id=map;pickup_x=0.2;pickup_y=0.0;pickup_yaw=0.0;dropoff_x=0.8;dropoff_y=0.4;dropoff_yaw=1.57;start_if_idle=true" \
-  transport_order)"
+  transport_order | response_only)"
 rg "accepted=True" <<<"${_rg_out}"
 rg "transport_order_order_alpha" <<<"${_rg_out}"
 

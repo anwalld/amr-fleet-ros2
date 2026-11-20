@@ -86,7 +86,7 @@ PY
 deadline=$((SECONDS + 120))
 while true; do
   out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_fleet_robots \
-    robot_interfaces_fleet/srv/ListFleetRobots "{capability: station_transport, include_disabled: false}" || true)"
+    robot_interfaces_fleet/srv/ListFleetRobots "{capability: station_transport, include_disabled: false}" || true | response_only)"
   s1="$(resp_row robot_ids robot_1 current_station_ids <<<"${out}" || true)"
   s2="$(resp_row robot_ids robot_2 current_station_ids <<<"${out}" || true)"
   [[ "${s1}" == park_1 && "${s2}" == park_2 ]] && break

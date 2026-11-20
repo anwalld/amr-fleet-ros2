@@ -75,6 +75,9 @@ def violations(path):
             continue
         for m in RG.finditer(line):
             pat = m.group("pat")
+            if m.group("q") == '"':
+                # 双引号里 bash 先把 \\ 变成 \：文件里的 "\\[" 实际传给 rg 的是 "\["（转义的方括号）。
+                pat = pat.replace("\\\\", "\\")
             parts = split_alternatives(pat)
             if len(parts) > 1 and not same_fact(parts):
                 found.append((no, pat))

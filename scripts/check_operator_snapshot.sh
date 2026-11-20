@@ -13,7 +13,9 @@ start_station_auto_confirm
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 5}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "operator snapshot" <<<"${_rg_out}"
-rg "fleet_robot_ids=\\[|facility_resource_ids=\\[|business_types=\\[" <<<"${_rg_out}"
+rg "fleet_robot_ids=\\[" <<<"${_rg_out}"
+rg "facility_resource_ids=\\[" <<<"${_rg_out}"
+rg "business_types=\\[" <<<"${_rg_out}"
 
 _rg_out="$(call_submit_order operator_alpha business 0 \
   "business_order_id=operator_alpha;business_type=warehouse_inbound;start_if_idle=true;preempt_current=false" \
@@ -41,7 +43,7 @@ done
 _rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 100}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "FINISHED" <<<"${_rg_out}"
-rg "facility_action_business_operator_alpha_step_1" <<<"${_rg_out}"
+# 快照只带最近的事件，step_2（站点运输）事件多，会把 step_1 挤出去；step_1 已由上面的事件轮询断言完成。
 rg "station_order_fleet_business_operator_alpha_step_2" <<<"${_rg_out}"
 rg "business_types=\\[" <<<"${_rg_out}"
 

@@ -248,6 +248,14 @@ class TestSimulationModelRuntime(unittest.TestCase):
                 abs(_angle_delta(_yaw(robot2_after), _yaw(robot2_start))), 0.02
             )
 
+            # 先等主车停稳再记起点：刚开完上一段时它还在减速滑行，Gazebo 软件渲染负载高时
+            # 滑行更久，之后量"robot_2 转向期间主车没动"会把滑行算进去（夜跑 #2 漂了 0.095 米）。
+            spin_until(
+                lambda: abs(messages["/odom"].twist.twist.linear.x) < 0.005
+                and abs(messages["/odom"].twist.twist.angular.z) < 0.01,
+                10.0,
+                "main robot did not settle after the forward command",
+            )
             main_before_robot2 = messages["/odom"]
             robot2_before_turn = messages["/robot_2/odom"]
             turn = Twist()

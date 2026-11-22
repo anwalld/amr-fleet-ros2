@@ -30,6 +30,7 @@
 #include "robot_interfaces_fleet/srv/list_fleet_robots.hpp"
 #include "robot_interfaces_fleet/srv/list_remote_tasks.hpp"
 #include "robot_simulation/agent_idle.hpp"
+#include "robot_simulation/agent_yield.hpp"
 #include "robot_interfaces_fleet/srv/update_remote_task_state.hpp"
 #include "robot_interfaces_mission/msg/traffic_grant.hpp"
 #include "robot_interfaces_mission/msg/traffic_state.hpp"
@@ -780,7 +781,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     }
     grant_hint_ = false;
     last_request_t_ = t;
-    const std::string next = path_[path_index_];
+    const std::string next = robot_simulation::NextStation(path_, path_index_);
     const std::vector<std::string> whole =
         WholeRoute() ? std::vector<std::string>(path_.begin() + path_index_ - 1, path_.end())
                      : std::vector<std::string>{};
@@ -926,7 +927,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     }
     if (WholeRoute()) {
       // 整条路径已经拿到，直接开往下一站。
-      target_station_ = path_[path_index_];
+      target_station_ = robot_simulation::NextStation(path_, path_index_);
       return;
     }
     wait_started_t_ = Now();
@@ -949,7 +950,7 @@ class FleetTaskAgent final : public rclcpp::Node {
   // ---------------------------------------------------------------- yield (M3)
   // 当前要去的站点：退避中是避让点，否则是本程目的地。
   const std::string& RouteTarget() const {
-    return backoff_station_.empty() ? goal_station_ : backoff_station_;
+    return robot_simulation::RouteTarget(goal_station_, backoff_station_);
   }
 
   void ArrivedAtTarget() {
@@ -993,6 +994,8 @@ class FleetTaskAgent final : public rclcpp::Node {
   }
 
   void ApplyYield(const robot_interfaces_mission::msg::TrafficYield& msg) {
+    backoff_station_ =
+        robot_simulation::BackoffStationAfterYield(msg.action, msg.station_path, backoff_station_);
     if (msg.action == "reroute") {
       for (const auto& id : msg.avoid_resource_ids) {
         if (const auto edge = ParseEdgeResource(id)) {
@@ -1010,7 +1013,6 @@ class FleetTaskAgent final : public rclcpp::Node {
       if (msg.station_path.empty()) {
         return;
       }
-      backoff_station_ = msg.station_path.back();
       backoff_hold_s_ = msg.hold_s;
       path_ = ValidPath(msg.station_path) ? msg.station_path
                                           : ShortestPath(current_station_, backoff_station_);

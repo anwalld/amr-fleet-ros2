@@ -23,6 +23,7 @@
 - [ ] 2.4 取消崩溃与 FollowWaypoints 暂停竞态（design D13）：规格增量、`sequence_cancel_test`、用例 `ops:navigate_sequence_cancel`。验证：robot_tasks 单测全绿；该用例与 `ops:navigate_sequence_controls` 在夜跑 #3 PASS。
 - [ ] 2.5 FollowWaypoints 暂停期间重发取消（design D15）：规格增量、用例 `ops:navigate_sequence_cancel` 的重发断言。验证：robot_tasks 单测全绿；该用例在夜跑 #3 PASS。
 - [ ] 2.6 暂停语义转独立变更（design D16）：撤回"取消后释放暂停"及其单测和断言，改正规格、注释、proposal，记录已知问题。验证：robot_tasks 编译与单测全绿；lint 通过；`ops:navigate_sequence_controls` 在夜跑 #3 PASS。
+- [ ] 2.7 车队代理让路后越界与永久无路（design D17）：两处修复、规格增量、`agent_yield_test`、`agent_route_test`。验证：robot_simulation 编译与这两个单测通过；夜跑 #3 阶段 5 无进程中途退出、日志无 `no path`，并人工核对每组最后一次移动时间。
 
 ## 3. 修复其余失败用例（design D1）
 

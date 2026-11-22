@@ -46,7 +46,7 @@ M4-core 已经实现，正等着做全栈验证；M5 要按 M1 的方式拆出 `
 ### Modified Capabilities
 
 - `route-reservation`：**对外行为变化**——封路时，申请组里含该路段的等待车都会被移出队列并在 `/traffic/grants` 收到 `replan`。此前只查被封路段自己的队列，而封路只能封空闲路段，所以这个通知在运行中从未发出过（夜跑 #2 的 `traffic:block_replan` 查出）。
-- `fleet-robot-agent`：空闲回停车位改为仅在至少完成过一个任务之后（夜跑 #1 发现：给了 `home_stations` 的车一启动就同时驶回停车位，在场景布置好之前自己堵成环，阶段 6 由 9/9 掉到 1/9）。
+- `fleet-robot-agent`：空闲回停车位改为仅在至少完成过一个任务之后（夜跑 #1 发现：给了 `home_stations` 的车一启动就同时驶回停车位，在场景布置好之前自己堵成环，阶段 6 由 9/9 掉到 1/9）。**对外行为变化**——改道取代未走完的退避，临时绕行让目标不可达时会被清空（封路仍避开）：此前代理会越界崩溃或永久无路（design D17）。
 
 - `acceptance-validation`：
   - 运行器：用例表、按用例选栈、分档 timeout、xtrace；

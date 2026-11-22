@@ -103,7 +103,7 @@ traffic	block_replan	check_traffic_block_replan.sh	core	60	120	rework
 traffic	whole_route_retry_wait	check_traffic_whole_route_retry_wait.sh	self	60	120	rework
 traffic	deadlock_pause_clear	check_traffic_deadlock_pause_clear.sh	self	60	120	rework
 fleet	agent_station_task	check_fleet_agent_station_task.sh	fleet_sim	300	600	rework
-ops	navigate_sequence_controls	check_navigate_sequence_controls.sh	core	120	240	rework
+ops	navigate_sequence_controls	check_navigate_sequence_controls.sh	core	90	180	rework
 ops	chassis_mock	check_chassis_mock.sh	mock_bringup	30	60	rework
 ops	manual_takeover	check_manual_takeover.sh	mock_bringup	60	120	rework
 ops	navigate_sequence_nav2_pause	check_navigate_sequence_nav2_pause.sh	self	90	180	rework

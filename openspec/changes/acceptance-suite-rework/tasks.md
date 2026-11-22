@@ -3,7 +3,7 @@
 **验证规则**
 - 白天：只跑单测和静态检查：`colcon build/test --packages-select <改动的包>`、`bash -n`、`shellcheck`、lint 用例（栈为 `none`，不起 ROS）。
 - 全栈验证（验收用例、压测、场景、冒烟）一律交给夜跑，按 3 夜安排（用户 2026-11-19 确认）：#1 只验证新运行器；#2 一次跑完其余全部改动；#3 修完后全绿、建基线、回查；#4 仅在 #3 未全绿时备用。两夜之间的白天，经用户授权，可用 `ONLY_CASES` 只复跑失败的用例。
-- 本变更**不留"修不好就删"的退路**：删除和豁免只能是 design D1、D2 里已经写明的那几条。新冒出的情况要先回来问用户。
+- 本变更**不留"修不好就删"的退路**：删除和豁免只能是 design D1、D2 里已经写明的那几条。新冒出的情况要先回来问用户。例外（用户 2026-11-22 批准，仅此一次）：design D16 写明的两组暂停断言随暂停语义转独立变更而删除。
 - 提交、推送、开 PR 之前，都要先问用户。每个产品修复单独一个提交。
 
 ## 1. 运行器基础设施（用例集合不变）
@@ -21,7 +21,8 @@
 - [x] 2.2 加强 `facility:actions`、`facility:charging`、`safety:opportunity_charging`、`facility:door_passage` 的断言，使其对应 `specs/facility-reservation` 的各个场景：保持、占用者释放、非占用者被拒、不保持即释放、取消即释放。验证：`bash -n`；全栈部分进夜跑 #2。
 - [ ] 2.3 NavigateToPose 回退模式暂停停车（design D12）：取消、重发、规格增量、`nav2_goal_step_test` 与用例 `ops:navigate_sequence_nav2_pause`。验证：robot_tasks 单测全绿；该用例在夜跑 #3 PASS。
 - [ ] 2.4 取消崩溃与 FollowWaypoints 暂停竞态（design D13）：规格增量、`sequence_cancel_test`、用例 `ops:navigate_sequence_cancel`。验证：robot_tasks 单测全绿；该用例与 `ops:navigate_sequence_controls` 在夜跑 #3 PASS。
-- [ ] 2.5 取消后释放暂停、FollowWaypoints 重发取消（design D15）：规格增量、`pause_state_test`、两个用例的新断言。验证：robot_tasks 单测全绿；`ops:navigate_sequence_controls` 与 `ops:navigate_sequence_cancel` 在夜跑 #3 PASS。
+- [ ] 2.5 FollowWaypoints 暂停期间重发取消（design D15）：规格增量、用例 `ops:navigate_sequence_cancel` 的重发断言。验证：robot_tasks 单测全绿；该用例在夜跑 #3 PASS。
+- [ ] 2.6 暂停语义转独立变更（design D16）：撤回"取消后释放暂停"及其单测和断言，改正规格、注释、proposal，记录已知问题。验证：robot_tasks 编译与单测全绿；lint 通过；`ops:navigate_sequence_controls` 在夜跑 #3 PASS。
 
 ## 3. 修复其余失败用例（design D1）
 

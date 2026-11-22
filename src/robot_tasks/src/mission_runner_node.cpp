@@ -5261,7 +5261,6 @@ class MissionRunnerNode final : public rclcpp::Node {
             return;
           }
           if (!goal_handle) {
-            ReleasePauseAfterCancel(cancellation_requested_);
             on_result(
                 false, cancellation_requested_,
                 "navigate sequence rejected station transport leg");
@@ -5293,7 +5292,6 @@ class MissionRunnerNode final : public rclcpp::Node {
               result.result && result.result->success;
           const bool canceled =
               IsCancelledResult(result) || cancellation_requested_;
-          ReleasePauseAfterCancel(canceled);
           on_result(succeeded, canceled, result.result ? result.result->message : "");
         };
     options.feedback_callback =
@@ -5349,7 +5347,6 @@ class MissionRunnerNode final : public rclcpp::Node {
                    ? it->second.pickup_profile
                    : it->second.dropoff_profile;
     paused_.SetByRunner(false);
-    paused_at_cancel_ = false;
     cancellation_requested_ = false;
     current_goal_handle_.reset();
 
@@ -5614,7 +5611,6 @@ class MissionRunnerNode final : public rclcpp::Node {
   void DispatchMission(const std::shared_ptr<std_srvs::srv::Trigger::Response>& response,
                        const std::string& accepted_message) {
     paused_.SetByRunner(false);
-    paused_at_cancel_ = false;
     cancellation_requested_ = false;
     current_goal_handle_.reset();
     if (!profile_.has_value()) {
@@ -5660,7 +5656,6 @@ class MissionRunnerNode final : public rclcpp::Node {
     auto options = rclcpp_action::Client<NavigateSequence>::SendGoalOptions();
     options.goal_response_callback = [this](GoalHandleNavigateSequence::SharedPtr goal_handle) {
       if (!goal_handle) {
-        ReleasePauseAfterCancel(cancellation_requested_);
         mission_active_ = false;
         current_goal_handle_.reset();
         SetState("ERROR", "navigate sequence rejected mission profile", true);
@@ -5676,7 +5671,6 @@ class MissionRunnerNode final : public rclcpp::Node {
           !completed_mission_id.empty() &&
           ((dock_profile.has_value() && completed_mission_id == dock_profile->mission_id) ||
            dock_by_mission_.find(completed_mission_id) != dock_by_mission_.end());
-      ReleasePauseAfterCancel(IsCancelledResult(result) || cancellation_requested_);
       mission_active_ = false;
       paused_.SetByRunner(false);
       current_goal_handle_.reset();
@@ -6022,8 +6016,6 @@ class MissionRunnerNode final : public rclcpp::Node {
         return;
       }
       transport->state = transition.next_state;
-      ReleasePauseAfterCancel(true);
-      paused_.SetByRunner(false);
       if (transition.release_resources) {
         ReleaseAllResourcesForMission(mission_id);
         FinishStationTransportTerminal(
@@ -6035,31 +6027,12 @@ class MissionRunnerNode final : public rclcpp::Node {
     }
 
     cancellation_requested_ = true;
-    paused_at_cancel_ = paused_at_cancel_ || paused_.paused();
     paused_.SetByRunner(false);
     SetState("CANCELING", message, true);
     if (current_goal_handle_) {
       action_client_->async_cancel_goal(current_goal_handle_);
     }
     SendControlRequest<std_srvs::srv::Trigger>(cancel_client_, cancel_service_name_);
-  }
-
-  // 下层的暂停不随目标结束而清除。只能在目标结束之后恢复它：先恢复会让车在取消生效前起步。
-  void ReleasePauseAfterCancel(const bool canceled) {
-    robot_tasks::CancelledPauseStatus status;
-    status.canceled = canceled;
-    status.was_paused = paused_at_cancel_ || paused_.paused();
-    status.obstacle_blocked = safety_obstacle_blocked_;
-    status.localization_lost =
-        localization_state_ == "LOST" || localization_state_ == "RELOCALIZING";
-    paused_at_cancel_ = false;
-    if (robot_tasks::ShouldReleasePauseAfterCancel(status)) {
-      SendControlRequest<std_srvs::srv::Trigger>(resume_client_, resume_service_name_);
-    } else if (status.canceled && status.was_paused) {
-      RCLCPP_WARN(
-          get_logger(),
-          "canceled while paused and the hazard is still active: keeping navigation paused");
-    }
   }
 
   template <typename ServiceT>
@@ -6213,7 +6186,6 @@ class MissionRunnerNode final : public rclcpp::Node {
   bool mission_active_ = false;
   robot_tasks::PauseState paused_;
   bool cancellation_requested_ = false;
-  bool paused_at_cancel_ = false;
   bool queue_running_ = false;
   bool queue_start_requested_ = false;
   bool low_battery_dock_request_sent_ = false;

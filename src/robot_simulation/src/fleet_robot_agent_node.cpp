@@ -16,7 +16,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <queue>
 #include <random>
 #include <set>
 #include <sstream>
@@ -30,6 +29,7 @@
 #include "robot_interfaces_fleet/srv/list_fleet_robots.hpp"
 #include "robot_interfaces_fleet/srv/list_remote_tasks.hpp"
 #include "robot_simulation/agent_idle.hpp"
+#include "robot_simulation/agent_route.hpp"
 #include "robot_simulation/agent_yield.hpp"
 #include "robot_interfaces_fleet/srv/update_remote_task_state.hpp"
 #include "robot_interfaces_mission/msg/traffic_grant.hpp"
@@ -336,19 +336,12 @@ class FleetStationFollower final : public rclcpp::Node {
 
 namespace {
 
-struct DirectedEdge {
-  std::string to;
-  double distance_m = 0.0;
-};
+using robot_simulation::DirectedEdge;
+using robot_simulation::EdgeKey;
+using robot_simulation::MakeEdgeKey;
 
 // 资源号只由路权服务生成（规格里写明了格式）。代理只解析，不拼接：
 //   route_edge:<a>__<b> → 无序站点对；route_node:<站点> → 站点。
-using EdgeKey = std::pair<std::string, std::string>;
-
-EdgeKey MakeEdgeKey(const std::string& a, const std::string& b) {
-  return a <= b ? EdgeKey{a, b} : EdgeKey{b, a};
-}
-
 std::optional<EdgeKey> ParseEdgeResource(const std::string& resource_id) {
   const std::string prefix = "route_edge:";
   if (resource_id.rfind(prefix, 0) != 0) {
@@ -685,52 +678,8 @@ class FleetTaskAgent final : public rclcpp::Node {
 
   // ---------------------------------------------------------------- routing
   std::vector<std::string> ShortestPath(const std::string& from, const std::string& to) const {
-    if (from == to) {
-      return {from};
-    }
-    std::map<std::string, double> dist;
-    std::map<std::string, std::string> prev;
-    using Item = std::pair<double, std::string>;
-    std::priority_queue<Item, std::vector<Item>, std::greater<Item>> open;
-    dist[from] = 0.0;
-    open.push({0.0, from});
-    while (!open.empty()) {
-      const auto [d, u] = open.top();
-      open.pop();
-      if (d > dist[u]) {
-        continue;
-      }
-      if (u == to) {
-        break;
-      }
-      const auto it = graph_.find(u);
-      if (it == graph_.end()) {
-        continue;
-      }
-      for (const auto& e : it->second) {
-        const auto key = MakeEdgeKey(u, e.to);
-        if (blocked_edges_.count(key) != 0U || avoid_edges_.count(key) != 0U ||
-            (e.to != to && avoid_nodes_.count(e.to) != 0U)) {
-          continue;
-        }
-        const double nd = d + e.distance_m;
-        const auto old = dist.find(e.to);
-        if (old == dist.end() || nd < old->second) {
-          dist[e.to] = nd;
-          prev[e.to] = u;
-          open.push({nd, e.to});
-        }
-      }
-    }
-    if (dist.find(to) == dist.end()) {
-      return {};
-    }
-    std::vector<std::string> path{to};
-    while (path.back() != from) {
-      path.push_back(prev.at(path.back()));
-    }
-    std::reverse(path.begin(), path.end());
-    return path;
+    return robot_simulation::ShortestPath(
+        graph_, from, to, blocked_edges_, avoid_edges_, avoid_nodes_);
   }
 
   void Route() {
@@ -744,7 +693,13 @@ class FleetTaskAgent final : public rclcpp::Node {
       ArrivedAtTarget();
       return;
     }
-    path_ = ShortestPath(current_station_, RouteTarget());
+    auto plan = robot_simulation::PlanRoute(
+        graph_, current_station_, RouteTarget(), blocked_edges_, avoid_edges_, avoid_nodes_);
+    if (plan.detours_dropped) {
+      RCLCPP_WARN(get_logger(), "%s: temporary detours dropped, they cut off %s -> %s",
+                  robot_id_.c_str(), current_station_.c_str(), RouteTarget().c_str());
+    }
+    path_ = std::move(plan.path);
     if (path_.size() < 2U) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%s: no path %s -> %s",
                            robot_id_.c_str(), current_station_.c_str(), RouteTarget().c_str());

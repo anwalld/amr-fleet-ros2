@@ -12,7 +12,7 @@
 - **THEN** robot_1 停在 jn_s、robot_2 停在 machining，不申请驶往停车位的路权
 
 ### Requirement: 执行让路指令
-代理 SHALL 订阅 `/traffic/yield` 中发给自己的指令：`reroute` 时把指令中的资源加入临时绕行集合，按指令给出的新路径（或自行绕开这些资源重新寻路）继续本程；`backoff` 时先驶往指令中的避让点，在那里停留指令给出的时长，再从避让点重新寻路去原目的地；退避还没走完（未到避让点）时执行 `reroute`，SHALL 取消这次退避，以本程目的地为到达站；`pause` 时停在原地不再申请，直到自己持有的路权被运维清除。临时绕行集合 SHALL 在本程结束时清空。
+代理 SHALL 订阅 `/traffic/yield` 中发给自己的指令：`reroute` 时把指令中的资源加入临时绕行集合，按指令给出的新路径（或自行绕开这些资源重新寻路）继续本程；`backoff` 时先驶往指令中的避让点，在那里停留指令给出的时长，再从避让点重新寻路去原目的地；退避还没走完（未到避让点）时执行 `reroute`，SHALL 取消这次退避，以本程目的地为到达站；`pause` 时停在原地不再申请，直到自己持有的路权被运维清除。临时绕行集合 SHALL 在本程结束时清空；带着它重新寻路时到不了当前目标（退避中是避让点，否则是本程目的地），也 SHALL 清空它并再寻路一次，且不改变当前目标。封路不受影响，始终避开；清空后仍无路时停在原地重试。
 
 #### Scenario: 收到改道指令
 - **WHEN** robot_2 在 jn_s 等待时收到绕开 `route_node:machining` 的 `reroute` 指令
@@ -29,3 +29,7 @@
 #### Scenario: 退避途中收到改道
 - **WHEN** robot_4 正退避去 park_2、在 machining 等路权时，收到经 jn_n、packing、jn_nw、storage、jn_sw 到本程目的地 receiving 的 `reroute` 指令
 - **THEN** robot_4 不再驶往 park_2，沿新路径到 receiving 后按到达本程目的地处理（装卸停留、回报到站），不再申请下一段
+
+#### Scenario: 临时绕行切断了去目的地的路
+- **WHEN** robot_1 先执行绕开 `route_node:jn_s` 去 packing 的 `reroute`，走到 jn_n 又被退避到 park_5，停完后去 packing 的路都要经过 jn_s
+- **THEN** robot_1 清空临时绕行，经 jn_s 驶往 packing；若这条路上有封路且没有别的路，则仍不穿过封路，停在原地重试

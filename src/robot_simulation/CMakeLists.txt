@@ -115,6 +115,9 @@ if(BUILD_TESTING)
   ament_add_gtest(agent_idle_test test/agent_idle_test.cpp)
   target_include_directories(agent_idle_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+  ament_add_gtest(agent_route_test test/agent_route_test.cpp)
+  target_include_directories(agent_route_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
   ament_add_gtest(agent_yield_test test/agent_yield_test.cpp)
   target_include_directories(agent_yield_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

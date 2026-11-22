@@ -305,8 +305,8 @@ stage_5() {
     skip "压测脚本还没有死锁指标列（M3 tasks 8.1 未完成）；M2 吞吐数据见 docs/baseline/M2.md"
   dry && skip "DRY_RUN：压测脚本已有死锁列；6 组 × ${STRESS_MINUTES} 分钟留给夜跑"
   printf "%s\n" "${METRICS_HEADER}" > "${SDIR}/metrics.tsv"
-  local robots mode rc fails=0 dir capture tasks
-  local -a stalled=()
+  local robots mode rc fails=0 dir capture tasks exits
+  local -a stalled=() exited=()
   for robots in 2 4 6; do
     for mode in whole_route rolling; do
       dir="${SDIR}/stress_${robots}_${mode}"
@@ -325,15 +325,21 @@ stage_5() {
       # （acceptance-suite-rework specs：压测每组须完成任务）。
       tasks="$(stress_tasks_finished "${dir}/summary.json")"
       (( tasks > 0 )) || stalled+=("${robots}台${mode}（完成 ${tasks} 单）")
+      # 有进程中途退出时这组数据不作数，即使违规为 0、也完成了任务
+      # （acceptance-suite-rework specs：压测期间进程不得中途退出）。
+      if ! exits="$(python3 "${SCRIPT_DIR}/stress_process_exits.py" "${dir}/launch.log" 2>&1)"; then
+        exited+=("${robots}台${mode}（${exits//$'\n'/、}）")
+      fi
     done
   done
-  summary "6 组中 ${fails} 组退出码非 0（1 = 有安全违规，2 = 车队没就绪），${#stalled[@]} 组没有完成任务；路网 ${STRESS_NETWORK}，每组 ${STRESS_MINUTES} 分钟"
+  summary "6 组中 ${fails} 组退出码非 0（1 = 有安全违规，2 = 车队没就绪），${#stalled[@]} 组没有完成任务，${#exited[@]} 组有进程中途退出或无法检查；路网 ${STRESS_NETWORK}，每组 ${STRESS_MINUTES} 分钟"
   (( ${#stalled[@]} == 0 )) || summary "没有完成任务的组：${stalled[*]}"
+  (( ${#exited[@]} == 0 )) || summary "有进程中途退出或无法检查的组（数据不作数，不要引用）：${exited[*]}"
   capture_summary "${SDIR}" "stress_*/console.jsonl"
   summary ""
   awk -F'\t' 'NR==1 { h="|"; s="|"; for (i=1;i<=NF;i++) { h=h" "$i" |"; s=s" --- |" } print h; print s; next }
               { r="|"; for (i=1;i<=NF;i++) r=r" "$i" |"; print r }' "${SDIR}/metrics.tsv" >> "${SDIR}/summary.md"
-  (( fails == 0 && ${#stalled[@]} == 0 ))
+  (( fails == 0 && ${#stalled[@]} == 0 && ${#exited[@]} == 0 ))
 }
 
 stage_6() {

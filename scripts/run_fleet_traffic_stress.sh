@@ -29,10 +29,12 @@ source "${ROOT_DIR}/install/setup.bash"
 set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((RANDOM % 150 + 50))}"
 
+# 追加写：关栈时本脚本也往这个日志写一行标记（见 stress_process_exits.py）。
+: > "${OUT_DIR}/launch.log"
 setsid ros2 launch robot_bringup fleet_sim.launch.py \
   fleet_size:="${ROBOTS}" network:="${NETWORK}" traffic_reservation_mode:="${MODE}" \
   traffic_deadlock_resolution_enabled:="${DEADLOCK_RESOLUTION}" \
-  >"${OUT_DIR}/launch.log" 2>&1 < /dev/null &
+  >>"${OUT_DIR}/launch.log" 2>&1 < /dev/null &
 LAUNCH_PGID=$!
 
 TILDE="~"  # 写进 meta.source 时把家目录缩写成 ~
@@ -60,6 +62,7 @@ stop_capture() {
 # shellcheck disable=SC2329  # 由 trap 调用
 cleanup() {
   stop_capture
+  echo "[stress] stopping stack" >> "${OUT_DIR}/launch.log"
   kill -INT -- "-${LAUNCH_PGID}" 2>/dev/null; sleep 3
   kill -KILL -- "-${LAUNCH_PGID}" 2>/dev/null
 }

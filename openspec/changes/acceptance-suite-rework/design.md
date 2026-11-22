@@ -183,6 +183,14 @@
 
 验证：`sequence_cancel_test`；`ops:navigate_sequence_cancel` 与 `ops:navigate_sequence_controls`（任务中枢一侧）。
 
+### D14 阶段 5：进程中途退出即失败
+
+现状：`2026-11-18-r2`（4 台 rolling，`bad_alloc`）和 `2026-11-19-rework2`（6 台 rolling，`BadParamException`）各有一个车队代理中途崩溃，两夜阶段 5 都判 PASS，那两组的吞吐也进了报告。
+
+改法：压测脚本关栈前在 `launch.log` 写一行标记，`stress_process_exits.py` 把标记之前的进程退出列出来，阶段 5 据此判失败。旧日志没有标记，退而用第一条 `signal_handler` 行。崩溃根因不在本项，另查；在此之前阶段 5 可能因此失败，这是预期的。受影响的已发布数字在 10.2 回查时更正。
+
+验证：对已有各夜的压测日志离线运行，只报出上述两组。
+
 ## Risks / Trade-offs
 
 - [断言加强后，一批目前"通过"的用例会变成失败，范围可能比预计的大] → 加强按套件分提交，但都在夜跑 #2 之前写完、一起验证；每个用例都有 xtrace、互相隔离，一夜失败很多也能逐个定位。新暴露的产品问题按 D9 的方式处理，并用 `/opsx:update` 补规格增量。

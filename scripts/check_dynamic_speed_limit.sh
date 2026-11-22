@@ -43,7 +43,7 @@ wait_service_type /v2/set_dynamic_speed_limit "robot_interfaces_navigation/srv/S
   "${LOG_DIR}/wait_speed_limit.err"
 wait_topic_type /cmd_vel "geometry_msgs/msg/Twist" 20 "${LOG_DIR}/wait_cmd_vel.err"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
   "{speed_limit_mps: 0.2, reason: narrow aisle}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "runtime_speed_limit_mps=0.2" <<<"${_rg_out}"
@@ -88,7 +88,7 @@ if not seen_limited:
     raise SystemExit("cmd_vel did not reflect dynamic speed limit")
 PY
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/set_dynamic_speed_limit robot_interfaces_navigation/srv/SetDynamicSpeedLimit \
   "{speed_limit_mps: 0.0, reason: clear aisle}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "runtime_speed_limit_mps=0.0" <<<"${_rg_out}"

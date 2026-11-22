@@ -142,7 +142,7 @@ wait_station_finished() {
           'BEGIN { exit !(x < -1.0 && y > 1.0 && z > 0.1 && z < 0.4) }'; then
       return 0
     fi
-    if timeout 6s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if service_response 6s /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
         "{limit: 10, state_filter: FINISHED, mission_id_filter: station_order_sim_auto_transport}" \
         >"${sample}" 2>"${LOG_DIR}/station_events.err" &&
       rg "mission_ids=\\['station_order_sim_auto_transport'\\]" "${sample}" >/dev/null &&

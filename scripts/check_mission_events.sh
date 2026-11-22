@@ -7,7 +7,7 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 wait_service_type /start_mission_profile "std_srvs/srv/Trigger" 10 /tmp/robot_mission_events_start.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_mission_events_state_topic.err
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
+service_response "${ROS2_CALL_TIMEOUT:-30}" /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
 
 seen_demo=false
 deadline=$((SECONDS + 25))
@@ -38,14 +38,14 @@ while true; do
   sleep 1
 done
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 200, state_filter: '', mission_id_filter: demo_patrol}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "demo_patrol" <<<"${_rg_out}"
 rg "FINISHED" <<<"${_rg_out}"
 rg "STARTING" <<<"${_rg_out}"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 5, state_filter: FINISHED, mission_id_filter: demo_patrol}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "states=\\['FINISHED'\\]" <<<"${_rg_out}"

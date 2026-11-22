@@ -41,7 +41,7 @@ done
 
 # 2. 远程任务列表：派给代理车，最终 FINISHED
 remote_tasks() {
-  timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_remote_tasks \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_remote_tasks \
     robot_interfaces_fleet/srv/ListRemoteTasks "{robot_id: '', state: ''}"
 }
 out="$(remote_tasks)"
@@ -85,7 +85,7 @@ PY
 # 4. 回到停车位
 deadline=$((SECONDS + 120))
 while true; do
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_fleet_robots \
+  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_fleet_robots \
     robot_interfaces_fleet/srv/ListFleetRobots "{capability: station_transport, include_disabled: false}" || true | response_only)"
   s1="$(resp_row robot_ids robot_1 current_station_ids <<<"${out}" || true)"
   s2="$(resp_row robot_ids robot_2 current_station_ids <<<"${out}" || true)"

@@ -22,7 +22,7 @@ for mission in \
   station_sequence_business_biz_alpha_step_1_leg_4; do
   deadline=$((SECONDS + 45))
   while true; do
-    if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission}}" \
       2>/tmp/robot_business_order_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
       break

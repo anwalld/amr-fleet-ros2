@@ -15,7 +15,7 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 
 execute_action() {
   local request_id="$1" resource_id="$2" resource_type="$3" action="$4" priority="$5" hold="$6" out
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/execute_facility_action \
+  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/execute_facility_action \
     robot_interfaces_facility/srv/ExecuteFacilityAction \
     "{request_id: ${request_id}, resource_id: ${resource_id}, resource_type: ${resource_type}, action: ${action}, priority: ${priority}, start_if_idle: true, preempt_current: false, hold_after_action: ${hold}}" | response_only)"
   echo "${out}"
@@ -25,7 +25,7 @@ execute_action() {
 }
 
 release() {
-  timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_facility_resource \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/release_facility_resource \
     robot_interfaces_facility/srv/ReleaseFacilityResource "{resource_id: $1, holder_id: $2}"
 }
 
@@ -52,7 +52,7 @@ expect_facility_resource elevator freight_elevator available "" True
 # 4. 车在 packing（电梯处），去 receiving 的门执行保持型动作，途中取消
 execute_action door_cancel receiving_door door open 70 true
 wait_active_mission facility_action_door_cancel 30 "RUNNING"
-out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /cancel_mission_profile std_srvs/srv/Trigger "{}" | response_only)"
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /cancel_mission_profile std_srvs/srv/Trigger "{}" | response_only)"
 rg "success=True" <<<"${out}"
 wait_active_mission facility_action_door_cancel 30 "CANCELED" seen
 expect_facility_resource door receiving_door available "" True

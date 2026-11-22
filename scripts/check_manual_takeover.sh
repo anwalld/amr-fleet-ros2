@@ -23,7 +23,7 @@ expect_bool_topic() {
 }
 
 for value in true false; do
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /set_manual_takeover std_srvs/srv/SetBool "{data: ${value}}" | response_only)"
+  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /set_manual_takeover std_srvs/srv/SetBool "{data: ${value}}" | response_only)"
   expect_eq "set_manual_takeover ${value}" "$(resp_scalar success <<<"${out}")" True
   for topic in /manual_takeover/state /cmd_vel_mux/manual_takeover /cmd_vel_mux/manual_takeover_lock; do
     expect_bool_topic "${topic}" "${value}"

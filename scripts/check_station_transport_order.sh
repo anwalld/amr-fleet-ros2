@@ -10,10 +10,10 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_stations robot_interfaces_mission/srv/ListStations "{}" \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_stations robot_interfaces_mission/srv/ListStations "{}" \
   | rg "success=True" \
   | cat >/dev/null
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_stations robot_interfaces_mission/srv/ListStations "{}" | response_only)"
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_stations robot_interfaces_mission/srv/ListStations "{}" | response_only)"
 rg "receiving" <<<"${_rg_out}"
 rg "storage_a" <<<"${_rg_out}"
 

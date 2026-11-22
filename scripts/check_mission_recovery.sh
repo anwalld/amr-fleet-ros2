@@ -54,12 +54,12 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 30 "${LO
 
 trigger() {
   local out
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "$1" std_srvs/srv/Trigger "{}" | response_only)"
+  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" "$1" std_srvs/srv/Trigger "{}" | response_only)"
   echo "${out}"
   rg "success=True" <<<"${out}"
 }
 recovery_state() {
-  timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_mission_recovery_state \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/get_mission_recovery_state \
     robot_interfaces_mission/srv/GetMissionRecoveryState "{}" | response_only
 }
 

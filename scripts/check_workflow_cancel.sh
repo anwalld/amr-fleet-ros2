@@ -15,7 +15,7 @@ rg "station_order_fleet_cancel_alpha_step_1" <<<"${_rg_out}"
 rg "station_order_fleet_cancel_alpha_step_2" <<<"${_rg_out}"
 rg "queue_size=2" <<<"${_rg_out}"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
   "{order_id: cancel_alpha, cancel_active: false}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "station_order_fleet_cancel_alpha_step_1" <<<"${_rg_out}"
@@ -23,7 +23,7 @@ rg "station_order_fleet_cancel_alpha_step_2" <<<"${_rg_out}"
 rg "active_cancel_requested=False" <<<"${_rg_out}"
 rg "queue_size=0" <<<"${_rg_out}"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
   "{order_id: cancel_alpha, cancel_active: false}" | response_only)"
 rg "success=False" <<<"${_rg_out}"
 rg "workflow has no queued mission: cancel_alpha" <<<"${_rg_out}"

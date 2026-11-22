@@ -11,7 +11,7 @@ done
 wait_service_type /v2/enqueue_mission_profile "robot_interfaces_mission/srv/EnqueueMission" 10 /tmp/robot_mission_runner_enqueue.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_mission_runner_topic.err
 
-out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | response_only)"
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /start_mission_profile std_srvs/srv/Trigger "{}" | response_only)"
 rg "success=True" <<<"${out}"
 wait_active_mission demo_patrol 30
 

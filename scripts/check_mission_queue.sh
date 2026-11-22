@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=robot_wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/robot_wait.sh"
+
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
@@ -39,9 +42,9 @@ YAML
 ros2 service type /v2/enqueue_mission_profile | rg "robot_interfaces_mission/srv/EnqueueMission"
 ros2 topic type /mission_runner/state | rg "robot_interfaces/msg/RobotState"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${low}\", priority: 1, start_if_idle: false}" | rg "success=True"
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${high}\", priority: 10, start_if_idle: true}" | rg "success=True"
 
 seen_high=false

@@ -83,13 +83,13 @@ while true; do
   sleep 1
 done
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_relocalization robot_interfaces_navigation/srv/RequestRelocalization \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/request_relocalization robot_interfaces_navigation/srv/RequestRelocalization \
   "{reason: operator requested station reset}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "state='RELOCALIZING'" <<<"${_rg_out}"
 rg "localized=False" <<<"${_rg_out}"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_initial_pose_from_station robot_interfaces_navigation/srv/SetInitialPoseFromStation \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/set_initial_pose_from_station robot_interfaces_navigation/srv/SetInitialPoseFromStation \
   "{station_id: dock}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "station_id='dock'" <<<"${_rg_out}"
@@ -101,13 +101,13 @@ rg "localized: true" <<<"${_rg_out}"
 rg "state: RECOVERED" <<<"${_rg_out}"
 rg "station_id: dock" <<<"${_rg_out}"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: LOCALIZATION_LOST, mission_id_filter: localization}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "LOCALIZATION_LOST" <<<"${_rg_out}"
 rg "covariance" <<<"${_rg_out}"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: LOCALIZATION_RECOVERED, mission_id_filter: localization}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "LOCALIZATION_RECOVERED" <<<"${_rg_out}"

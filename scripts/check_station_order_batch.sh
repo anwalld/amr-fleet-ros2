@@ -24,7 +24,7 @@ for mission in \
   station_order_batch_wms_alpha_order_three; do
   deadline=$((SECONDS + 90))
   while true; do
-    if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission}}" \
       2>/tmp/robot_station_batch_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
       break

@@ -58,13 +58,13 @@ start_bg site_config ros2 run robot_tasks site_config_manager_node
 wait_service_type /v2/validate_site_config "robot_interfaces_site/srv/ValidateSiteConfig" 20 \
   "${LOG_DIR}/wait_validate.err"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/validate_site_config robot_interfaces_site/srv/ValidateSiteConfig \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/validate_site_config robot_interfaces_site/srv/ValidateSiteConfig \
   "{bundle_dir: ${VALID_BUNDLE}, version_id: valid_v1}" >"${LOG_DIR}/valid.out"
 rg "success=True" "${LOG_DIR}/valid.out"
 rg "version_id='valid_v1'" "${LOG_DIR}/valid.out"
 rg "site config validation passed" "${LOG_DIR}/valid.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/validate_site_config robot_interfaces_site/srv/ValidateSiteConfig \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/validate_site_config robot_interfaces_site/srv/ValidateSiteConfig \
   "{bundle_dir: ${INVALID_BUNDLE}, version_id: invalid_v1}" >"${LOG_DIR}/invalid.out"
 rg "success=False" "${LOG_DIR}/invalid.out"
 rg "ghost_station" "${LOG_DIR}/invalid.out"

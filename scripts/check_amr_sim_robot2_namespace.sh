@@ -143,7 +143,7 @@ timeout 10s ros2 run tf2_ros tf2_echo robot_2/base_footprint robot_2/lidar_link 
 rg "At time" "${LOG_DIR}/robot2_odom_base_tf.txt"
 rg "At time" "${LOG_DIR}/robot2_lidar_tf.txt"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/update_fleet_robot_state robot_interfaces_fleet/srv/UpdateFleetRobotState \
   "{robot_id: robot_2, enabled: true, state: MOVING, battery_voltage: 24.0, current_station_id: packing, update_enabled: false, update_state: true, update_battery_voltage: false, update_current_station_id: true}" \
   >"${LOG_DIR}/update_robot2_packing.txt" 2>&1
 rg "success=True|success: true" "${LOG_DIR}/update_robot2_packing.txt"

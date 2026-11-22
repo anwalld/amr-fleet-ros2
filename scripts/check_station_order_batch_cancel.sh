@@ -14,7 +14,7 @@ rg "station_order_batch_wms_cancel_alpha_order_one" <<<"${_rg_out}"
 rg "station_order_batch_wms_cancel_alpha_order_three" <<<"${_rg_out}"
 rg "queue_size=3" <<<"${_rg_out}"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_station_order_batch robot_interfaces_mission/srv/CancelStationOrderBatch \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/cancel_station_order_batch robot_interfaces_mission/srv/CancelStationOrderBatch \
   "{batch_id: wms_cancel_alpha, cancel_active: false}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "station_order_batch_wms_cancel_alpha_order_one" <<<"${_rg_out}"

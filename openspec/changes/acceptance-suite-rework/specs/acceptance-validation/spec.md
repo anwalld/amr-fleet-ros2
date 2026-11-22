@@ -85,6 +85,17 @@
 - **WHEN** 某脚本写 `rg "success=True|assigned_robot_id='robot_2'"`
 - **THEN** `lint:assertion_alternation` 失败，并指出该文件与行号
 
+### Requirement: 断言只看服务响应
+用例脚本与公共助手 SHALL 只经 `service_response` 调用服务：它只输出响应部分，不含请求回显；没有响应时不输出任何内容并沿用调用的退出码。用例 `lint:service_response` SHALL 在发现脚本直接调用 `ros2 service call` 时失败。
+
+#### Scenario: 请求参数不能让断言通过
+- **WHEN** 以 `state_filter: FINISHED` 查询事件而响应里没有任何事件
+- **THEN** 对该输出匹配 `FINISHED` 不成立
+
+#### Scenario: 应答丢失
+- **WHEN** 服务调用只打印了请求回显、随后超时
+- **THEN** `service_response` 输出为空、退出码非 0
+
 ### Requirement: 接口覆盖表
 `docs/baseline/interface_coverage.tsv` SHALL 为 `src/` 中各节点以字面名称创建的每个服务、发布的话题、动作服务器以及 REST 网关的每条路由登记一行，写明覆盖它的用例键或 `via:/v2/submit_order`。用例 `lint:interface_coverage` SHALL 在出现未登记的接口、登记了不存在的用例、或所列用例脚本未引用该接口时失败。
 

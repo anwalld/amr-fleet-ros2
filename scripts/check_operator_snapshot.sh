@@ -10,7 +10,7 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 5}" | response_only)"
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 5}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "operator snapshot" <<<"${_rg_out}"
 rg "fleet_robot_ids=\\[" <<<"${_rg_out}"
@@ -27,7 +27,7 @@ rg "door_assisted_inbound" <<<"${_rg_out}"
 for mission in facility_action_business_operator_alpha_step_1 station_order_fleet_business_operator_alpha_step_2; do
   deadline=$((SECONDS + 90))
   while true; do
-    if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission}}" \
       2>/tmp/robot_operator_snapshot_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
       break
@@ -40,7 +40,7 @@ for mission in facility_action_business_operator_alpha_step_1 station_order_flee
   done
 done
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 100}" | response_only)"
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 100}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "FINISHED" <<<"${_rg_out}"
 # 快照只带最近的事件，step_2（站点运输）事件多，会把 step_1 挤出去；step_1 已由上面的事件轮询断言完成。

@@ -67,7 +67,7 @@ call_service_checked() {
   local name="$1"
   shift
   local output_file="${LOG_DIR}/${name}.txt"
-  if ! timeout 15s ros2 service call "$@" >"${output_file}" 2>&1; then
+  if ! service_response 15s "$@" >"${output_file}" 2>&1; then
     echo "service call failed: ${name}" >&2
     cat "${output_file}" >&2
     return 1

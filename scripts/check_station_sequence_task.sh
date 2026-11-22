@@ -11,7 +11,7 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/estimate_station_sequence robot_interfaces_mission/srv/EstimateStationSequence \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/estimate_station_sequence robot_interfaces_mission/srv/EstimateStationSequence \
   "{station_ids: [receiving, storage_a, packing, dock], nominal_speed_mps: 0.5, battery_voltage: 24.5}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "estimate_station_sequence" <<<"${_rg_out}"
@@ -21,7 +21,7 @@ seq_distance="$(resp_scalar distance_m <<<"${_rg_out}")"
 leg_sum=0
 for leg in "receiving storage_a" "storage_a packing" "packing dock"; do
   read -r from to <<<"${leg}"
-  leg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/estimate_station_transport robot_interfaces_mission/srv/EstimateStationTransport \
+  leg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/estimate_station_transport robot_interfaces_mission/srv/EstimateStationTransport \
     "{pickup_station: ${from}, dropoff_station: ${to}, nominal_speed_mps: 0.5, battery_voltage: 24.5}" | response_only)"
   leg_sum="$(awk -v a="${leg_sum}" -v b="$(resp_scalar distance_m <<<"${leg_out}")" 'BEGIN { print a + b }')"
 done
@@ -46,17 +46,17 @@ while true; do
       --field state 2>/tmp/robot_station_sequence_state.err || true
   )"
 
-  if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  if service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: FINISHED, mission_id_filter: station_sequence_sequence_alpha_leg_1}" \
     2>/tmp/robot_station_sequence_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
     seen_first=true
   fi
-  if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  if service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: FINISHED, mission_id_filter: station_sequence_sequence_alpha_leg_2}" \
     2>/tmp/robot_station_sequence_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
     seen_second=true
   fi
-  if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  if service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 50, state_filter: FINISHED, mission_id_filter: station_sequence_sequence_alpha_leg_3}" \
     2>/tmp/robot_station_sequence_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
     seen_third=true

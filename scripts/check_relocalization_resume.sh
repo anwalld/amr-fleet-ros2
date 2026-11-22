@@ -68,7 +68,7 @@ wait_topic_type /localization_health "robot_interfaces/msg/LocalizationHealth" 2
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 20 \
   "${LOG_DIR}/wait_mission_state.err"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /start_mission_profile std_srvs/srv/Trigger "{}" \
   >"${LOG_DIR}/start.out"
 rg "success=True" "${LOG_DIR}/start.out"
 
@@ -126,13 +126,13 @@ timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /localization_health r
 rg "localized: false" "${LOG_DIR}/health_lost.out"
 rg "state: LOST" "${LOG_DIR}/health_lost.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_relocalization robot_interfaces_navigation/srv/RequestRelocalization \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/request_relocalization robot_interfaces_navigation/srv/RequestRelocalization \
   "{reason: localization lost during active mission}" \
   >"${LOG_DIR}/request_relocalization.out"
 rg "success=True" "${LOG_DIR}/request_relocalization.out"
 rg "state='RELOCALIZING'" "${LOG_DIR}/request_relocalization.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_initial_pose_from_station robot_interfaces_navigation/srv/SetInitialPoseFromStation \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/set_initial_pose_from_station robot_interfaces_navigation/srv/SetInitialPoseFromStation \
   "{station_id: dock}" \
   >"${LOG_DIR}/set_initial_pose.out"
 rg "success=True" "${LOG_DIR}/set_initial_pose.out"
@@ -159,13 +159,13 @@ rg "localized: true" "${LOG_DIR}/health_recovered.out"
 rg "state: RECOVERED" "${LOG_DIR}/health_recovered.out"
 rg "station_id: dock" "${LOG_DIR}/health_recovered.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 30, state_filter: LOCALIZATION_LOST, mission_id_filter: localization}" \
   >"${LOG_DIR}/lost_events.out"
 rg "success=True" "${LOG_DIR}/lost_events.out"
 rg "LOCALIZATION_LOST" "${LOG_DIR}/lost_events.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 30, state_filter: LOCALIZATION_RECOVERED, mission_id_filter: localization}" \
   >"${LOG_DIR}/recovered_events.out"
 rg "success=True" "${LOG_DIR}/recovered_events.out"

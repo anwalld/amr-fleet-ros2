@@ -110,3 +110,4 @@ ops	path_tracking	check_path_tracking.sh	self	120	240	rework
 ops	imu_calibration	check_imu_calibration.sh	self	40	80	rework
 ops	legacy_entries	check_legacy_entries.sh	core	40	80	rework
 lint	interface_coverage	lint_interface_coverage.py	none	10	60	rework
+lint	service_response	lint_service_response.py	none	10	60	rework

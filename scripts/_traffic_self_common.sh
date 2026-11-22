@@ -38,7 +38,7 @@ start_mission_runner() {
   wait_service_type /v2/detect_traffic_deadlock "robot_interfaces_mission/srv/DetectTrafficDeadlock" 30 "${LOG_DIR}/wait_detect.err"
 }
 
-svc() { timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "$@" | response_only; }
+svc() { service_response "${ROS2_CALL_TIMEOUT:-30}" "$@" | response_only; }
 
 # request_path <robot> <goal_station> <站点...>：两站时为单段申请（rolling）；带 PATH=1 时按整条路径申请。
 request_segment() {

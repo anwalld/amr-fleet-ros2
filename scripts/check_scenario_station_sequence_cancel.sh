@@ -13,7 +13,7 @@ rg "accepted=True" <<<"${_rg_out}"
 rg "station_sequence_campus_cancel_alpha_step_1_leg_1" <<<"${_rg_out}"
 rg "queue_size=4" <<<"${_rg_out}"
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/cancel_workflow robot_interfaces_business/srv/CancelWorkflow \
   "{order_id: campus_cancel_alpha, cancel_active: false}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "station_sequence_campus_cancel_alpha_step_1_leg_1" <<<"${_rg_out}"

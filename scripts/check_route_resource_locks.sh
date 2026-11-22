@@ -31,7 +31,7 @@ rg "station_order_route_lock_b" /tmp/robot_route_lock_b.out
 rg "queue_size=2" /tmp/robot_route_lock_b.out
 
 # 入队不锁路。
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
   >/tmp/robot_route_lock_list.out
 if rg "station_order_route_lock" /tmp/robot_route_lock_list.out >/dev/null; then
   echo "rolling mode must not lock routes at submit time" >&2
@@ -39,17 +39,17 @@ if rg "station_order_route_lock" /tmp/robot_route_lock_list.out >/dev/null; then
   exit 1
 fi
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
   "{mission_id: station_order_route_lock_a, cancel_active: false}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "removed queued mission station_order_route_lock_a" <<<"${_rg_out}"
 rg "queue_size=1" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
+service_response "${ROS2_CALL_TIMEOUT:-30}" /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
 
 deadline=$((SECONDS + 120))
 while true; do
-  if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  if service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 80, state_filter: FINISHED, mission_id_filter: station_order_route_lock_b}" \
     2>/tmp/robot_route_lock_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
     break
@@ -62,7 +62,7 @@ while true; do
 done
 
 # 完成后 robot_1 只占着所在的卸货站路口，身后路段都已释放。
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
   >/tmp/robot_route_lock_final.out
 rg "route_node:storage_a" /tmp/robot_route_lock_final.out
 rg "robot_1" /tmp/robot_route_lock_final.out

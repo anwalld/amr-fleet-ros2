@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=robot_wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/robot_wait.sh"
+
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
@@ -52,12 +55,12 @@ ros2 service type /v2/cancel_queued_mission | rg "robot_interfaces_mission/srv/C
 ros2 service type /v2/preempt_mission_profile | rg "robot_interfaces_mission/srv/PreemptMission"
 ros2 topic type /mission_runner/state | rg "robot_interfaces/msg/RobotState"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${cancel_me}\", priority: 1, start_if_idle: false}" | rg "success=True"
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
   "{mission_id: cancel_me, cancel_active: false}" | rg "success=True"
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${long_running}\", priority: 1, start_if_idle: true}" | rg "success=True"
 
 seen_long=false
@@ -78,7 +81,7 @@ while true; do
   sleep 1
 done
 
-timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/preempt_mission_profile robot_interfaces_mission/srv/PreemptMission \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/preempt_mission_profile robot_interfaces_mission/srv/PreemptMission \
   "{mission_file: \"${urgent}\", priority: 100}" | rg "success=True"
 
 seen_urgent=false
@@ -109,7 +112,7 @@ while true; do
     echo "queue control did not finish; seen_urgent=${seen_urgent}, state=${state}, active_goal_id=${active_goal}" >&2
     # 失败现场：完整状态（含 message，模拟运动时是剩余距离）和最近事件。
     timeout 15s ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState >&2 || true
-    timeout 30s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    service_response 30s /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 10}" >&2 || true
     exit 1
   fi

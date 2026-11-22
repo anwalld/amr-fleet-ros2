@@ -11,7 +11,7 @@ wait_service_type /clear_odometry "std_srvs/srv/Empty" 20 /tmp/robot_chassis_cle
 wait_service_type /reset_odom_path "std_srvs/srv/Empty" 20 /tmp/robot_chassis_reset_path.err
 
 set_mode() {
-  timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/set_chassis_mode robot_interfaces_core/srv/SetChassisMode "{mode: $1}"
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/set_chassis_mode robot_interfaces_core/srv/SetChassisMode "{mode: $1}"
 }
 
 out="$(set_mode mecanum)"
@@ -27,7 +27,7 @@ expect_eq "restore diff_drive" "$(resp_scalar success <<<"${out}")" True
 rg -q "kinematics=diff_drive" <<<"${out}"
 
 for svc in /clear_odometry /reset_odom_path; do
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "${svc}" std_srvs/srv/Empty "{}" | response_only)"
+  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" "${svc}" std_srvs/srv/Empty "{}" | response_only)"
   rg -q "Empty_Response" <<<"${out}" || { echo "${svc} call failed: ${out}" >&2; exit 1; }
   echo "ok: ${svc}"
 done

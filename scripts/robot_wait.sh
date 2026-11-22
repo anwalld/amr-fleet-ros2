@@ -53,7 +53,7 @@ call_submit_order() {
   shift 4
   local tags
   tags="$(yaml_flow_list "$@")"
-  timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/submit_order robot_interfaces_business/srv/SubmitOrder \
     "{order_id: $(yaml_single_quote "${order_id}"), order_type: $(yaml_single_quote "${order_type}"), priority: ${priority}, payload_json: $(yaml_single_quote "${payload_json}"), tags: ${tags}}" | response_only
 }
 
@@ -62,7 +62,7 @@ call_submit_order() {
 # 用法：expect_facility_resource <resource_type> <resource_id> <status> <holder_id> <available: True|False>
 expect_facility_resource() {
   local resource_type="$1" resource_id="$2" want_status="$3" want_holder="$4" want_available="$5" out
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_facility_resources \
+  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_facility_resources \
     robot_interfaces_facility/srv/ListFacilityResources \
     "{resource_type: ${resource_type}, include_disabled: false}")" || {
     echo "list_facility_resources call failed for ${resource_type}" >&2
@@ -133,11 +133,24 @@ write_long_mission() {
   } > "${file}"
 }
 
-# ros2 service call 的输出里有一行请求回显（requester: making request: ...），断言若对整段输出做匹配，
-# 会被请求参数里的同名值骗过（如 state_filter: X 让 rg X 通过）。只保留 "response:" 之后的部分；
-# 输出里没有 "response:"（不是服务调用）时原样返回。
+# ros2 service call 的输出里有一行请求回显（requester: making request: ...），对整段输出做匹配会被请求
+# 参数里的同名值骗过（state_filter: FINISHED 让 rg FINISHED 通过）。用例脚本一律经 service_response
+# 调用服务（lint:service_response 检查）：只输出 "response:" 起的部分；没有响应时什么都不输出；
+# 退出码沿用服务调用本身的。
+# 用法：service_response <超时> <服务> <类型> [请求]
+service_response() {
+  local limit="$1" out rc=0
+  shift
+  out="$(timeout --kill-after=5 "${limit}" ros2 service call "$@")" || rc=$?
+  awk '/^response:/ { found = 1 } found' <<<"${out}"
+  return "${rc}"
+}
+
+# 过滤已拿到的输出：有响应只留响应；只有请求回显（应答丢了）时不输出；不是服务调用的输出原样返回。
 response_only() {
-  awk '/^response:/ { found = 1 } { all = all $0 "\n"; if (found) resp = resp $0 "\n" } END { printf "%s", (found ? resp : all) }'
+  awk '/^response:/ { found = 1 } /making request: / { echoed = 1 }
+       { all = all $0 "\n"; if (found) resp = resp $0 "\n" }
+       END { if (found) printf "%s", resp; else if (!echoed) printf "%s", all }'
 }
 
 # ---- 解析 ros2 service call 的响应（repr 形式），供逐项断言（acceptance-suite-rework design D7）----
@@ -195,7 +208,7 @@ wait_mission_event_finished() {
   local mission_id="$1" timeout_sec="$2" out
   local deadline=$((SECONDS + timeout_sec))
   while true; do
-    out="$(timeout 15s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    out="$(service_response 15s /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 100, state_filter: FINISHED, mission_id_filter: ${mission_id}}" 2>/dev/null || true)"
     if rg -q "mission_ids=\\['${mission_id}'\\]" <<<"${out}" && rg -q "states=\\['FINISHED'\\]" <<<"${out}"; then
       echo "mission ${mission_id} FINISHED"
@@ -257,7 +270,7 @@ wait_lifecycle_active() {
   local err_file="${3:-/tmp/robot_wait_lifecycle.err}"
   local deadline=$((SECONDS + timeout_sec))
   while true; do
-    if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "${service_name}" lifecycle_msgs/srv/GetState "{}" >"${err_file}" 2>&1 &&
+    if service_response "${ROS2_CALL_TIMEOUT:-30}" "${service_name}" lifecycle_msgs/srv/GetState "{}" >"${err_file}" 2>&1 &&
       rg "label(: |=)'?active'?" "${err_file}" >/dev/null; then
       return 0
     fi
@@ -304,7 +317,7 @@ station_auto_confirm_loop() {
         station="$(sed -n 's/.*pickup station \([A-Za-z0-9_]*\).*/\1/p' <<<"${message}")"
         if [[ -n "${station}" ]]; then
           echo "[auto_confirm $(date +%T)] WAIT_LOAD at ${station} -> confirm_load" >>"${log_file}"
-          timeout 10s ros2 service call /v2/confirm_load robot_interfaces_facility/srv/ConfirmLoad \
+          service_response 10s /v2/confirm_load robot_interfaces_facility/srv/ConfirmLoad \
             "{payload_id: ${payload_id}, weight_kg: 8.5, station_id: ${station}}" >>"${log_file}" 2>&1 || true
         fi
         ;;
@@ -312,7 +325,7 @@ station_auto_confirm_loop() {
         station="$(sed -n 's/.*dropoff station \([A-Za-z0-9_]*\).*/\1/p' <<<"${message}")"
         if [[ -n "${station}" ]]; then
           echo "[auto_confirm $(date +%T)] WAIT_UNLOAD at ${station} -> confirm_unload" >>"${log_file}"
-          timeout 10s ros2 service call /v2/confirm_unload robot_interfaces_facility/srv/ConfirmUnload \
+          service_response 10s /v2/confirm_unload robot_interfaces_facility/srv/ConfirmUnload \
             "{payload_id: ${payload_id}, station_id: ${station}}" >>"${log_file}" 2>&1 || true
         fi
         ;;
@@ -352,13 +365,13 @@ call_request_route_segment() {
   local from_station="$2"
   local to_station="$3"
   local priority="${4:-0}"
-  timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/request_route_segment robot_interfaces_mission/srv/RequestRouteSegment \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/request_route_segment robot_interfaces_mission/srv/RequestRouteSegment \
     "{robot_id: $(yaml_single_quote "${robot_id}"), from_station: $(yaml_single_quote "${from_station}"), to_station: $(yaml_single_quote "${to_station}"), priority: ${priority}, station_path: []}" | response_only
 }
 
 call_release_route_segment() {
   local robot_id="$1"
   shift
-  timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/release_route_segment robot_interfaces_mission/srv/ReleaseRouteSegment \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/release_route_segment robot_interfaces_mission/srv/ReleaseRouteSegment \
     "{robot_id: $(yaml_single_quote "${robot_id}"), resource_ids: $(yaml_flow_list "$@")}" | response_only
 }

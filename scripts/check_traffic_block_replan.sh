@@ -39,7 +39,7 @@ rg -q "robot_alpha" <<<"${out}"
 timeout 40 ros2 topic echo /traffic/grants robot_interfaces_mission/msg/TrafficGrant > "${GRANTS}" 2>/dev/null &
 ECHO_PID=$!
 sleep 3
-out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
   "{from_station: packing, to_station: storage_a, reason: block_replan_check}" | response_only)"
 echo "${out}"
 expect_eq "block success" "$(resp_scalar success <<<"${out}")" True
@@ -68,7 +68,7 @@ expect_eq "beta granted while blocked" "$(resp_scalar granted <<<"${out}")" Fals
 expect_eq "beta queued while blocked" "$(resp_scalar queued <<<"${out}")" False
 
 # 5. 解封、alpha 释放后 beta 获授予
-out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
   "{from_station: packing, to_station: storage_a}" | response_only)"
 expect_eq "unblock success" "$(resp_scalar success <<<"${out}")" True
 out="$(call_release_route_segment robot_alpha)"

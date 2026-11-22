@@ -11,7 +11,7 @@ wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMiss
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
   "{scenario_id: warehouse}" | response_only)"
 rg "open_receiving_door" <<<"${_rg_out}"
 rg "facility_action" <<<"${_rg_out}"
@@ -31,7 +31,7 @@ for mission_id in facility_action_facility_workflow_alpha_step_1 station_order_f
   deadline=$((SECONDS + 90))
   out_file="/tmp/robot_scenario_facility_${mission_id}.out"
   while true; do
-    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 5, state_filter: FINISHED, mission_id_filter: ${mission_id}}" \
       >"${out_file}" || true
     if rg "success=True" "${out_file}" >/dev/null && rg "states=\\['FINISHED'\\]" "${out_file}" >/dev/null; then

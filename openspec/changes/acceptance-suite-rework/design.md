@@ -103,6 +103,10 @@
 - `rg` 的模式里如果有 `|`，只允许用于同一事实的不同输出格式，例如 `success=True|success: true`。不同事实一律拆成多次 `rg`。
 - 新增 `lint:assertion_alternation`：扫描用例脚本，凡是模式里有 `|`、但不在白名单里的，判失败。白名单只放格式变体的写法。
 
+补充（2026-11-22）：`ros2 service call` 会回显请求，对整段输出断言会被请求参数骗过。所有用例经 `service_response` 调用服务，由 `lint:service_response` 强制。
+
+更正 D1 中 `facility:door_passage` 的根因：除 D9 的产品 bug 外，脚本对含请求回显的文件 `rg FINISHED`，第一次轮询就通过，查门时任务还在跑，所以看到 `reserved`。三次运行的跟踪都是只轮询一次。
+
 ### D8 接口覆盖表
 
 `docs/baseline/interface_coverage.tsv` 的列为 `kind name owner cases note`：

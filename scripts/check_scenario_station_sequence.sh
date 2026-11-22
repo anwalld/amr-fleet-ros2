@@ -8,7 +8,7 @@ wait_submit_order 10 /tmp/robot_scenario_sequence_submit.err
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_scenario_sequence_events.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_scenario_sequence_state_topic.err
 
-_rg_out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_scenario_tasks robot_interfaces_business/srv/ListScenarioTasks \
   "{scenario_id: campus}" | response_only)"
 rg "success=True" <<<"${_rg_out}"
 rg "full_mail_route" <<<"${_rg_out}"
@@ -28,7 +28,7 @@ for mission in \
   station_sequence_campus_sequence_alpha_step_1_leg_4; do
   deadline=$((SECONDS + 45))
   while true; do
-    if timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: FINISHED, mission_id_filter: ${mission}}" \
       2>/tmp/robot_scenario_sequence_events.err | rg "states=\\['FINISHED'\\]" >/dev/null; then
       break

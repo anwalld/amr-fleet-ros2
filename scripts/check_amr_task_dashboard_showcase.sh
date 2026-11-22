@@ -16,7 +16,7 @@ LOG_DIR="$(mktemp -d /tmp/robot_task_dashboard.XXXXXX)"
 PIDS=()
 
 cleanup() {
-  timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
     "{from_station: storage_a, to_station: packing}" >/dev/null 2>&1 || true
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "$pid" >/dev/null 2>&1; then
@@ -40,7 +40,7 @@ call_service() {
   local service="$2"
   local type="$3"
   local request="$4"
-  if ! timeout -k 5s 35s ros2 service call "${service}" "${type}" "${request}" \
+  if ! service_response 35s "${service}" "${type}" "${request}" \
       >"${LOG_DIR}/${name}.out" 2>"${LOG_DIR}/${name}.err"; then
     echo "${service} call failed" >&2
     cat "${LOG_DIR}/${name}.out" >&2 2>/dev/null || true

@@ -19,12 +19,12 @@ write_long_mission "${mission_file}" nav_seq_controls 40
 
 trigger() {
   local out
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "$1" std_srvs/srv/Trigger "{}" | response_only)"
+  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" "$1" std_srvs/srv/Trigger "{}" | response_only)"
   expect_eq "$1 success" "$(resp_scalar success <<<"${out}")" True
   expect_eq "$1 message" "$(resp_scalar message <<<"${out}")" "$2"
 }
 
-out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: '${mission_file}', priority: 50, start_if_idle: true}" | response_only)"
 expect_eq "enqueue success" "$(resp_scalar success <<<"${out}")" True
 wait_active_mission nav_seq_controls 30 "RUNNING"
@@ -37,7 +37,7 @@ wait_active_mission nav_seq_controls 15 "RUNNING" seen
 trigger /cancel_mission "mission cancellation requested"
 wait_active_mission nav_seq_controls 30 "CANCELED" seen
 
-out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/get_statistics robot_interfaces_core/srv/GetStatistics "{}" | response_only)"
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/get_statistics robot_interfaces_core/srv/GetStatistics "{}" | response_only)"
 echo "${out}"
 total="$(resp_scalar total_goals <<<"${out}")"
 succeeded="$(resp_scalar succeeded_goals <<<"${out}")"

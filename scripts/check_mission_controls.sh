@@ -14,14 +14,14 @@ mission_file="$(mktemp /tmp/robot_mission_controls.XXXXXX.yaml)"
 trap 'rm -f "${mission_file}"' EXIT
 write_long_mission "${mission_file}" controls_long 40
 
-out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: '${mission_file}', priority: 50, start_if_idle: true}" | response_only)"
 rg "success=True" <<<"${out}"
 wait_active_mission controls_long 30 "RUNNING"
 
 trigger() {
   local out
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call "$1" std_srvs/srv/Trigger "{}" | response_only)"
+  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" "$1" std_srvs/srv/Trigger "{}" | response_only)"
   echo "${out}"
   rg "success=True" <<<"${out}"
 }

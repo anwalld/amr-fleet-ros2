@@ -80,7 +80,7 @@ wait_mission_state() {
   local sample="${LOG_DIR}/station_events.txt"
   while true; do
     # 单次查询 15 秒：负载高时 ros2 service call 光发现服务就可能超过 6 秒，查不到下一轮再查。
-    if timeout 15s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if service_response 15s /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
         "{limit: 10, state_filter: ${state}, mission_id_filter: ${mission_id}}" \
         >"${sample}" 2>"${LOG_DIR}/station_events.err" &&
       rg "mission_ids=\\['${mission_id}'\\]" "${sample}" >/dev/null &&
@@ -195,7 +195,7 @@ wait_route_resource_absent() {
   local deadline=$((SECONDS + timeout_sec))
   local sample="${LOG_DIR}/traffic_reservations.txt"
   while true; do
-    if timeout 6s ros2 service call /v2/list_traffic_reservations \
+    if service_response 6s /v2/list_traffic_reservations \
         robot_interfaces_mission/srv/ListTrafficReservations "{}" \
         >"${sample}" 2>"${LOG_DIR}/traffic_reservations.err" &&
       rg "success=True" "${sample}" >/dev/null &&

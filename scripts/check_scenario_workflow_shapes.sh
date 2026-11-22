@@ -32,7 +32,7 @@ TEMPLATES=(
 )
 
 # 1. 场景列表
-listing="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/list_scenario_workflows \
+listing="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_scenario_workflows \
   robot_interfaces_business/srv/ListScenarioWorkflows "{scenario_id: ''}" | response_only)"
 expect_eq "list success" "$(resp_scalar success <<<"${listing}")" True
 for entry in "${TEMPLATES[@]}"; do
@@ -56,7 +56,7 @@ for entry in "${TEMPLATES[@]}"; do
   out="$(submit "${scenario}" "${workflow}" "${order}" false)"
   expect_eq "${scenario}/${workflow} accepted" "$(resp_scalar accepted <<<"${out}")" True
   rg -q "${order}_step_1" <<<"${out}" || { echo "${scenario}/${workflow}: step 1 mission missing: ${out}" >&2; exit 1; }
-  out="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 service call /v2/cancel_workflow \
+  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/cancel_workflow \
     robot_interfaces_business/srv/CancelWorkflow "{order_id: ${order}, cancel_active: false}" | response_only)"
   expect_eq "${scenario}/${workflow} cancel success" "$(resp_scalar success <<<"${out}")" True
   expect_eq "${scenario}/${workflow} queue_size after cancel" "$(resp_scalar queue_size <<<"${out}")" 0

@@ -20,6 +20,7 @@
 - [x] 2.1 改 `PlanMissionResultWorkflow` 的成功分支：非对桩任务只释放路权，设施预约交给"标为占用"处理；节点里的执行顺序相应调整。改 `mission_result_workflow_test` 中断言两个标志的用例，新增"成功 + 保持"和"成功 + 不保持"两个测最终效果的单测（`FacilityReservationMap` 的最终状态）。验证：`colcon test --packages-select robot_tasks` 全绿。
 - [x] 2.2 加强 `facility:actions`、`facility:charging`、`safety:opportunity_charging`、`facility:door_passage` 的断言，使其对应 `specs/facility-reservation` 的各个场景：保持、占用者释放、非占用者被拒、不保持即释放、取消即释放。验证：`bash -n`；全栈部分进夜跑 #2。
 - [ ] 2.3 NavigateToPose 回退模式暂停停车（design D12）：取消、重发、规格增量、`nav2_goal_step_test` 与用例 `ops:navigate_sequence_nav2_pause`。验证：robot_tasks 单测全绿；该用例在夜跑 #3 PASS。
+- [ ] 2.4 取消崩溃与 FollowWaypoints 暂停竞态（design D13）：规格增量、`sequence_cancel_test`、用例 `ops:navigate_sequence_cancel`。验证：robot_tasks 单测全绿；该用例与 `ops:navigate_sequence_controls` 在夜跑 #3 PASS。
 
 ## 3. 修复其余失败用例（design D1）
 

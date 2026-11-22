@@ -171,6 +171,18 @@
 
 验证：`nav2_goal_step_test`；`ops:navigate_sequence_nav2_pause` 用假 NavigateToPose 服务器，不代表真实 Nav2 的减速表现。
 
+### D13 产品修复：取消与 FollowWaypoints 暂停竞态
+
+现状（读代码与 rclcpp_action 头文件得出）：`canceled()` 只能在收到 action 取消请求后调用，`/cancel_mission` 没有这个请求，节点会抛异常退出；action 取消回调先置标志、目标后进入 CANCELING，也有同样的窗口。FollowWaypoints 等待受理时暂停不取消，取消撞上目标结束时客户端抛异常。
+
+改法：
+
+- 没有取消请求时 `abort()` 并带共用常量 `kSequenceCancelledMessage`，任务中枢两条结果路径都按已取消处理。备选是在接口里加取消字段，或服务给自己发 action 取消：前者改公共接口，后者多一次会丢的往返，都没有采用。
+- 取消回调不置标志，各循环看 `is_canceling()`。
+- 两个 Nav2 分支共用受理等待和安全取消。FollowWaypoints 的恢复语义（从当前航点重发）不变。
+
+验证：`sequence_cancel_test`；`ops:navigate_sequence_cancel` 与 `ops:navigate_sequence_controls`（任务中枢一侧）。
+
 ## Risks / Trade-offs
 
 - [断言加强后，一批目前"通过"的用例会变成失败，范围可能比预计的大] → 加强按套件分提交，但都在夜跑 #2 之前写完、一起验证；每个用例都有 xtrace、互相隔离，一夜失败很多也能逐个定位。新暴露的产品问题按 D9 的方式处理，并用 `/opsx:update` 补规格增量。

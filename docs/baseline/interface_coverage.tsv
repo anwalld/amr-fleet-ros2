@@ -1,7 +1,7 @@
 # 接口覆盖表（acceptance-suite-rework design D8）。lint:interface_coverage 检查它与 src/ 一致。
 # cases：覆盖该接口的用例键（逗号分隔）；note：断言要点，或 via:/v2/submit_order（旧入口经统一入口转发）。
 kind	name	owner	cases	note
-action	/navigate_sequence	robot_tasks/navigate_sequence_server_node	amr_sim:rviz_topics,amr_sim:task_dashboard,business:business_benchmark,mission:action_result,ops:navigate_sequence_nav2_pause,safety:localization_auto_recovery	
+action	/navigate_sequence	robot_tasks/navigate_sequence_server_node	amr_sim:rviz_topics,amr_sim:task_dashboard,business:business_benchmark,mission:action_result,ops:navigate_sequence_cancel,ops:navigate_sequence_nav2_pause,safety:localization_auto_recovery	
 rest	/api/business_orders	scripts/rest_api_gateway	business:callbacks,lint:operator_static,ops:operator_permissions,ops:rest_gateway,ops:rest_workflow	
 rest	/api/facilities/resources	scripts/rest_api_gateway	ops:rest_gateway	
 rest	/api/fleet/robots	scripts/rest_api_gateway	ops:rest_gateway	
@@ -28,19 +28,19 @@ rest	/v2/reprioritize_queued_mission	scripts/rest_api_gateway	mission:reprioriti
 rest	/v2/resume_workflow	scripts/rest_api_gateway	business:vda5050_instant,mission:workflow_pause_resume,ops:rest_workflow	
 rest	/v2/submit_order	scripts/rest_api_gateway	amr_sim:station_motion,business:business_benchmark,business:callbacks,business:vda5050_adapter,business:vda5050_mqtt,business:vda5050_state,fleet:agent_station_task,lint:interface_coverage,mission:resource_cleanup,ops:legacy_entries,ops:rest_gateway	
 rest	/v2/update_remote_task_state	scripts/rest_api_gateway	business:remote_fleet,ops:rest_workflow	
-service	/cancel_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_controls	
+service	/cancel_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_cancel,ops:navigate_sequence_controls	
 service	/cancel_mission_profile	robot_tasks/mission_runner_node	facility:actions,mission:controls,mission:runner	
 service	/clear_emergency_stop	robot_teleop/cmd_vel_mux_node,robot_teleop/cmd_vel_safety_gate_node	safety:fault_supervisor	
 service	/clear_odometry	robot_hardware/chassis_driver_node	ops:chassis_mock,safety:system_health	
 service	/enable_emergency_stop	robot_teleop/cmd_vel_mux_node,robot_teleop/cmd_vel_safety_gate_node	safety:fault_supervisor	
 service	/imu_100d4/start_magnetic_calibration	robot_sensors/imu_100d4_parser_node	ops:imu_calibration	
 service	/imu_100d4/stop_magnetic_calibration	robot_sensors/imu_100d4_parser_node	ops:imu_calibration	
-service	/pause_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_controls,ops:navigate_sequence_nav2_pause	
+service	/pause_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_cancel,ops:navigate_sequence_controls,ops:navigate_sequence_nav2_pause	
 service	/pause_mission_profile	robot_tasks/mission_runner_node	mission:controls,mission:runner	
 service	/reload_mission_profile	robot_tasks/mission_runner_node	mission:runner	
 service	/reset_mission_recovery_state	robot_tasks/mission_runner_node	mission:recovery	
 service	/reset_odom_path	robot_hardware/odom_path_recorder_node	ops:chassis_mock	
-service	/resume_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_controls,ops:navigate_sequence_nav2_pause	
+service	/resume_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_cancel,ops:navigate_sequence_controls,ops:navigate_sequence_nav2_pause	
 service	/resume_mission_profile	robot_tasks/mission_runner_node	mission:controls,mission:runner	
 service	/return_to_dock	robot_tasks/mission_runner_node	mission:return_to_dock	
 service	/set_manual_takeover	robot_teleop/virtual_rc_node	amr_sim:gazebo_nav2,ops:manual_takeover	

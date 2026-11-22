@@ -57,7 +57,7 @@ trigger() {
   expect_eq "$1 success" "$(resp_scalar success <<<"${out}")" True
 }
 
-setsid python3 "${SCRIPT_DIR}/fake_navigate_to_pose.py" "${WORK}" > "${WORK}/fake.log" 2>&1 &
+setsid python3 "${SCRIPT_DIR}/fake_nav2_action.py" "${WORK}" navigate_to_pose > "${WORK}/fake.log" 2>&1 &
 PIDS+=("$!")
 setsid ros2 run robot_tasks navigate_sequence_server_node --ros-args -p use_waypoint_follower:=false \
   -p simulate_without_nav2:=false > "${WORK}/server.log" 2>&1 &

@@ -133,6 +133,7 @@
 #include "robot_tasks/queued_mission_start_behavior_tree.hpp"
 #include "robot_tasks/sanitize_id.hpp"
 #include "robot_tasks/scenario_catalog.hpp"
+#include "robot_tasks/sequence_cancel.hpp"
 #include "robot_tasks/station_confirmation_workflow.hpp"
 #include "robot_tasks/station_sequence_workflow.hpp"
 #include "robot_tasks/station_catalog.hpp"
@@ -182,16 +183,21 @@ double PathLength(const nav_msgs::msg::Path& path) {
   return distance_m;
 }
 
+bool IsCancelledResult(const GoalHandleNavigateSequence::WrappedResult& result) {
+  return robot_tasks::IsSequenceCancelled(
+      result.code == rclcpp_action::ResultCode::CANCELED,
+      result.code == rclcpp_action::ResultCode::ABORTED,
+      result.result ? result.result->message : "");
+}
+
 robot_tasks::MissionActionResultCode ToMissionActionResultCode(
-    const rclcpp_action::ResultCode code) {
-  switch (code) {
-    case rclcpp_action::ResultCode::SUCCEEDED:
-      return robot_tasks::MissionActionResultCode::kSucceeded;
-    case rclcpp_action::ResultCode::CANCELED:
-      return robot_tasks::MissionActionResultCode::kCanceled;
-    default:
-      return robot_tasks::MissionActionResultCode::kFailed;
+    const GoalHandleNavigateSequence::WrappedResult& result) {
+  if (IsCancelledResult(result)) {
+    return robot_tasks::MissionActionResultCode::kCanceled;
   }
+  return result.code == rclcpp_action::ResultCode::SUCCEEDED
+             ? robot_tasks::MissionActionResultCode::kSucceeded
+             : robot_tasks::MissionActionResultCode::kFailed;
 }
 
 }  // namespace
@@ -5285,8 +5291,7 @@ class MissionRunnerNode final : public rclcpp::Node {
               result.code == rclcpp_action::ResultCode::SUCCEEDED &&
               result.result && result.result->success;
           const bool canceled =
-              result.code == rclcpp_action::ResultCode::CANCELED ||
-              cancellation_requested_;
+              IsCancelledResult(result) || cancellation_requested_;
           on_result(succeeded, canceled, result.result ? result.result->message : "");
         };
     options.feedback_callback =
@@ -5670,7 +5675,7 @@ class MissionRunnerNode final : public rclcpp::Node {
       paused_.SetByRunner(false);
       current_goal_handle_.reset();
       robot_tasks::MissionResultWorkflowInput result_input;
-      result_input.code = ToMissionActionResultCode(result.code);
+      result_input.code = ToMissionActionResultCode(result);
       result_input.result_success = result.result && result.result->success;
       result_input.result_message = result.result ? result.result->message : "";
       result_input.cancellation_requested = cancellation_requested_;

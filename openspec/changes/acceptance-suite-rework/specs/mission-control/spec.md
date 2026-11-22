@@ -36,3 +36,21 @@
 #### Scenario: 等待受理时暂停
 - **WHEN** 目标已发出、Nav2 尚未应答时调用 `/pause_mission`
 - **THEN** 目标一被受理即被取消
+
+### Requirement: 取消导航序列不使服务退出
+导航序列服务 SHALL 对两种取消都正常结束当前序列并继续服务：收到 action 取消请求时以 `CANCELED` 结束；经 `/cancel_mission` 取消而没有 action 取消请求时以 `ABORTED` 结束，结果消息为 `sequence cancelled`。任务中枢 SHALL 把这两种结果都按已取消处理、不触发失败恢复；其他 `ABORTED` 仍按失败处理。
+
+#### Scenario: 经服务取消
+- **WHEN** 任务运行中直接调用 `/cancel_mission`
+- **THEN** 任务中枢显示 `CANCELED`、不重试该任务，导航序列服务仍能接受下一个目标
+
+#### Scenario: 经 action 取消
+- **WHEN** 对执行中的序列发送 action 取消请求
+- **THEN** 序列以 `CANCELED` 结束
+
+### Requirement: 暂停时停止 Nav2 航点跟随目标
+导航序列服务经 FollowWaypoints 执行期间被暂停时（含目标等待受理期间），SHALL 取消该目标，反馈 SHALL 报告已暂停，恢复后从当前航点继续。暂停之前已经结束的目标 SHALL NOT 重发。取消与目标结束同时发生时服务 SHALL NOT 退出。
+
+#### Scenario: 航点跟随等待受理时暂停
+- **WHEN** 目标已发出、FollowWaypoints 尚未应答时调用 `/pause_mission`
+- **THEN** 目标一被受理即被取消，恢复后重发

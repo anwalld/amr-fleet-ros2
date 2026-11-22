@@ -28,10 +28,10 @@
 
 - [x] 3.1 `ops:interfaces_split`：去掉写死的接口数。验证：`lint:` 栈下本机运行通过；临时删掉某个包 CMakeLists 里的一条注册，检查会失败。
 - [x] 3.2 换栈：`mission:estimates`、`mission:preflight`、`facility:plc` 改为 `core`；`safety:system_health`、`ops:map_manager`、`ops:map_zones`、`ops:tf_tree` 改为 `mock_bringup`。同时把这些脚本的断言按 design D7 拆开。验证：用例表更新，`bash -n` 通过；进夜跑 #2。
-- [x] 3.3 时间竞争与丢消息（design D1，2026-11-19 实施时更正了 recovery、low_battery_dock 的根因）：`mission:runner`、`mission:controls` 改到 `core` 栈，controls 用约 40 个点的长任务，runner 自己调用 `/start_mission_profile`；`mission:recovery` 改为 `self`，用无 Nav2 时稳定失败的导航序列服务触发 `NEEDS_OPERATOR`；`safety:low_battery_dock` 和 `mission:preflight` 的低电量消息改为连续发布。验证：`bash -n`；进夜跑 #2，要求 4 个都 PASS。
+- [ ] 3.3 时间竞争与丢消息（design D1，2026-11-19 实施时更正了 recovery、low_battery_dock 的根因）：`mission:runner`、`mission:controls` 改到 `core` 栈，controls 用约 40 个点的长任务，runner 自己调用 `/start_mission_profile`；`mission:recovery` 改为 `self`，用无 Nav2 时稳定失败的导航序列服务触发 `NEEDS_OPERATOR`；`safety:low_battery_dock` 和 `mission:preflight` 的低电量消息改为连续发布。验证：`bash -n`；夜跑 #3 中 4 个都 PASS（用户 2026-11-22 改定：原标准是 #2，而 #2 里 recovery、low_battery_dock 失败）。
 - [x] 3.4 `business:picking_wave`：删掉过时的 `report_short_pick` 步骤，断言 `confirm_pick` 直接进入 `SHORT_PICK`、`short_quantity=2`。验证：进夜跑 #2。
 - [x] 3.5 `amr_sim:gazebo_entities`：读 `amr_sim_gazebo_entity_bridge_node` 后更正根因（design D1）：对象标签在 `labels_enabled` 为真时常显，amr_demo 默认已改为 false；脚本起栈时传 `labels_enabled:=true`。验证：进夜跑 #2。
-- [ ] 3.6 `amr_sim:gazebo_nav2`：让 `/map_server` 生命周期的等待上限和就绪条件与实际启动顺序一致（只加长轮询，不重跑）。验证：夜跑 #2、#3 两夜都 PASS。
+- [ ] 3.6 `amr_sim:gazebo_nav2`：让 `/map_server` 生命周期的等待上限和就绪条件与实际启动顺序一致（只加长轮询，不重跑）。验证：从夜跑 #3 起连续两夜 PASS（用户 2026-11-22 改定：原标准是 #2、#3，而 #2 已失败。#4 因此必跑，是总则"#4 仅备用"的例外）。
 
 ## 4. 待定性的两条（design D1、Open Questions）
 
@@ -49,7 +49,7 @@
 ## 6. 断言加强（design D7）
 
 - [x] 6.1 新增 `lint:assertion_alternation`，并给出白名单（只放格式变体）。验证：在现状上运行，能报出约 121 + 124 处候选，清单存进提交说明。
-- [x] 6.2 按套件拆开并加强断言，依次为 mission、facility、amr_sim、business、safety、ops，每个套件一个提交，跳过第 2、3、5 组已经处理过的脚本。6 个套件都在夜跑 #2 之前写完、一起验证；新暴露的失败按 design D1 的思路处理，查出产品缺陷的单独提交、补规格增量，并先告诉用户。验证：`lint:assertion_alternation` 通过；夜跑 #3 全绿。
+- [ ] 6.2 按套件拆开并加强断言，依次为 mission、facility、amr_sim、business、safety、ops，每个套件一个提交，跳过第 2、3、5 组已经处理过的脚本。6 个套件都在夜跑 #2 之前写完、一起验证；新暴露的失败按 design D1 的思路处理，查出产品缺陷的单独提交、补规格增量，并先告诉用户。验证：`lint:assertion_alternation` 通过；夜跑 #3 全绿。
 
 ## 7. 新增交通与车队用例（specs 里对应的四条要求）
 

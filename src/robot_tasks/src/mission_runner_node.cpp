@@ -5707,6 +5707,10 @@ class MissionRunnerNode final : public rclcpp::Node {
   bool ApplyMissionResultDecision(
       const robot_tasks::MissionResultWorkflowDecision& result_decision,
       const std::string& completed_mission_id, const bool completed_dock) {
+    // 释放会清掉任务到设施的映射，记日志用的资源号要先取。
+    const auto facility_it = facility_resource_by_mission_.find(completed_mission_id);
+    const std::string facility_id =
+        facility_it == facility_resource_by_mission_.end() ? "" : facility_it->second;
     if (result_decision.clear_cancellation_requested) {
       cancellation_requested_ = false;
     }
@@ -5723,6 +5727,7 @@ class MissionRunnerNode final : public rclcpp::Node {
 
     if (result_decision.probe_docking_contact_failure) {
       if (HandleDockingContactFailure(completed_mission_id)) {
+        LogMissionResult(result_decision, completed_mission_id, facility_id);
         HandleMissionFailure("docking contact failed", false);
         return false;
       }
@@ -5737,6 +5742,7 @@ class MissionRunnerNode final : public rclcpp::Node {
       CompleteDockingMission(completed_mission_id);
     }
 
+    LogMissionResult(result_decision, completed_mission_id, facility_id);
     if (result_decision.handle_failure) {
       HandleMissionFailure(result_decision.failure_message, completed_dock);
     } else {
@@ -5744,6 +5750,25 @@ class MissionRunnerNode final : public rclcpp::Node {
     }
 
     return true;
+  }
+
+  void LogMissionResult(
+      const robot_tasks::MissionResultWorkflowDecision& decision, const std::string& mission_id,
+      const std::string& facility_id) const {
+    std::string facility = "-";
+    if (!facility_id.empty()) {
+      const auto it = facility_reservations_.find(facility_id);
+      facility = facility_id + "=" +
+                 (it == facility_reservations_.end()
+                      ? std::string("available")
+                      : it->second.status + " holder=" + it->second.holder_id);
+    }
+    RCLCPP_INFO(
+        get_logger(),
+        "mission result: id=%s branch=%s release_all=%d release_route=%d mark_occupied=%d "
+        "facility=%s",
+        mission_id.c_str(), decision.branch.c_str(), decision.release_all_resources,
+        decision.release_route_locks, decision.mark_resource_occupied, facility.c_str());
   }
 
   void ApplyMissionResultPostActions(

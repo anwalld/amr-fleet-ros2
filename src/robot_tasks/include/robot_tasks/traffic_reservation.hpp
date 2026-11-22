@@ -213,7 +213,7 @@ std::vector<RouteGrant> PlanRouteWaitGrants(
 std::optional<RouteWaiter> WithdrawRouteWaits(
     const std::string& robot_id, RouteWaitQueueMap& wait_queues);
 
-// 封路后：等在该资源上的车全部移出队列，由调用方通知它们重新规划。
+// 封路后：所申请的那组资源含该路段的等待车全部移出队列（按优先级、到达顺序返回），由调用方通知它们重新规划。
 std::vector<RouteWaiter> PlanRouteBlockWaiterReplan(
     const std::string& resource_id, RouteWaitQueueMap& wait_queues);
 

@@ -539,6 +539,40 @@ TEST(RouteSegmentTest, Block_QueuedWaitersMarkedForReplan) {
   EXPECT_TRUE(queues.empty());
 }
 
+// 运行中的真实情形：封路只允许封空闲路段，而车只排在被占的资源上，所以被封路段自己的队列总是空的。
+TEST(RouteSegmentTest, Block_FreeEdgeInWaitersRequest_MarkedForReplan) {
+  RouteLockMap locks{{"route_node:storage_a", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  PlanRouteSegmentRequest(SegmentRequest("robot_3", "receiving", "storage_a"), locks, queues, &seq);
+  PlanRouteSegmentRequest(SegmentRequest("robot_2", "receiving", "storage_a"), locks, queues, &seq);
+  PlanRouteSegmentRequest(SegmentRequest("robot_4", "packing", "storage_a"), locks, queues, &seq);
+  const std::string edge = "route_edge:receiving__storage_a";
+  ASSERT_EQ(queues.count(edge), 0U);
+  ASSERT_EQ(queues.at("route_node:storage_a").size(), 3U);
+
+  const auto replan = PlanRouteBlockWaiterReplan(edge, queues);
+
+  ASSERT_EQ(replan.size(), 2U);
+  EXPECT_EQ(replan[0].robot_id, "robot_3");  // 按到达顺序，不按车辆号
+  EXPECT_EQ(replan[1].robot_id, "robot_2");
+  ASSERT_EQ(queues.at("route_node:storage_a").size(), 1U);
+  EXPECT_EQ(queues.at("route_node:storage_a")[0].robot_id, "robot_4");  // 不经过被封路段，不受影响
+}
+
+TEST(RouteSegmentTest, Block_WaiterInSeveralQueues_NotifiedOnce) {
+  RouteLockMap locks{{"route_edge:receiving__storage_a", "robot_1"}, {"route_node:storage_a", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  PlanRouteSegmentRequest(SegmentRequest("robot_2", "receiving", "storage_a"), locks, queues, &seq);
+  ASSERT_EQ(queues.size(), 2U);
+
+  const auto replan = PlanRouteBlockWaiterReplan("route_edge:receiving__storage_a", queues);
+
+  ASSERT_EQ(replan.size(), 1U);
+  EXPECT_TRUE(queues.empty());
+}
+
 TEST(RouteSegmentTest, Withdraw_RemovesWaiterEverywhere) {
   RouteLockMap locks{{"route_edge:receiving__storage_a", "robot_1"}, {"route_node:storage_a", "robot_1"}};
   RouteWaitQueueMap queues;

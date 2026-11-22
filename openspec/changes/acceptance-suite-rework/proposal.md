@@ -39,7 +39,7 @@ M4-core 已经实现，正等着做全栈验证；M5 要按 M1 的方式拆出 `
 
 ### New Capabilities
 
-- `mission-control`：**对外行为变化**——由下层反馈带来的暂停随下层恢复而解除（此前任务中枢一直显示 PAUSED）；任务中枢自己发起的暂停仍只能由它解除。**对外行为变化**——导航序列服务退到 NavigateToPose 时，暂停会取消 Nav2 目标、恢复后重发（此前只是自己原地等，Nav2 继续开车）。**对外行为变化**——`/cancel_mission` 让序列以 ABORTED（`sequence cancelled`）结束、任务中枢按已取消处理（此前节点抛异常退出）；FollowWaypoints 等待受理时暂停也会取消目标。
+- `mission-control`：**对外行为变化**——由下层反馈带来的暂停随下层恢复而解除（此前任务中枢一直显示 PAUSED）；任务中枢自己发起的暂停仍只能由它解除。**对外行为变化**——导航序列服务退到 NavigateToPose 时，暂停会取消 Nav2 目标、恢复后重发（此前只是自己原地等，Nav2 继续开车）。**对外行为变化**——`/cancel_mission` 让序列以 ABORTED（`sequence cancelled`）结束、任务中枢按已取消处理（此前节点抛异常退出）；FollowWaypoints 等待受理时暂停也会取消目标。**对外行为变化**——暂停中取消后，下一个任务不再继承暂停（避障或定位丢失仍在时除外）；FollowWaypoints 暂停期间会重发取消。
 
 - `facility-reservation`：设施资源（门、电梯、充电桩等）的预约、执行后保持与释放的规则。目前没有任何规格描述它，本变更从修正 `hold_after_action` 开始建立。
 

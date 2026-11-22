@@ -66,3 +66,20 @@ TEST(PauseStateTest, HoldWhileNotPaused_DoesNotPause) {
 
 }  // namespace
 }  // namespace robot_tasks
+
+TEST(ReleasePauseAfterCancel, CancelledPausedMissionReleases) {
+  EXPECT_TRUE(robot_tasks::ShouldReleasePauseAfterCancel({true, true, false, false}));
+}
+
+TEST(ReleasePauseAfterCancel, NothingToReleaseWithoutPauseOrCancel) {
+  EXPECT_FALSE(robot_tasks::ShouldReleasePauseAfterCancel({true, false, false, false}));
+  EXPECT_FALSE(robot_tasks::ShouldReleasePauseAfterCancel({false, true, false, false}));
+}
+
+TEST(ReleasePauseAfterCancel, ObstacleKeepsPause) {
+  EXPECT_FALSE(robot_tasks::ShouldReleasePauseAfterCancel({true, true, true, false}));
+}
+
+TEST(ReleasePauseAfterCancel, LostLocalizationKeepsPause) {
+  EXPECT_FALSE(robot_tasks::ShouldReleasePauseAfterCancel({true, true, false, true}));
+}

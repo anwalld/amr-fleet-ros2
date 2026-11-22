@@ -2,9 +2,10 @@
 # 取消与 FollowWaypoints 暂停竞态（acceptance-suite-rework design D13）。self：真节点 + 假 Nav2。
 #   1. 等待受理时暂停：目标一被受理就被取消；
 #   2. 恢复：重发；
-#   3. /cancel_mission：Nav2 目标被取消，序列以 ABORTED + "sequence cancelled" 结束，节点不退出；
-#   4. 节点还能接下一个目标并跑完；
-#   5. 标准 action 取消仍以 CANCELED 结束。
+#   3. 暂停时取消没生效：一直重发到生效；
+#   4. /cancel_mission：Nav2 目标被取消，序列以 ABORTED + "sequence cancelled" 结束，节点不退出；
+#   5. 节点还能接下一个目标并跑完；
+#   6. 标准 action 取消仍以 CANCELED 结束。
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -92,9 +93,25 @@ wait_event "canceled 1"
 trigger /resume_mission
 wait_event "accepted 2"
 
-# 3. 经服务取消（退出码因结果状态而异，只看输出）
-trigger /cancel_mission
+# 3. 取消没生效就一直重发
+touch "${WORK}/reject_cancel"
+trigger /pause_mission
+deadline=$((SECONDS + 20))
+until (( $(rg -c "^cancel_rejected 2 " "${EVENTS}" || echo 0) >= 2 )); do
+  if (( SECONDS >= deadline )); then
+    echo "cancel was not repeated while paused" >&2
+    exit 1
+  fi
+  sleep 0.2
+done
+rm "${WORK}/reject_cancel"
 wait_event "canceled 2"
+trigger /resume_mission
+wait_event "accepted 3"
+
+# 4. 经服务取消（退出码因结果状态而异，只看输出）
+trigger /cancel_mission
+wait_event "canceled 3"
 wait "${GOAL_PID}" || true
 rg -q "Goal finished with status: ABORTED" "${FEEDBACK}"
 rg -q "message: sequence cancelled" "${FEEDBACK}"
@@ -104,22 +121,22 @@ if rg -q "terminate called" "${WORK}/server.log"; then
 fi
 echo "ok: cancel service ended the sequence"
 
-# 4. 节点还活着
+# 5. 节点还活着
 send_goal "${WORK}/second.log"
-wait_event "accepted 3"
+wait_event "accepted 4"
 touch "${WORK}/finish"
-wait_event "succeeded 3"
+wait_event "succeeded 4"
 wait "${GOAL_PID}"
 rg -q "Goal finished with status: SUCCEEDED" "${WORK}/second.log"
 echo "ok: server accepted the next goal"
 
-# 5. 标准 action 取消：直接调取消服务（全零 ID = 取消全部），不依赖 CLI 对 SIGINT 的处理
+# 6. 标准 action 取消：直接调取消服务（全零 ID = 取消全部），不依赖 CLI 对 SIGINT 的处理
 rm "${WORK}/finish"
 send_goal "${WORK}/third.log"
-wait_event "accepted 4"
+wait_event "accepted 5"
 out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /navigate_sequence/_action/cancel_goal action_msgs/srv/CancelGoal "{}")"
 echo "${out}"
-wait_event "canceled 4"
+wait_event "canceled 5"
 wait "${GOAL_PID}" || true
 rg -q "Goal finished with status: CANCELED" "${WORK}/third.log"
 if rg -q "terminate called" "${WORK}/server.log"; then

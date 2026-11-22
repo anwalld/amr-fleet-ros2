@@ -35,4 +35,18 @@ class PauseState {
   bool by_feedback_ = false;
 };
 
+struct CancelledPauseStatus {
+  bool canceled = false;
+  bool was_paused = false;
+  bool obstacle_blocked = false;
+  bool localization_lost = false;  // 含重定位中
+};
+
+// 取消暂停中的任务后要不要恢复下层，否则下一个任务一开始就停着。派发时不检查避障和定位，
+// 所以危险仍在时不释放：留着的暂停是唯一挡着下一个任务起步的东西。
+inline bool ShouldReleasePauseAfterCancel(const CancelledPauseStatus& status) {
+  return status.canceled && status.was_paused && !status.obstacle_blocked &&
+         !status.localization_lost;
+}
+
 }  // namespace robot_tasks

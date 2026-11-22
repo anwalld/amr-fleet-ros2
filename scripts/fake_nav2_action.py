@@ -3,7 +3,8 @@
 
 用法：fake_nav2_action.py <控制目录> <navigate_to_pose|follow_waypoints>
 
-<控制目录>/events 逐行记录 received / accepted / canceled / succeeded <序号> x=<目标 x>。
+<控制目录>/events 逐行记录 received / accepted / cancel_rejected / canceled / succeeded <序号> x=<目标 x>。
+<控制目录>/reject_cancel 存在时拒绝取消请求，用来代替"取消请求丢了"。
 <控制目录>/delay 存在时，受理要等它被删掉（最多 30 秒），用来构造"等待受理时被暂停"。
 """
 import os
@@ -43,6 +44,12 @@ def main():
             time.sleep(0.1)
         return GoalResponse.ACCEPT
 
+    def on_cancel(handle):
+        if has("reject_cancel"):
+            record("cancel_rejected", count[0], target_x(handle.request))
+            return CancelResponse.REJECT
+        return CancelResponse.ACCEPT
+
     def execute(handle):
         number, x = count[0], target_x(handle.request)
         record("accepted", number, x)
@@ -65,7 +72,7 @@ def main():
     server = ActionServer(
         node, action, f"/{name}", execute,
         goal_callback=on_goal,
-        cancel_callback=lambda _: CancelResponse.ACCEPT,
+        cancel_callback=on_cancel,
         callback_group=ReentrantCallbackGroup(),
     )
     executor = MultiThreadedExecutor(num_threads=4)

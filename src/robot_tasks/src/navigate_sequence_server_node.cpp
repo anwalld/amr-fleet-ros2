@@ -352,6 +352,37 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
     }
   }
 
+  // 应答会丢：暂停期间目标没结束就每秒再取消一次；暂停中被取消时退出前也要补一次。
+  template <typename ActionT, typename ResultFutureT>
+  void CancelWhilePaused(
+      rclcpp_action::Client<ActionT>& client,
+      const typename rclcpp_action::ClientGoalHandle<ActionT>::SharedPtr& handle,
+      const ResultFutureT& result_future,
+      const std::shared_ptr<GoalHandleNavigateSequence>& sequence_handle) {
+    robot_tasks::Nav2GoalStatus status;
+    auto next_cancel = std::chrono::steady_clock::time_point::min();
+    while (rclcpp::ok()) {
+      status.stop_requested = StopRequested(sequence_handle);
+      status.paused = paused_;
+      status.result_ready = result_future.wait_for(0s) == std::future_status::ready;
+      status.cancel_due = std::chrono::steady_clock::now() >= next_cancel;
+      const auto step = robot_tasks::PlanNav2GoalStep(status);
+      if (step == robot_tasks::Nav2GoalStep::kStop) {
+        CancelGoal(client, handle);
+        return;
+      }
+      if (step == robot_tasks::Nav2GoalStep::kCancelForPause) {
+        CancelGoal(client, handle);
+        next_cancel = std::chrono::steady_clock::now() + 1s;
+      } else if (step != robot_tasks::Nav2GoalStep::kHold) {
+        return;  // 已恢复
+      }
+      PublishZeroSimulatedCmd();
+      PublishSequenceFeedback(sequence_handle, "paused", "paused during waypoint follower goal");
+      std::this_thread::sleep_for(100ms);
+    }
+  }
+
   // 暂停期间 Nav2 还会有在途反馈，一律报成暂停，免得任务中枢以为已经恢复。
   void PublishNav2Progress(const std::shared_ptr<GoalHandleNavigateSequence>& sequence_handle,
                            const std::string& message,
@@ -420,8 +451,8 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
             // 暂停之前已经结束：不取消、不重发，恢复后照常处理这个结果。
             WaitWhilePaused(sequence_handle, "paused after waypoint follower goal");
           } else {
-            CancelGoal(*waypoint_follower_client_, follower_handle);
-            WaitWhilePaused(sequence_handle, "paused during waypoint follower goal");
+            CancelWhilePaused(
+                *waypoint_follower_client_, follower_handle, result_future, sequence_handle);
             start_index = static_cast<std::size_t>(std::max(0, current_goal_index_));
             break;
           }

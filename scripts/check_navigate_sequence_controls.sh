@@ -34,6 +34,17 @@ trigger /pause_mission "mission paused"
 wait_active_mission nav_seq_controls 15 "PAUSED" seen
 trigger /resume_mission "mission resumed"
 wait_active_mission nav_seq_controls 15 "RUNNING" seen
+# 任务中枢发起的暂停不能被下层恢复解除（specs/mission-control），只能由任务中枢恢复。
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /pause_mission_profile std_srvs/srv/Trigger "{}")"
+expect_eq "runner pause success" "$(resp_scalar success <<<"${out}")" True
+wait_active_mission nav_seq_controls 15 "PAUSED" seen
+trigger /resume_mission "mission resumed"
+sleep 3
+state="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState --field state | head -1)"
+expect_eq "runner pause survives lower-layer resume" "${state}" PAUSED
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /resume_mission_profile std_srvs/srv/Trigger "{}")"
+expect_eq "runner resume success" "$(resp_scalar success <<<"${out}")" True
+wait_active_mission nav_seq_controls 15 "RUNNING" seen
 trigger /cancel_mission "mission cancellation requested"
 wait_active_mission nav_seq_controls 30 "CANCELED" seen
 

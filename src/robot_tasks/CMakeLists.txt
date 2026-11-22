@@ -152,6 +152,8 @@ if(BUILD_TESTING)
   target_link_libraries(industry_scenarios_test robot_tasks_mission_profile)
   target_compile_definitions(industry_scenarios_test PRIVATE
     ROBOT_TASKS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+  ament_add_gtest(pause_state_test test/pause_state_test.cpp)
+  target_include_directories(pause_state_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   ament_add_gtest(workflow_control_test test/workflow_control_test.cpp)
   target_link_libraries(workflow_control_test robot_tasks_mission_profile)
   ament_add_gtest(mission_queue_test test/mission_queue_test.cpp)

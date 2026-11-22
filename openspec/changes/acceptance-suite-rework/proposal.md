@@ -39,6 +39,8 @@ M4-core 已经实现，正等着做全栈验证；M5 要按 M1 的方式拆出 `
 
 ### New Capabilities
 
+- `mission-control`：**对外行为变化**——由下层反馈带来的暂停随下层恢复而解除（此前任务中枢一直显示 PAUSED）；任务中枢自己发起的暂停仍只能由它解除。
+
 - `facility-reservation`：设施资源（门、电梯、充电桩等）的预约、执行后保持与释放的规则。目前没有任何规格描述它，本变更从修正 `hold_after_action` 开始建立。
 
 ### Modified Capabilities

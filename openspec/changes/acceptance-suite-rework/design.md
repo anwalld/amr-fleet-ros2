@@ -156,6 +156,21 @@
 
 立不住的结论在原文档里改正，并注明改正的日期和依据。M4-core 的 tasks 9.1–9.4 按它自己的验证条件，在同一夜里核对。
 
+### D12 产品修复：NavigateToPose 回退模式暂停停车
+
+现状：FollowWaypoints 不可用时退到 NavigateToPose，该分支暂停时只阻塞自己，不取消 Nav2 目标。避障另有速度闸门，人工和定位丢失暂停没有，所以车会继续走。
+
+改法：NavigateToPose 没有暂停接口，只能取消再重发。每一步由纯函数 `PlanNav2GoalStep` 决定：
+
+- 暂停且目标未结束就取消，每秒重发一次（服务应答会丢）；
+- 等待受理时不阻塞在暂停上，拿到句柄立即取消；序列被取消时最多再等 2 秒句柄；
+- 恢复后等旧目标的结果：成功就不重发，否则重发。不区分 CANCELED 与 ABORTED，真走不通的目标重发后会照常失败；
+- 取消与目标结束撞上时客户端抛 `UnknownGoalHandleError`，按"已结束"处理。
+
+备选是暂停时也置 `safety_stop`。没有采用：Nav2 仍在执行，会判定卡住并触发恢复行为或超时失败。
+
+验证：`nav2_goal_step_test`；`ops:navigate_sequence_nav2_pause` 用假 NavigateToPose 服务器，不代表真实 Nav2 的减速表现。
+
 ## Risks / Trade-offs
 
 - [断言加强后，一批目前"通过"的用例会变成失败，范围可能比预计的大] → 加强按套件分提交，但都在夜跑 #2 之前写完、一起验证；每个用例都有 xtrace、互相隔离，一夜失败很多也能逐个定位。新暴露的产品问题按 D9 的方式处理，并用 `/opsx:update` 补规格增量。

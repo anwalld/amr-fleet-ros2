@@ -21,6 +21,7 @@
 #include "robot_interfaces/msg/robot_state.hpp"
 #include "robot_interfaces/msg/task_status.hpp"
 #include "robot_interfaces_core/srv/get_statistics.hpp"
+#include "robot_tasks/nav2_goal_step.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 using namespace std::chrono_literals;
@@ -248,6 +249,29 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
 
   bool RunNav2Goal(const geometry_msgs::msg::PoseStamped& pose,
                    const std::shared_ptr<GoalHandleNavigateSequence>& sequence_handle) {
+    while (rclcpp::ok()) {
+      switch (RunNav2Attempt(pose, sequence_handle)) {
+        case robot_tasks::Nav2GoalStep::kSucceed:
+          return true;
+        case robot_tasks::Nav2GoalStep::kResend:
+          WaitWhilePaused(sequence_handle, "paused before resending Nav2 goal");
+          if (StopRequested(sequence_handle)) {
+            return false;
+          }
+          RCLCPP_INFO(get_logger(), "resumed: resending Nav2 goal %d", current_goal_index_);
+          break;
+        default:
+          return false;
+      }
+    }
+    return false;
+  }
+
+  // 发一次目标并跟到结束，只返回 kSucceed / kResend / kFail / kStop。
+  robot_tasks::Nav2GoalStep RunNav2Attempt(
+      const geometry_msgs::msg::PoseStamped& pose,
+      const std::shared_ptr<GoalHandleNavigateSequence>& sequence_handle) {
+    using robot_tasks::Nav2GoalStep;
     NavigateToPose::Goal nav2_goal;
     nav2_goal.pose = pose;
 
@@ -256,35 +280,90 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
         [this, sequence_handle](
             GoalHandleNavigateToPose::SharedPtr,
             const std::shared_ptr<const NavigateToPose::Feedback> feedback) {
-          PublishSequenceFeedback(
-              sequence_handle, "navigating",
+          PublishNav2Progress(
+              sequence_handle,
               "distance remaining: " + std::to_string(feedback->distance_remaining));
         };
 
     auto goal_future = nav2_client_->async_send_goal(nav2_goal, goal_options);
-    if (!WaitForFuture(goal_future, sequence_handle, "waiting for Nav2 goal acceptance")) {
-      return false;
+    // 这里不能用 WaitForFuture：它暂停时会一直等，而目标一被受理车就动了。暂停或取消时也要先
+    // 拿到目标句柄才能取消；取消时最多再等 2 秒。
+    auto stop_deadline = std::chrono::steady_clock::time_point::max();
+    while (goal_future.wait_for(100ms) != std::future_status::ready) {
+      const auto tick = std::chrono::steady_clock::now();
+      if (!rclcpp::ok() || tick >= stop_deadline) {
+        return Nav2GoalStep::kStop;
+      }
+      if (StopRequested(sequence_handle)) {
+        stop_deadline = std::min(stop_deadline, tick + 2s);
+      } else {
+        PublishNav2Progress(sequence_handle, "waiting for Nav2 goal acceptance");
+      }
     }
     auto nav2_goal_handle = goal_future.get();
     if (!nav2_goal_handle) {
       PublishSequenceFeedback(sequence_handle, "failed", "Nav2 rejected goal");
-      return false;
+      return Nav2GoalStep::kFail;
     }
 
     auto result_future = nav2_client_->async_get_result(nav2_goal_handle);
+    robot_tasks::Nav2GoalStatus status;
+    auto next_cancel = std::chrono::steady_clock::time_point::min();
     while (rclcpp::ok()) {
-      if (sequence_handle->is_canceling() || cancelled_) {
-        nav2_client_->async_cancel_goal(nav2_goal_handle);
-        return false;
+      status.stop_requested = StopRequested(sequence_handle);
+      status.paused = paused_;
+      status.result_ready = result_future.wait_for(0s) == std::future_status::ready;
+      status.succeeded =
+          status.result_ready && result_future.get().code == rclcpp_action::ResultCode::SUCCEEDED;
+      status.cancel_due = std::chrono::steady_clock::now() >= next_cancel;
+
+      const auto step = robot_tasks::PlanNav2GoalStep(status);
+      switch (step) {
+        case Nav2GoalStep::kStop:
+          CancelNav2Goal(nav2_goal_handle);
+          return step;
+        case Nav2GoalStep::kSucceed:
+        case Nav2GoalStep::kFail:
+        case Nav2GoalStep::kResend:
+          return step;
+        case Nav2GoalStep::kCancelForPause:
+          CancelNav2Goal(nav2_goal_handle);
+          status.cancelled_for_pause = true;
+          next_cancel = std::chrono::steady_clock::now() + 1s;
+          [[fallthrough]];
+        case Nav2GoalStep::kHold:
+          PublishZeroSimulatedCmd();
+          PublishNav2Progress(sequence_handle, "Nav2 goal cancelled for pause");
+          std::this_thread::sleep_for(100ms);
+          break;
+        case Nav2GoalStep::kWait:
+          // 先等再报：结果一到就回到循环开头处理。
+          if (result_future.wait_for(100ms) != std::future_status::ready) {
+            PublishNav2Progress(sequence_handle, "Nav2 goal active");
+          }
+          break;
       }
-      WaitWhilePaused(sequence_handle, "paused during Nav2 goal");
-      if (result_future.wait_for(100ms) == std::future_status::ready) {
-        const auto wrapped = result_future.get();
-        return wrapped.code == rclcpp_action::ResultCode::SUCCEEDED;
-      }
-      PublishSequenceFeedback(sequence_handle, "navigating", "Nav2 goal active");
     }
-    return false;
+    return Nav2GoalStep::kStop;
+  }
+
+  void CancelNav2Goal(const GoalHandleNavigateToPose::SharedPtr& nav2_goal_handle) {
+    try {
+      nav2_client_->async_cancel_goal(nav2_goal_handle);
+    } catch (const rclcpp_action::exceptions::UnknownGoalHandleError&) {
+      // 目标刚好在取消之前结束，客户端已经不认识它，无需再取消。
+      RCLCPP_DEBUG(get_logger(), "Nav2 goal finished before it could be cancelled");
+    }
+  }
+
+  // 暂停期间 Nav2 还会有在途反馈，一律报成暂停，免得任务中枢以为已经恢复。
+  void PublishNav2Progress(const std::shared_ptr<GoalHandleNavigateSequence>& sequence_handle,
+                           const std::string& message) {
+    PublishSequenceFeedback(sequence_handle, paused_ ? "paused" : "navigating", message);
+  }
+
+  bool StopRequested(const std::shared_ptr<GoalHandleNavigateSequence>& sequence_handle) const {
+    return sequence_handle->is_canceling() || cancelled_;
   }
 
   bool RunWaypointFollowerSequence(

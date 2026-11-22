@@ -106,6 +106,7 @@ fleet	agent_station_task	check_fleet_agent_station_task.sh	fleet_sim	300	600	rew
 ops	navigate_sequence_controls	check_navigate_sequence_controls.sh	core	90	180	rework
 ops	chassis_mock	check_chassis_mock.sh	mock_bringup	30	60	rework
 ops	manual_takeover	check_manual_takeover.sh	mock_bringup	60	120	rework
+ops	navigate_sequence_nav2_pause	check_navigate_sequence_nav2_pause.sh	self	90	180	rework
 ops	path_tracking	check_path_tracking.sh	self	120	240	rework
 ops	imu_calibration	check_imu_calibration.sh	self	40	80	rework
 ops	legacy_entries	check_legacy_entries.sh	core	40	80	rework

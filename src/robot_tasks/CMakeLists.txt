@@ -84,6 +84,7 @@ target_link_libraries(
   behaviortree_cpp::behaviortree_cpp)
 
 add_executable(navigate_sequence_server_node src/navigate_sequence_server_node.cpp)
+target_include_directories(navigate_sequence_server_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 ament_target_dependencies(navigate_sequence_server_node
   rclcpp rclcpp_action geometry_msgs nav_msgs nav2_msgs std_msgs std_srvs robot_interfaces robot_interfaces_core)
 
@@ -152,6 +153,8 @@ if(BUILD_TESTING)
   target_link_libraries(industry_scenarios_test robot_tasks_mission_profile)
   target_compile_definitions(industry_scenarios_test PRIVATE
     ROBOT_TASKS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+  ament_add_gtest(nav2_goal_step_test test/nav2_goal_step_test.cpp)
+  target_include_directories(nav2_goal_step_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   ament_add_gtest(pause_state_test test/pause_state_test.cpp)
   target_include_directories(pause_state_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   ament_add_gtest(workflow_control_test test/workflow_control_test.cpp)

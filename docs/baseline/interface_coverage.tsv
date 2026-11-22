@@ -1,7 +1,7 @@
 # 接口覆盖表（acceptance-suite-rework design D8）。lint:interface_coverage 检查它与 src/ 一致。
 # cases：覆盖该接口的用例键（逗号分隔）；note：断言要点，或 via:/v2/submit_order（旧入口经统一入口转发）。
 kind	name	owner	cases	note
-action	/navigate_sequence	robot_tasks/navigate_sequence_server_node	amr_sim:rviz_topics,amr_sim:task_dashboard,business:business_benchmark,mission:action_result,safety:localization_auto_recovery	
+action	/navigate_sequence	robot_tasks/navigate_sequence_server_node	amr_sim:rviz_topics,amr_sim:task_dashboard,business:business_benchmark,mission:action_result,ops:navigate_sequence_nav2_pause,safety:localization_auto_recovery	
 rest	/api/business_orders	scripts/rest_api_gateway	business:callbacks,lint:operator_static,ops:operator_permissions,ops:rest_gateway,ops:rest_workflow	
 rest	/api/facilities/resources	scripts/rest_api_gateway	ops:rest_gateway	
 rest	/api/fleet/robots	scripts/rest_api_gateway	ops:rest_gateway	
@@ -35,12 +35,12 @@ service	/clear_odometry	robot_hardware/chassis_driver_node	ops:chassis_mock,safe
 service	/enable_emergency_stop	robot_teleop/cmd_vel_mux_node,robot_teleop/cmd_vel_safety_gate_node	safety:fault_supervisor	
 service	/imu_100d4/start_magnetic_calibration	robot_sensors/imu_100d4_parser_node	ops:imu_calibration	
 service	/imu_100d4/stop_magnetic_calibration	robot_sensors/imu_100d4_parser_node	ops:imu_calibration	
-service	/pause_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_controls	
+service	/pause_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_controls,ops:navigate_sequence_nav2_pause	
 service	/pause_mission_profile	robot_tasks/mission_runner_node	mission:controls,mission:runner	
 service	/reload_mission_profile	robot_tasks/mission_runner_node	mission:runner	
 service	/reset_mission_recovery_state	robot_tasks/mission_runner_node	mission:recovery	
 service	/reset_odom_path	robot_hardware/odom_path_recorder_node	ops:chassis_mock	
-service	/resume_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_controls	
+service	/resume_mission	robot_tasks/navigate_sequence_server_node	ops:navigate_sequence_controls,ops:navigate_sequence_nav2_pause	
 service	/resume_mission_profile	robot_tasks/mission_runner_node	mission:controls,mission:runner	
 service	/return_to_dock	robot_tasks/mission_runner_node	mission:return_to_dock	
 service	/set_manual_takeover	robot_teleop/virtual_rc_node	amr_sim:gazebo_nav2,ops:manual_takeover	

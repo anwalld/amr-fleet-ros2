@@ -248,8 +248,8 @@ class TestSimulationModelRuntime(unittest.TestCase):
                 abs(_angle_delta(_yaw(robot2_after), _yaw(robot2_start))), 0.02
             )
 
-            # 先等主车停稳再记起点：刚开完上一段时它还在减速滑行，Gazebo 软件渲染负载高时
-            # 滑行更久，之后量"robot_2 转向期间主车没动"会把滑行算进去（夜跑 #2 漂了 0.095 米）。
+            # 先等主车停稳再记起点。夜跑 #2、#3 在这里报的"漂移"不是滑行，是与并行的导航测试
+            # 同处一个 ROS 域、/odom 混了两个来源（acceptance-suite-rework design D20）。
             spin_until(
                 lambda: abs(messages["/odom"].twist.twist.linear.x) < 0.005
                 and abs(messages["/odom"].twist.twist.angular.z) < 0.01,

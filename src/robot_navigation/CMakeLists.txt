@@ -69,8 +69,14 @@ if(BUILD_TESTING)
   target_link_libraries(zone_catalog_test robot_navigation_zone_catalog)
   ament_add_gtest(zone_filter_masks_test test/zone_filter_masks_test.cpp)
   target_link_libraries(zone_filter_masks_test robot_navigation_zone_filter_masks)
-  add_launch_test(test/test_slam_mock_runtime.launch.py TIMEOUT 45)
-  add_launch_test(test/test_nav2_mock_runtime.launch.py TIMEOUT 150)
+  # launch 测试各用独立的 ROS 域：colcon 并行跑多个包时，同名话题和 TF 会串（夜跑 #2、#3 的"漂移"）。
+  # 不 find_package(ament_cmake_ros)：它会把 BUILD_SHARED_LIBS 打开，改变本包库的链接方式。
+  ament_index_get_prefix_path(ament_prefixes)
+  find_file(RUN_TEST_ISOLATED run_test_isolated.py
+    PATHS ${ament_prefixes} PATH_SUFFIXES share/ament_cmake_ros/cmake
+    NO_DEFAULT_PATH REQUIRED)
+  add_launch_test(test/test_slam_mock_runtime.launch.py TIMEOUT 45 RUNNER "${RUN_TEST_ISOLATED}")
+  add_launch_test(test/test_nav2_mock_runtime.launch.py TIMEOUT 150 RUNNER "${RUN_TEST_ISOLATED}")
 endif()
 
 ament_export_include_directories(include)

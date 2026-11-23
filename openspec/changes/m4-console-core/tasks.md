@@ -68,21 +68,21 @@
 
 ## 9. 夜跑验收与记录
 
-- [ ] 9.1 第一夜跑完整 `scripts/nightly.sh`（跑前在 Mac 上执行 `caffeinate -i -w <VMware 进程号>`）。验证，以次日报告为准：
+- [x] 9.1 第一夜跑完整 `scripts/nightly.sh`（跑前在 Mac 上执行 `caffeinate -i -w <VMware 进程号>`）。验证，以次日报告为准：
   - 阶段 1、2 通过，其中包含新包的测试；
   - 阶段 6 达到 9/9，M3 留下的 `outside_wait` 修复得到验证；阶段 6 每一遍都有 `scenario_*.console.jsonl`，且含 graph、pose、traffic、snapshot 四类记录；
   - 阶段 5 的 6 台 rolling 有 `console.jsonl`；
   - 阶段 7 为 `verdict PASS`，并给出延迟和帧率；
   - 阶段 3 与上一夜逐项 diff，没有新增失败。
 
-  没达标的项修好后并入当晚再跑，不在白天重跑。
-- [ ] 9.2 从虚拟机取一遍 ring3 录像，用 `console_replay_trim.py` 截约 60 秒（从成环前 10 秒到解开后 20 秒），提交为 `src/robot_console_core/test/data/ring3.jsonl`（小于 1 MB）；新增 QtTest：整份文件解析下来没有跳过的行，用它回放时交通面板先显示三车成环、之后显示已解开。验证：Mac 上 `ctest` 和虚拟机上 `colcon test --packages-select robot_console_core` 都通过。
-- [ ] 9.3 新建 `docs/baseline/M4.md`，记录以下内容，所有数字都引用夜跑报告 `docs/baseline/nightly/<日期>.md`，不手填：
+  共同复验核对阶段 2 两个调度台包、阶段 3 新失败 0、阶段 6 为 9/9 及 9 份录像、阶段 5 六车 rolling 录像和阶段 7 冒烟及回放。见 [共同报告](../../../docs/baseline/nightly/2026-11-23-m4-core-rework6-r2.md)。没达标的项修好后并入当晚再跑，不在白天重跑。
+- [x] 9.2 从虚拟机取一遍 ring3 录像，用 `console_replay_trim.py` 截约 60 秒（从成环前 10 秒到解开后 20 秒），提交为 `src/robot_console_core/test/data/ring3.jsonl`（小于 1 MB）；新增 QtTest：整份文件解析下来没有跳过的行，用它回放时交通面板先显示三车成环、之后显示已解开。验证：Mac 上 `ctest` 和虚拟机上 `colcon test --packages-select robot_console_core` 都通过。 补录、裁剪区间和跨平台通过记录见 [M4 基线](../../../docs/baseline/M4.md#回放样本与验证)。
+- [x] 9.3 新建 `docs/baseline/M4.md`，记录以下内容，所有数字都引用夜跑报告 `docs/baseline/nightly/<日期>.md`，不手填：
   - 第 7 阶段的度量，注明是在 offscreen 下测的；
   - 第 5 阶段 6 台 rolling 吞吐与 2026-11-18 各夜同组的对比，作为采集干扰的检查。吞吐低于此前最低值时，先关掉第 5 阶段的采集，并记下原因。
 
   验证：文件里每个数字旁边都注明了出处报告。
-- [ ] 9.4 运行 `openspec validate m4-console-core --strict`，通过；更新交接文档的"下一步"和里程碑表。
+- [x] 9.4 运行 `openspec validate m4-console-core --strict`，通过；更新交接文档的"下一步"和里程碑表。见 [M4 基线](../../../docs/baseline/M4.md)。
 
 ## Workflow follow-up
 

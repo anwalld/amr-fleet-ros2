@@ -4,6 +4,8 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 
+#include <initializer_list>
+
 namespace robot_console {
 namespace {
 
@@ -56,6 +58,18 @@ double stampSeconds(const QJsonValue& v) {
            static_cast<double>(o.value(QLatin1String("nanosec")).toInteger()) * 1e-9;
   }
   return v.toDouble();
+}
+
+bool hasFields(const QJsonObject& object, QJsonValue::Type type,
+               std::initializer_list<const char*> fields) {
+  for (const char* field : fields) {
+    if (object.value(QLatin1String(field)).type() != type) return false;
+  }
+  return true;
+}
+
+bool hasStamp(const QJsonValue& stamp) {
+  return stamp.isDouble() || hasFields(stamp.toObject(), QJsonValue::Double, {"sec", "nanosec"});
 }
 
 RecordKind kindFromName(const QString& name) {
@@ -196,11 +210,49 @@ ParseResult parseRecordLine(const QByteArray& line, ReplayRecord* out, QString* 
   const QJsonObject data = rec.value(QLatin1String("data")).toObject();
   switch (out->kind) {
     case RecordKind::Meta: out->payload = metaFromJson(rec); break;
-    case RecordKind::Graph: out->payload = graphFromJson(rec); break;
-    case RecordKind::Pose: out->payload = poseFromJson(rec); break;
-    case RecordKind::Traffic: out->payload = trafficFromJson(data); break;
-    case RecordKind::Snapshot: out->payload = snapshotFromJson(data); break;
-    case RecordKind::Event: out->payload = FleetEvent{data}; break;
+    case RecordKind::Graph:
+      if (!hasFields(rec.value(QLatin1String("stations")).toObject(), QJsonValue::Array,
+                     {"station_ids", "x", "y"}) ||
+          !hasFields(rec.value(QLatin1String("routes")).toObject(), QJsonValue::Array,
+                     {"from_station", "to_station", "bidirectional", "enabled"})) {
+        if (error) *error = QStringLiteral("路网缺少站点或路段字段");
+        return ParseResult::Invalid;
+      }
+      out->payload = graphFromJson(rec);
+      break;
+    case RecordKind::Pose:
+      if (str(rec, "robot").isEmpty() || !hasStamp(rec.value(QLatin1String("stamp"))) ||
+          !hasFields(rec, QJsonValue::Double, {"x", "y", "yaw"})) {
+        if (error) *error = QStringLiteral("位置记录缺少车辆、时间戳或位姿");
+        return ParseResult::Invalid;
+      }
+      out->payload = poseFromJson(rec);
+      break;
+    case RecordKind::Traffic:
+      if (!hasFields(data, QJsonValue::Array,
+                     {"resource_ids", "owner_ids", "waiting_resource_ids", "waiting_robot_ids",
+                      "deadlock_robot_ids"}) ||
+          !hasFields(data, QJsonValue::Double, {"resolved_count"})) {
+        if (error) *error = QStringLiteral("交通状态缺少占用、等待或死锁字段");
+        return ParseResult::Invalid;
+      }
+      out->payload = trafficFromJson(data);
+      break;
+    case RecordKind::Snapshot:
+      if (!hasFields(data, QJsonValue::String, {"mission_state"}) ||
+          !hasFields(data, QJsonValue::Array, {"fleet_robot_ids", "queued_mission_ids", "remote_task_ids"})) {
+        if (error) *error = QStringLiteral("快照缺少任务或车队字段");
+        return ParseResult::Invalid;
+      }
+      out->payload = snapshotFromJson(data);
+      break;
+    case RecordKind::Event:
+      if (!rec.value(QLatin1String("data")).isObject()) {
+        if (error) *error = QStringLiteral("车队事件缺少 data 对象");
+        return ParseResult::Invalid;
+      }
+      out->payload = FleetEvent{data};
+      break;
     case RecordKind::Unknown:
       out->payload = std::monostate{};
       return ParseResult::UnknownKind;

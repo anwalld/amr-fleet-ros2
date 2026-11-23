@@ -106,9 +106,24 @@ class TestJsonCodec : public QObject {
   }
 
   void stampAcceptsSecondsOrTime() {
-    ReplayRecord rec;
-    QCOMPARE(parseRecordLine(R"({"t":1,"kind":"traffic","data":{"stamp":12.5}})", &rec), ParseResult::Ok);
-    QCOMPARE(std::get<TrafficStateData>(rec.payload).stamp, 12.5);
+    const auto data = QJsonDocument::fromJson(R"({"stamp":12.5})").object();
+    QCOMPARE(trafficFromJson(data).stamp, 12.5);
+    QCOMPARE(test::miniTraffic().stamp, 1795000001.5);
+  }
+
+  void rejectsIncompletePayloads() {
+    for (const QByteArray& line : {
+             QByteArray(R"({"t":1,"kind":"graph","stations":{},"routes":{}})"),
+             QByteArray(R"({"t":1,"kind":"pose","robot":"robot_1","stamp":1,"x":0,"y":0})"),
+             QByteArray(R"({"t":1,"kind":"traffic","data":{}})"),
+             QByteArray(R"({"t":1,"kind":"snapshot","data":{}})"),
+             QByteArray(R"({"t":1,"kind":"event"})"),
+         }) {
+      ReplayRecord rec;
+      QString error;
+      QCOMPARE(parseRecordLine(line, &rec, &error), ParseResult::Invalid);
+      QVERIFY(!error.isEmpty());
+    }
   }
 
   void unknownKindAndInvalid() {

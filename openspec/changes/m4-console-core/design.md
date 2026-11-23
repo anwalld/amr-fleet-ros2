@@ -95,7 +95,7 @@ DataSource 是一个 `QObject` 基类，信号对应六类数据：路网、位�
 ### 5. RosBridge 的线程模型
 
 **线程与生命周期**
-- worker 对象移到一个 `QThread` 里，在线程里创建 `rclcpp::Node` 和 `SingleThreadedExecutor`，然后 `spin()`。
+- `RosBridge::start()` 创建 `rclcpp::Node` 和 `SingleThreadedExecutor`，绑定节点后启动独立 `QThread` 执行 `spin()`。订阅、服务和定时器的回调都由该执行器调度。
 - 退出时调用 `executor.cancel()`，再结束线程。
 - `main` 用 `rclcpp::init_and_remove_ros_arguments` 先把 ROS 参数取走，剩下的交给 `QApplication`。
 

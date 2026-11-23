@@ -83,16 +83,16 @@
 
 - [x] 10.1 首个全量全绿夜：阶段 1–7 都 PASS，阶段 3 全部用例 PASS。把它的 `results.tsv` 存为 `docs/baseline/acceptance_baseline.tsv`；用实测耗时回填用例表的 `budget_s` / `timeout_s`；报告取回到 `docs/baseline/nightly/`。 第 4 轮为首个全绿夜，报告、110 项原始基线与预算已落档。
 - [x] 10.2 写 `docs/baseline/acceptance-rework.md`：逐条列出 M1–M3 和 M4-core 的验收结论、对应的新用例和首个全绿夜的结果、原结论是否依赖了弱断言；立不住的在原 M*.md 里改正，并注明日期和依据。验证：每条结论都有用例和夜跑报告可查。 见 docs/baseline/acceptance-rework.md 与 M3 2026-11-23 更正。
-- [ ] 10.3 按 M4-core 自己的验证条件（它的 tasks 9.1–9.4），在同一夜的报告里逐项核对，结果写进回查记录，并告诉 M4 会话。验证：回查记录里有 9.1–9.4 的逐项结论。 四项记录已写入 docs/baseline/acceptance-rework.md，待通知 M4 会话。
-- [x] 10.4 运行 `/opsx:verify`，处理发现的问题。核验记录见 docs/baseline/acceptance-rework.md；10.3 的跨会话通知待发。
+- [x] 10.3 按 M4-core 自己的验证条件（它的 tasks 9.1–9.4），在同一夜的报告里逐项核对，结果写进回查记录，并告诉 M4 会话。验证：回查记录里有 9.1–9.4 的逐项结论。 四项记录已写入 docs/baseline/acceptance-rework.md，2026-11-24 已通知「接手完成 m4core」对话。
+- [x] 10.4 运行 `/opsx:verify`，处理发现的问题。核验记录见 docs/baseline/acceptance-rework.md。
 
 ## 11. 第 4 轮后的一致性复验（D21）
 
 - [x] 11.1 针对结果完整性、就绪探针、交通字段与事件计数、在线接口审计、模板列表做离线复核。构造正反样本验证通过，脚本语法、lint 与规格严格校验通过。
 - [x] 11.2 加严判据完整复验，阶段 1–7 全部通过。检查 mock_bringup 就绪、两个死锁用例的 core 栈记录、封路移除检查及 12 个模板受理，保存首个满足加严判据的报告。
   - 第 5 轮原始报告已归档至 `docs/baseline/nightly/2026-11-23-rework5.md`。6 个 mock_bringup 用例全部就绪，两个死锁用例按 core 栈运行通过，封路移除与 12 个模板受理均有通过记录。阶段 3 为 109/110，失败来自打包引入的 `._*` 旁路文件，同源码干净包在 Ubuntu 离线通过该静态检查。阶段 5 两组六车压测受 Mac 合盖中断，rolling 完成 0 单。阶段 6 为 9/9，阶段 7 通过。整轮通过条件待复验。
-  - 共同复验 `m4-core-rework6-r2` 八阶段通过，阶段 3 达到 110/110，6 个 `mock_bringup` 全部就绪，两个 `core` 死锁、封路移除及 12 个模板受理均通过。共同轮次的六车 whole_route 原始记录有 157.11 秒采样缺口。见 [共同报告](../../../docs/baseline/nightly/2026-11-23-m4-core-rework6-r2.md)。
-  - 用户授权后在同一快照只补跑六车 whole_route，19:11:35 完成。1800 条连续采样，最大间隔 1.03 秒，完成 20 单、零违规、无提前退出。该组补测与共同报告的阶段 1–7 及其余五组证据合并核验。 基线 TSV 已回填共同夜跑的 110 项结果，两个死锁用例的栈与现行用例表一致。见 [专项报告](../../../docs/baseline/nightly/2026-11-23-m4-core-rework6-r2-supplement-6-whole-route.md)。
+  - 共同复验 `m4-core-rework6-r2` 八阶段通过，阶段 3 达到 110/110，6 个 `mock_bringup` 全部就绪，两个 `core` 死锁、封路移除及 12 个模板受理均通过。共同轮次的六车 whole_route 原始记录有 157.11 秒采样缺口。见 [共同报告](../../../../docs/baseline/nightly/2026-11-23-m4-core-rework6-r2.md)。
+  - 用户授权后在同一快照只补跑六车 whole_route，19:11:35 完成。1800 条连续采样，最大间隔 1.03 秒，完成 20 单、零违规、无提前退出。该组补测与共同报告的阶段 1–7 及其余五组证据合并核验。 基线 TSV 已回填共同夜跑的 110 项结果，两个死锁用例的栈与现行用例表一致。见 [专项报告](../../../../docs/baseline/nightly/2026-11-23-m4-core-rework6-r2-supplement-6-whole-route.md)。
 
 ## 缺陷修复轮次
 

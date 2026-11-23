@@ -2,7 +2,7 @@
 
 Qt 调度台的核心部分：数据源接口、回放、模型层、地图、交通面板、主窗口和冒烟度量。只依赖 Qt 6（Core、Gui、Widgets、Test），不依赖 ROS。连接真实系统的 RosBridge 在 `src/robot_console` 包里。
 
-行为规格：`openspec/specs/operator-console/spec.md`（归档前在 `openspec/changes/m4-console-core/specs/operator-console/spec.md`）。回放文件格式也在那里定义。
+行为规格和回放文件格式见 [operator-console 规格](../../openspec/specs/operator-console/spec.md)。
 
 ## 在 Mac 上编译和测试（不需要 ROS）
 

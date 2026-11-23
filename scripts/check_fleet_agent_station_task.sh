@@ -21,7 +21,7 @@ cleanup() {
   rm -f "${EVENTS}"
 }
 trap cleanup EXIT
-timeout 300 ros2 topic echo /fleet/agent_events std_msgs/msg/String --field data > "${EVENTS}" 2>/dev/null &
+PYTHONUNBUFFERED=1 timeout 300 ros2 topic echo /fleet/agent_events std_msgs/msg/String --field data --full-length > "${EVENTS}" 2>/dev/null &
 ECHO_PID=$!
 sleep 3
 
@@ -64,29 +64,11 @@ while true; do
 done
 echo "ok: both remote tasks FINISHED"
 
-# 3. 每单一条代理事件
-python3 - "${EVENTS}" <<'PY'
-import json, sys
-events = {}
-for line in open(sys.argv[1]):
-    line = line.strip()
-    if line.startswith("{"):
-        e = json.loads(line)
-        events[e.get("task")] = e
-for task in ("agent_check_a", "agent_check_b"):
-    e = events.get(task)
-    if e is None:
-        sys.exit(f"no /fleet/agent_events record for {task}; got {sorted(k for k in events if k)}")
-    if not (e["duration_s"] > 0 and e["wait_route_s"] >= 0 and e["distance_m"] > 0):
-        sys.exit(f"bad event fields for {task}: {e}")
-    print(f"ok: {task} by {e['robot']} duration_s={e['duration_s']} wait_route_s={e['wait_route_s']} distance_m={e['distance_m']}")
-PY
-
-# 4. 回到停车位
+# 3. 回到停车位
 deadline=$((SECONDS + 120))
 while true; do
   out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_fleet_robots \
-    robot_interfaces_fleet/srv/ListFleetRobots "{capability: station_transport, include_disabled: false}" || true | response_only)"
+    robot_interfaces_fleet/srv/ListFleetRobots "{capability: station_transport, include_disabled: false}" || true)"
   s1="$(resp_row robot_ids robot_1 current_station_ids <<<"${out}" || true)"
   s2="$(resp_row robot_ids robot_2 current_station_ids <<<"${out}" || true)"
   [[ "${s1}" == park_1 && "${s2}" == park_2 ]] && break
@@ -98,13 +80,40 @@ while true; do
 done
 echo "ok: robot_1 at park_1, robot_2 at park_2"
 
-# 5. 交通状态里没有残留的路段占用
+# 4. 交通状态里没有残留的路段占用
 resources="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /traffic/state \
-  robot_interfaces_mission/msg/TrafficState --field resource_ids)"
-echo "${resources}"
-if rg -q "route_edge:" <<<"${resources}"; then
-  echo "route edges still held after both robots returned home" >&2
-  exit 1
-fi
+  robot_interfaces_mission/msg/TrafficState --full-length)"
+printf '%s\n' "${resources}" | python3 -c '
+import sys
+import yaml
+
+state = next(yaml.safe_load_all(sys.stdin), None)
+ids = state.get("resource_ids") if isinstance(state, dict) else None
+if not isinstance(ids, list) or not all(isinstance(r, str) for r in ids):
+    sys.exit("missing or invalid resource_ids in /traffic/state")
+if any(r.startswith("route_edge:") for r in ids):
+    sys.exit(f"route edges still held after both robots returned home: {ids}")
+'
+
+# 5. 从下单采集到收尾，检查每单恰好一条代理事件
+python3 - "${EVENTS}" <<'PY'
+import json, sys
+from collections import defaultdict
+
+events = defaultdict(list)
+for line in open(sys.argv[1]):
+    line = line.strip()
+    if line.startswith("{"):
+        e = json.loads(line)
+        events[e.get("task")].append(e)
+for task in ("agent_check_a", "agent_check_b"):
+    records = events.get(task, [])
+    if len(records) != 1:
+        sys.exit(f"expected exactly one /fleet/agent_events record for {task}; got {len(records)}")
+    e = records[0]
+    if not (e["duration_s"] > 0 and e["wait_route_s"] >= 0 and e["distance_m"] > 0):
+        sys.exit(f"bad event fields for {task}: {e}")
+    print(f"ok: {task} by {e['robot']} duration_s={e['duration_s']} wait_route_s={e['wait_route_s']} distance_m={e['distance_m']}")
+PY
 
 echo "fleet agent station task passed"

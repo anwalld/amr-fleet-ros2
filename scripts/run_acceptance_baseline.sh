@@ -81,8 +81,15 @@ ros_sweep() {
 stack_command() {
   case "$1" in
     core)
+      local mission_args=""
+      case "$2" in
+        traffic__whole_route_retry_wait)
+          mission_args="traffic_reservation_mode:=whole_route traffic_deadlock_resolution_enabled:=false traffic_whole_route_wait_ttl_s:=4.0 return_to_dock_on_low_battery:=false" ;;
+        traffic__deadlock_pause_clear)
+          mission_args="traffic_intersection_locks_enabled:=false traffic_deadlock_resolution_enabled:=true return_to_dock_on_low_battery:=false" ;;
+      esac
       echo "ros2 run robot_tasks navigate_sequence_server_node --ros-args -p use_nav2_action:=false -p simulate_without_nav2:=true &
-            ros2 launch robot_tasks mission_runner.launch.py autostart:=false &
+            ros2 launch robot_tasks mission_runner.launch.py autostart:=false ${mission_args} &
             wait" ;;
     amr_demo)
       echo "ros2 launch robot_bringup amr_demo.launch.py gui:=false use_rviz:=false auto_demo:=false" ;;
@@ -105,8 +112,10 @@ stack_probe() {
     amr_demo)
       [[ -n "$(q ros2 service type /v2/enqueue_mission_profile)" && -n "$(q ros2 topic type /mission_runner/state)" ]] ;;
     mock_bringup)
-      [[ -n "$(q ros2 service type /v2/set_cmd_source)" && -n "$(q ros2 service type /v2/list_maps)" ]] &&
-        timeout 6 ros2 run tf2_ros tf2_echo odom base_footprint 2>/dev/null | grep -q "Translation" ;;
+      [[ -n "$(q ros2 service type /v2/set_cmd_source)" && -n "$(q ros2 service type /v2/list_maps)" ]] || return 1
+      local transform
+      transform="$(timeout 6 ros2 run tf2_ros tf2_echo odom base_footprint 2>/dev/null || true)"
+      grep -q "Translation" <<<"${transform}" ;;
     fleet_sim)
       [[ -n "$(q ros2 service type /v2/submit_order)" && -n "$(q ros2 topic type /robot_1/odom)" &&
          -n "$(q ros2 topic type /robot_2/odom)" ]] ;;
@@ -117,7 +126,7 @@ stack_probe() {
 STACK_PGID=""
 stack_up() {
   local stack="$1" tag="$2" cmd
-  cmd="$(stack_command "${stack}")" || { echo "[runner] 未知的栈：${stack}" >&2; return 1; }
+  cmd="$(stack_command "${stack}" "${tag}")" || { echo "[runner] 未知的栈：${stack}" >&2; return 1; }
   # 以追加方式打开：栈进程与下面写的 ready= 行共用一个文件，用 ">" 打开时后者会被栈进程的输出覆盖。
   : > "${OUT_DIR}/_stack__${tag}.log"
   setsid bash -c "${cmd}" >> "${OUT_DIR}/_stack__${tag}.log" 2>&1 < /dev/null &

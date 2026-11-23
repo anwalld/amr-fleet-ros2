@@ -2,8 +2,8 @@
 # 行业场景工作流（acceptance-suite-rework design D2：industry_workflows + more_industry_workflows 换层）。
 # 原来两个用例把 11 个行业模板逐个完整跑一遍（约 13 分钟），模板之间只有站点不同、执行路径相同。
 # 现在：
-#   1. 场景列表里 11 个模板都在（原两个用例的列表断言，拆开逐个检查）；
-#   2. 11 个模板逐个下单受理（start_if_idle=false），断言受理与第 1 步任务号，再取消排队、确认队列清空；
+#   1. 场景列表里 12 个行业模板都在；
+#   2. 12 个模板逐个下单受理（start_if_idle=false），断言受理与第 1 步任务号，再取消排队、确认队列清空；
 #   3. 两种执行形态各完整跑一个：两步都是 fleet_station（manufacturing/line_replenishment_loop），
 #      fleet_station 加 station_sequence（restaurant/service_and_dish_return）。
 # "每个模板的每一步都有有效路径"由 GoogleTest robot_tasks/test/industry_scenarios_test.cpp 校验。
@@ -24,6 +24,7 @@ TEMPLATES=(
   "hotel guest_amenity_round"
   "laboratory sample_processing_round"
   "campus mail_distribution_round"
+  "campus full_mail_route"
   "retail store_restock_and_recovery"
   "restaurant service_and_dish_return"
   "library returns_and_floor_round"
@@ -52,7 +53,7 @@ submit() {
 # 2. 逐个受理，再取消排队
 for entry in "${TEMPLATES[@]}"; do
   read -r scenario workflow <<<"${entry}"
-  order="accept_${scenario}"
+  order="accept_${scenario}_${workflow}"
   out="$(submit "${scenario}" "${workflow}" "${order}" false)"
   expect_eq "${scenario}/${workflow} accepted" "$(resp_scalar accepted <<<"${out}")" True
   rg -q "${order}_step_1" <<<"${out}" || { echo "${scenario}/${workflow}: step 1 mission missing: ${out}" >&2; exit 1; }

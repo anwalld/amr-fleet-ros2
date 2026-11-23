@@ -26,16 +26,51 @@ def results(path):
     return {f"{r[0]}:{r[1]}": (r[3], r[4] if len(r) > 4 else "") for r in rows if r[0] != "suite"}
 
 
+def current_results(path, expected):
+    now, problems = {}, []
+    rows = read_rows(path)
+    if not rows or rows[0] != ["suite", "case", "kind", "status", "seconds"]:
+        problems.append("结果表头错误")
+    for row in rows[1:]:
+        if len(row) != 5:
+            problems.append("结果行列数错误：" + repr(row))
+            continue
+        suite, case, stack, status, seconds = row
+        key = f"{suite}:{case}"
+        if key in now:
+            problems.append(f"重复用例：{key}")
+            continue
+        now[key] = (status, seconds)
+        if key not in expected:
+            problems.append(f"多出的用例：{key}")
+        elif stack != expected[key]:
+            problems.append(f"栈不符：{key}（{stack}，预期 {expected[key]}）")
+        if not seconds.isascii() or not seconds.isdecimal():
+            problems.append(f"耗时无效：{key}（{seconds}）")
+    missing = sorted(expected.keys() - now.keys())
+    if missing:
+        problems.append("缺少用例：" + "、".join(missing))
+    if not expected:
+        problems.append("用例表没有用例")
+    return now, problems
+
+
 def main(argv):
     now_path, base_path, cases_path, map_path, out_path = argv[:5]
-    now = results(now_path)
-    budget = {f"{r[0]}:{r[1]}": int(r[4]) for r in read_rows(cases_path) if r[0] != "suite" and len(r) >= 6}
+    case_rows = [r for r in read_rows(cases_path) if r[0] != "suite"]
+    expected = {f"{r[0]}:{r[1]}": r[3] for r in case_rows}
+    budget = {f"{r[0]}:{r[1]}": int(r[4]) for r in case_rows}
+    now, problems = current_results(now_path, expected)
+    if len(case_rows) != len(expected):
+        problems.append("用例表有重复用例")
     mapping = [r for r in read_rows(map_path) if r[0] != "old_key"] if pathlib.Path(map_path).exists() else []
 
     lines = []
     passed = sum(1 for s, _ in now.values() if s == "PASS")
     failed = [k for k, (s, _) in now.items() if s != "PASS"]
-    lines.append(f"通过 {passed}/{len(now)}（判定：全部 PASS 才算通过）")
+    lines.append(f"通过 {passed}/{len(expected)}（判定：用例完整且全部 PASS 才算通过）")
+    if problems:
+        lines += ["", "结果完整性检查失败：", *[f"- {problem}" for problem in problems]]
 
     if base_path and pathlib.Path(base_path).exists():
         base = results(base_path)
@@ -82,7 +117,7 @@ def main(argv):
 
     pathlib.Path(out_path).write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
-    return 0 if not failed else 1
+    return 1 if failed or problems else 0
 
 
 if __name__ == "__main__":

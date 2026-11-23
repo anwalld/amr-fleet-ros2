@@ -19,20 +19,25 @@
 
 - [x] 2.1 改 `PlanMissionResultWorkflow` 的成功分支：非对桩任务只释放路权，设施预约交给"标为占用"处理；节点里的执行顺序相应调整。改 `mission_result_workflow_test` 中断言两个标志的用例，新增"成功 + 保持"和"成功 + 不保持"两个测最终效果的单测（`FacilityReservationMap` 的最终状态）。验证：`colcon test --packages-select robot_tasks` 全绿。
 - [x] 2.2 加强 `facility:actions`、`facility:charging`、`safety:opportunity_charging`、`facility:door_passage` 的断言，使其对应 `specs/facility-reservation` 的各个场景：保持、占用者释放、非占用者被拒、不保持即释放、取消即释放。验证：`bash -n`；全栈部分进夜跑 #2。
-- [ ] 2.3 NavigateToPose 回退模式暂停停车（design D12）：取消、重发、规格增量、`nav2_goal_step_test` 与用例 `ops:navigate_sequence_nav2_pause`。验证：robot_tasks 单测全绿；该用例在夜跑 #3 PASS。
-- [ ] 2.4 取消崩溃与 FollowWaypoints 暂停竞态（design D13）：规格增量、`sequence_cancel_test`、用例 `ops:navigate_sequence_cancel`。验证：robot_tasks 单测全绿；该用例与 `ops:navigate_sequence_controls` 在夜跑 #3 PASS。
-- [ ] 2.5 FollowWaypoints 暂停期间重发取消（design D15）：规格增量、用例 `ops:navigate_sequence_cancel` 的重发断言。验证：robot_tasks 单测全绿；该用例在夜跑 #3 PASS。
-- [ ] 2.6 暂停语义转独立变更（design D16）：撤回"取消后释放暂停"及其单测和断言，改正规格、注释、proposal，记录已知问题。验证：robot_tasks 编译与单测全绿；lint 通过；`ops:navigate_sequence_controls` 在夜跑 #3 PASS。
-- [ ] 2.7 车队代理让路后越界与永久无路（design D17）：两处修复、规格增量、`agent_yield_test`、`agent_route_test`。验证：robot_simulation 编译与这两个单测通过；夜跑 #3 阶段 5 无进程中途退出、日志无 `no path`，并人工核对每组最后一次移动时间。
+- [x] 2.3 NavigateToPose 回退模式暂停停车（design D12）：取消、重发、规格增量、`nav2_goal_step_test` 与用例 `ops:navigate_sequence_nav2_pause`。验证：robot_tasks 单测全绿；该用例在夜跑 #3 PASS。
+- [x] 2.4 取消崩溃与 FollowWaypoints 暂停竞态（design D13）：规格增量、`sequence_cancel_test`、用例 `ops:navigate_sequence_cancel`。验证：robot_tasks 单测全绿；该用例与 `ops:navigate_sequence_controls` 在夜跑 #3 PASS。 第 3 轮取消用例在清理时超时。第 4 轮补验：sequence_cancel_test 5/5，cancel 和 controls 均 PASS。
+- [x] 2.5 FollowWaypoints 暂停期间重发取消（design D15）：规格增量、用例 `ops:navigate_sequence_cancel` 的重发断言。验证：robot_tasks 单测全绿；该用例在夜跑 #3 PASS。 第 4 轮补验：nav2_goal_step_test 9/9，含重发断言的 cancel 用例 PASS。
+- [x] 2.6 暂停语义转独立变更（design D16）：撤回"取消后释放暂停"及其单测和断言，改正规格、注释、proposal，记录已知问题。验证：robot_tasks 编译与单测全绿；lint 通过；`ops:navigate_sequence_controls` 在夜跑 #3 PASS。
+- [x] 2.7 车队代理让路后越界与永久无路（design D17）：两处修复、规格增量、`agent_yield_test`、`agent_route_test`。验证：robot_simulation 编译与这两个单测通过；夜跑 #3 阶段 5 无进程中途退出、日志无 `no path`，并人工核对每组最后一次移动时间（#3：无退出、无 `no path`，三组 rolling 都动到结束；4 台 whole_route 有一车全程未动，不属本缺陷，归入 D19。用户 2026-11-22 认可按通过处理）。
+- [x] 2.8 车队代理幂等请求丢应答时重发（design D18）：`agent_request.hpp`、规格增量、`agent_request_test`。验证：robot_simulation 编译与该单测通过；夜跑 #4 阶段 6 全部通过。 第 4 轮 agent_request_test 7/7，阶段 6 场景 9/9。
 
 ## 3. 修复其余失败用例（design D1）
 
 - [x] 3.1 `ops:interfaces_split`：去掉写死的接口数。验证：`lint:` 栈下本机运行通过；临时删掉某个包 CMakeLists 里的一条注册，检查会失败。
 - [x] 3.2 换栈：`mission:estimates`、`mission:preflight`、`facility:plc` 改为 `core`；`safety:system_health`、`ops:map_manager`、`ops:map_zones`、`ops:tf_tree` 改为 `mock_bringup`。同时把这些脚本的断言按 design D7 拆开。验证：用例表更新，`bash -n` 通过；进夜跑 #2。
-- [ ] 3.3 时间竞争与丢消息（design D1，2026-11-19 实施时更正了 recovery、low_battery_dock 的根因）：`mission:runner`、`mission:controls` 改到 `core` 栈，controls 用约 40 个点的长任务，runner 自己调用 `/start_mission_profile`；`mission:recovery` 改为 `self`，用无 Nav2 时稳定失败的导航序列服务触发 `NEEDS_OPERATOR`；`safety:low_battery_dock` 和 `mission:preflight` 的低电量消息改为连续发布。验证：`bash -n`；夜跑 #3 中 4 个都 PASS（用户 2026-11-22 改定：原标准是 #2，而 #2 里 recovery、low_battery_dock 失败）。
+- [x] 3.3 时间竞争与丢消息（design D1，2026-11-19 实施时更正了 recovery、low_battery_dock 的根因）：`mission:runner`、`mission:controls` 改到 `core` 栈，controls 用约 40 个点的长任务，runner 自己调用 `/start_mission_profile`；`mission:recovery` 改为 `self`，用无 Nav2 时稳定失败的导航序列服务触发 `NEEDS_OPERATOR`；`safety:low_battery_dock` 和 `mission:preflight` 的低电量消息改为连续发布。验证：`bash -n`；夜跑 #3 中 4 个都 PASS（用户 2026-11-22 改定：原标准是 #2，而 #2 里 recovery、low_battery_dock 失败）。
 - [x] 3.4 `business:picking_wave`：删掉过时的 `report_short_pick` 步骤，断言 `confirm_pick` 直接进入 `SHORT_PICK`、`short_quantity=2`。验证：进夜跑 #2。
 - [x] 3.5 `amr_sim:gazebo_entities`：读 `amr_sim_gazebo_entity_bridge_node` 后更正根因（design D1）：对象标签在 `labels_enabled` 为真时常显，amr_demo 默认已改为 false；脚本起栈时传 `labels_enabled:=true`。验证：进夜跑 #2。
-- [ ] 3.6 `amr_sim:gazebo_nav2`：让 `/map_server` 生命周期的等待上限和就绪条件与实际启动顺序一致（只加长轮询，不重跑）。验证：从夜跑 #3 起连续两夜 PASS（用户 2026-11-22 改定：原标准是 #2、#3，而 #2 已失败。#4 因此必跑，是总则"#4 仅备用"的例外）。
+- [x] 3.6 `amr_sim:gazebo_nav2`：让 `/map_server` 生命周期的等待上限和就绪条件与实际启动顺序一致（只加长轮询，不重跑）。验证：从夜跑 #3 起连续两夜 PASS（用户 2026-11-22 改定：原标准是 #2、#3，而 #2 已失败。#4 因此必跑，是总则"#4 仅备用"的例外）。 第 3、4 轮均 PASS，第 4 轮耗时 47 秒。
+- [x] 3.7 `amr_sim:rviz_topics`：取标记时加 `--full-length`（design D20）。验证：lint 通过；该用例 PASS。 8 项 lint 通过，第 4 轮 PASS（30 秒）。
+- [x] 3.8 `ops:navigate_sequence_cancel`、`ops:navigate_sequence_nav2_pause`：假 Nav2 收到 SIGTERM 即退出，清理有上限并点名残留进程（design D20）。验证：清理函数本机构造用例通过；取消用例在 VM 连跑 20 次全部 PASS（另行授权；2026-11-22 20/20 通过）。
+- [x] 3.9 launch 测试按测试隔离 ROS 域，修 `test_sim_model_runtime` 漂移（design D20）：4 个包的 5 个测试，阈值不动。验证：两包并行单测 10 次，改之前有串话告警、改之后为 0 且全部通过；4 个包单测通过。2026-11-22 VM 日志：改前 `isolation_before2` 10/10 轮有告警，改后 `isolation_after` 0/10 轮有告警、10/10 通过；按夜跑渲染配置补跑四包单测全部通过。
+- [x] 3.10 `mission:reprioritize`（design D20）：目标发送链路加日志，用例在外层超时之前报出原因。验证：robot_tasks 编译与单测通过；该用例在夜跑 #4 PASS，失败时日志能指出丢在哪一段。 第 4 轮编译与单测通过，用例 PASS（15 秒）。
 
 ## 4. 待定性的两条（design D1、Open Questions）
 
@@ -50,7 +55,7 @@
 ## 6. 断言加强（design D7）
 
 - [x] 6.1 新增 `lint:assertion_alternation`，并给出白名单（只放格式变体）。验证：在现状上运行，能报出约 121 + 124 处候选，清单存进提交说明。
-- [ ] 6.2 按套件拆开并加强断言，依次为 mission、facility、amr_sim、business、safety、ops，每个套件一个提交，跳过第 2、3、5 组已经处理过的脚本。6 个套件都在夜跑 #2 之前写完、一起验证；新暴露的失败按 design D1 的思路处理，查出产品缺陷的单独提交、补规格增量，并先告诉用户。验证：`lint:assertion_alternation` 通过；夜跑 #3 全绿。
+- [x] 6.2 按套件拆开并加强断言，依次为 mission、facility、amr_sim、business、safety、ops，每个套件一个提交，跳过第 2、3、5 组已经处理过的脚本。6 个套件都在夜跑 #2 之前写完、一起验证；新暴露的失败按 design D1 的思路处理，查出产品缺陷的单独提交、补规格增量，并先告诉用户。验证：`lint:assertion_alternation` 通过；夜跑 #3 全绿。 六套件提交已核对。第 3 轮未全绿，按总则由第 4 轮补验，lint PASS，阶段 3 为 110/110。
 
 ## 7. 新增交通与车队用例（specs 里对应的四条要求）
 
@@ -72,13 +77,34 @@
 - [x] 9.2 阶段 5：任一组完成任务数为 0 就判失败。验证：用 `2026-11-18-noresolve` 的 `summary.json`（4 台车 0 单）做输入，本机运行判定函数，结果为失败。
 - [x] 9.3 阶段 7：`run_console_smoke.sh` 冒烟期间开启采集，结束后用 `robot_console_replay` 回放并检查跳过的行数和四类记录，结果写进 `console_smoke.tsv`。验证：用 `test/data/mini.jsonl` 和一份坏行文件，在本机跑校验函数，结果分别为 PASS 和 FAIL。
 - [x] 9.4 阶段 5：有进程中途退出就判失败（design D14）。验证：对已有各夜的压测日志离线运行只报出两组已知崩溃；用真实结果目录回放阶段 5 的判定函数，rework2 为失败、rework1 为通过。
+- [x] 9.5 阶段 5：rolling 停摆即失败，每车单数与最长静止进报告（design D19）。验证：对已有各夜离线回放只报出 6 组冻结；用构造数据回放阶段 5 的判定函数，冻结、0 单、缺文件为失败，55 秒静止与 whole_route 0 单为通过。
 
 ## 10. 全绿、新基线与回查
 
-- [ ] 10.1 首个全量全绿夜：阶段 1–7 都 PASS，阶段 3 全部用例 PASS。把它的 `results.tsv` 存为 `docs/baseline/acceptance_baseline.tsv`；用实测耗时回填用例表的 `budget_s` / `timeout_s`；报告取回到 `docs/baseline/nightly/`。
-- [ ] 10.2 写 `docs/baseline/acceptance-rework.md`：逐条列出 M1–M3 和 M4-core 的验收结论、对应的新用例和首个全绿夜的结果、原结论是否依赖了弱断言；立不住的在原 M*.md 里改正，并注明日期和依据。验证：每条结论都有用例和夜跑报告可查。
-- [ ] 10.3 按 M4-core 自己的验证条件（它的 tasks 9.1–9.4），在同一夜的报告里逐项核对，结果写进回查记录，并告诉 M4 会话。验证：回查记录里有 9.1–9.4 的逐项结论。
-- [ ] 10.4 运行 `/opsx:verify`，处理发现的问题。
+- [x] 10.1 首个全量全绿夜：阶段 1–7 都 PASS，阶段 3 全部用例 PASS。把它的 `results.tsv` 存为 `docs/baseline/acceptance_baseline.tsv`；用实测耗时回填用例表的 `budget_s` / `timeout_s`；报告取回到 `docs/baseline/nightly/`。 第 4 轮为首个全绿夜，报告、110 项原始基线与预算已落档。
+- [x] 10.2 写 `docs/baseline/acceptance-rework.md`：逐条列出 M1–M3 和 M4-core 的验收结论、对应的新用例和首个全绿夜的结果、原结论是否依赖了弱断言；立不住的在原 M*.md 里改正，并注明日期和依据。验证：每条结论都有用例和夜跑报告可查。 见 docs/baseline/acceptance-rework.md 与 M3 2026-11-23 更正。
+- [ ] 10.3 按 M4-core 自己的验证条件（它的 tasks 9.1–9.4），在同一夜的报告里逐项核对，结果写进回查记录，并告诉 M4 会话。验证：回查记录里有 9.1–9.4 的逐项结论。 四项记录已写入 docs/baseline/acceptance-rework.md，待通知 M4 会话。
+- [x] 10.4 运行 `/opsx:verify`，处理发现的问题。核验记录见 docs/baseline/acceptance-rework.md；10.3 的跨会话通知待发。
+
+## 11. 第 4 轮后的一致性复验（D21）
+
+- [x] 11.1 针对结果完整性、就绪探针、交通字段与事件计数、在线接口审计、模板列表做离线复核。构造正反样本验证通过，脚本语法、lint 与规格严格校验通过。
+- [x] 11.2 加严判据完整复验，阶段 1–7 全部通过。检查 mock_bringup 就绪、两个死锁用例的 core 栈记录、封路移除检查及 12 个模板受理，保存首个满足加严判据的报告。
+  - 第 5 轮原始报告已归档至 `docs/baseline/nightly/2026-11-23-rework5.md`。6 个 mock_bringup 用例全部就绪，两个死锁用例按 core 栈运行通过，封路移除与 12 个模板受理均有通过记录。阶段 3 为 109/110，失败来自打包引入的 `._*` 旁路文件，同源码干净包在 Ubuntu 离线通过该静态检查。阶段 5 两组六车压测受 Mac 合盖中断，rolling 完成 0 单。阶段 6 为 9/9，阶段 7 通过。整轮通过条件待复验。
+  - 共同复验 `m4-core-rework6-r2` 八阶段通过，阶段 3 达到 110/110，6 个 `mock_bringup` 全部就绪，两个 `core` 死锁、封路移除及 12 个模板受理均通过。共同轮次的六车 whole_route 原始记录有 157.11 秒采样缺口。见 [共同报告](../../../docs/baseline/nightly/2026-11-23-m4-core-rework6-r2.md)。
+  - 用户授权后在同一快照只补跑六车 whole_route，19:11:35 完成。1800 条连续采样，最大间隔 1.03 秒，完成 20 单、零违规、无提前退出。该组补测与共同报告的阶段 1–7 及其余五组证据合并核验。 基线 TSV 已回填共同夜跑的 110 项结果，两个死锁用例的栈与现行用例表一致。见 [专项报告](../../../docs/baseline/nightly/2026-11-23-m4-core-rework6-r2-supplement-6-whole-route.md)。
+
+## 缺陷修复轮次
+
+2026-11-22 托管接手，从现有提交和 design 的验证记录回填。计数只累计同一缺陷中已经证实旧症状消失、且本轮改动引入新问题的连续轮次。历史验证不足的轮次保留为待核实。每轮验证后立即更新，下一次修改前核对是否达到 4 轮。
+
+| 缺陷 | 已记录的修复与验证 | 已证实的连续轮次 |
+| --- | --- | --- |
+| D13/D15 导航序列取消崩溃与暂停时取消请求丢失 | `be950d3` 处理崩溃和竞态，`504621f` 增加重发。D16 撤回的是 `504621f` 同时加入的取消后释放暂停行为。专项取消用例 20/20，全量验收结果待第 4 轮确认。 | 未见达到阈值的证据 |
+| D17 代理让路后越界与永久无路 | `ab73a3e` 修越界，`099c467` 修已有的无路问题。D17 记录无路可独立触发。第 3 轮阶段 5 未见进程中途退出或 `no path`。 | 0 |
+| D18 代理请求丢应答后一直在途 | 加入超时后的幂等重发。7 项 `agent_request_test` 通过，第 4 轮阶段 6 9/9。 | 0 |
+| D20 仿真单测漂移 | `4ad597c` 的等停稳方案未消除同一漂移。隔离 ROS 域后并行验证 10/10，第 4 轮阶段 2 通过。 | 0 |
+| D20 其他验收失败 | RViz 取完整标记、假 Nav2 清理超时上限、抢占派发日志分别对应各自失败。取消用例专项 20/20，其余修复或取证结果以第 4 轮阶段 3 对应三项均 PASS。 | 未见达到阈值的证据 |
 
 ## Workflow follow-up
 

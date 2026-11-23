@@ -71,7 +71,13 @@ print(min(stamps) if stamps else "")
 '
 }
 
-deadline=$((SECONDS + 60))
+# 期限从脚本开始算 40 秒（用例表里外层是 60 秒）：要在被 timeout 杀掉之前报出原因。
+deadline=40
+dump_events() {
+  echo "mission events at deadline:" >&2
+  service_response 8 /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    "{limit: 50, state_filter: '', mission_id_filter: ''}" >&2 || echo "(no response)" >&2
+}
 first_finished=""
 while true; do
   first_finished="$(event_stamp reprio_first FINISHED)"
@@ -85,7 +91,8 @@ while true; do
     exit 1
   fi
   if (( SECONDS >= deadline )); then
-    echo "reprioritize queue did not finish reprio_first within 60s" >&2
+    echo "reprioritize queue did not finish reprio_first by ${deadline}s" >&2
+    dump_events
     exit 1
   fi
   sleep 1

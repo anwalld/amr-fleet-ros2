@@ -237,6 +237,29 @@ wait_topic_type() {
   done
 }
 
+# stop_process_groups <进程组号>...：发 SIGTERM，最多等 5 秒；还有进程活着就点名、强杀并返回 1。
+# 用例清理时代替不带上限的 wait：退不掉要报出是谁，而不是拖到用例超时。
+stop_process_groups() {
+  (( $# > 0 )) || return 0
+  local groups=" $* " pgid left deadline=$((SECONDS + 5))
+  for pgid in "$@"; do
+    kill -TERM -- "-${pgid}" >/dev/null 2>&1 || true
+  done
+  while true; do
+    left="$(ps -eo pid=,pgid=,stat=,args= |
+      awk -v groups="${groups}" 'index(groups, " " $2 " ") && $3 !~ /^Z/')"
+    [[ -n "${left}" ]] || return 0
+    (( SECONDS < deadline )) || break
+    sleep 0.2
+  done
+  echo "processes did not exit within 5s of SIGTERM:" >&2
+  echo "${left}" >&2
+  for pgid in "$@"; do
+    kill -KILL -- "-${pgid}" >/dev/null 2>&1 || true
+  done
+  return 1
+}
+
 wait_topic_sample() {
   local topic_name="$1"
   local expected_type="$2"

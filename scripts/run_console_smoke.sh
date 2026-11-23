@@ -95,12 +95,13 @@ fi
 # 先停栈（采集进程随之收尾、写完文件），再校验录像：每行可解析、四类记录齐全、回放程序退出 0 且不跳行。
 cleanup
 REPLAY_BIN="${ROOT_DIR}/install/robot_console_core/bin/robot_console_replay"
-[[ -x "${REPLAY_BIN}" ]] || REPLAY_BIN=""
-replay_check="$(python3 "${SCRIPT_DIR}/console_replay_check.py" "${OUT_DIR}/stack/console.jsonl" ${REPLAY_BIN:+"${REPLAY_BIN}"} 2>&1 | tail -1)"
-case "${replay_check}" in
-  OK*) ;;
-  *) reason="${reason}录像回放校验：${replay_check}; " ;;
-esac
+if [[ ! -f "${REPLAY_BIN}" || ! -x "${REPLAY_BIN}" ]]; then
+  replay_check="FAIL 回放程序不存在或不可执行：${REPLAY_BIN}"
+  reason="${reason}录像回放校验：${replay_check}; "
+elif ! replay_check="$(python3 "${SCRIPT_DIR}/console_replay_check.py" \
+    "${OUT_DIR}/stack/console.jsonl" "${REPLAY_BIN}" 2>&1 | tail -1)"; then
+  reason="${reason}录像回放校验：${replay_check}; "
+fi
 
 {
   if [[ -s "${METRICS}" ]]; then

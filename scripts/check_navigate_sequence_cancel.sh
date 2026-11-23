@@ -21,18 +21,18 @@ FEEDBACK="${WORK}/send_goal.log"
 touch "${EVENTS}"
 PIDS=()
 cleanup() {
-  local status=$? pid
-  for pid in "${PIDS[@]:-}"; do
-    kill -TERM "-${pid}" >/dev/null 2>&1 || true
-  done
-  wait >/dev/null 2>&1 || true
+  local status=$?
+  # 退不掉的进程（假 Nav2 或被测节点）会被点名，用例判失败。
+  if ! stop_process_groups ${PIDS[@]+"${PIDS[@]}"} && [[ ${status} -eq 0 ]]; then
+    status=1
+  fi
   if [[ ${status} -eq 0 ]]; then
     rm -rf "${WORK}"
   else
     cat "${EVENTS}" >&2 || true
     echo "preserving logs in ${WORK}" >&2
   fi
-  return "${status}"
+  exit "${status}"
 }
 trap cleanup EXIT
 

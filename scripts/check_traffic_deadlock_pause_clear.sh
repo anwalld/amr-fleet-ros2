@@ -9,8 +9,9 @@
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_traffic_self_common.sh"
 
-# 关闭路口锁：两车可各占一条通向 storage_a 的路段（与 safety:traffic_deadlock 相同的构造）；开启解除。
-start_mission_runner traffic_intersection_locks_enabled:=false traffic_deadlock_resolution_enabled:=true
+# core 栈关闭路口锁，并开启死锁解除，由运行器设置。
+wait_service_type /v2/request_route_segment "robot_interfaces_mission/srv/RequestRouteSegment" 20
+wait_service_type /v2/block_station_route "robot_interfaces_mission/srv/BlockStationRoute" 20
 
 for leg in "receiving storage_b" "storage_b packing"; do
   read -r a b <<<"${leg}"
@@ -18,9 +19,18 @@ for leg in "receiving storage_b" "storage_b packing"; do
   expect_eq "block ${a}-${b}" "$(resp_scalar success <<<"${out}")" True
 done
 
-YIELD="${LOG_DIR}/yield.txt"
-timeout 40 ros2 topic echo /traffic/yield robot_interfaces_mission/msg/TrafficYield > "${YIELD}" 2>/dev/null &
-PIDS+=("$!")
+YIELD="$(mktemp /tmp/robot_traffic_yield.XXXXXX)"
+YIELD_PID=""
+cleanup() {
+  if [[ -n "${YIELD_PID}" ]]; then
+    kill "${YIELD_PID}" >/dev/null 2>&1 || true
+  fi
+  rm -f "${YIELD}"
+}
+trap cleanup EXIT
+PYTHONUNBUFFERED=1 timeout 40 ros2 topic echo /traffic/yield robot_interfaces_mission/msg/TrafficYield \
+  --full-length > "${YIELD}" 2>/dev/null &
+YIELD_PID=$!
 sleep 3
 
 out="$(request_segment robot_alpha receiving storage_a)"; expect_eq "alpha leg granted" "$(resp_scalar granted <<<"${out}")" True
@@ -32,9 +42,16 @@ request_segment robot_beta storage_a receiving receiving >/dev/null
 deadline=$((SECONDS + 15))
 until python3 - "${YIELD}" <<'PY'
 import sys
-msgs = open(sys.argv[1]).read().split("---")
-ok = any("action: pause" in m and "robot_alpha" in m and "robot_beta" in m for m in msgs)
-sys.exit(0 if ok else 1)
+import yaml
+
+with open(sys.argv[1]) as stream:
+    messages = list(yaml.safe_load_all(stream))
+for message in messages:
+    if isinstance(message, dict) and message.get("action") == "pause":
+        members = message.get("cycle_robot_ids")
+        if isinstance(members, list) and {"robot_alpha", "robot_beta"} <= set(members):
+            sys.exit(0)
+sys.exit(1)
 PY
 do
   if (( SECONDS >= deadline )); then

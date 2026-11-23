@@ -8,6 +8,7 @@
 <控制目录>/delay 存在时，受理要等它被删掉（最多 30 秒），用来构造"等待受理时被暂停"。
 """
 import os
+import signal
 import sys
 import time
 
@@ -16,13 +17,17 @@ from nav2_msgs.action import FollowWaypoints, NavigateToPose
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
+from rclpy.signals import SignalHandlerOptions
 
 
 def main():
     ctl, name = sys.argv[1], sys.argv[2]
     waypoints = name == "follow_waypoints"
     action = FollowWaypoints if waypoints else NavigateToPose
-    rclpy.init()
+    # 不装 rclpy 的信号处理，SIGTERM 直接结束进程：它是没有状态的替身（events 每行都已关闭落盘），
+    # 优雅关停时曾卡住不退，让用例断言全过却超时（夜跑 #3）。
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
     node = rclpy.create_node(f"fake_{name}")
     count = [0]
 

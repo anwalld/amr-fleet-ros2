@@ -36,7 +36,7 @@
 ## ADDED Requirements
 
 ### Requirement: 用例耗时预算与超时
-用例表 SHALL 为每个用例给出 `budget_s` 与 `timeout_s`，`timeout_s` 为 `budget_s` 的 2 倍且在 60–600 秒之间。用例耗时超过 `budget_s` 但未超过 `timeout_s` 时 SHALL 仍按其退出码判定，并在夜跑报告中列为"超预算"。
+用例表 SHALL 为每个用例给出 `budget_s` 与 `timeout_s`，`timeout_s` 取 `budget_s` 的 2 倍，再限制在 60–600 秒之间。用例耗时超过 `budget_s` 但未超过 `timeout_s` 时 SHALL 仍按其退出码判定，并在夜跑报告中列为"超预算"。
 
 #### Scenario: 超预算只提醒
 - **WHEN** 一个 `budget_s=60` 的用例用 90 秒通过
@@ -50,7 +50,11 @@
 - **THEN** 该用例日志末尾显示的跟踪最后一条命令就是那条 `rg`
 
 ### Requirement: 阶段 3 以全部通过为判定
-夜跑阶段 3 SHALL 仅在本夜 `results.tsv` 中全部用例为 `PASS` 时判定 PASS。运行器与夜跑 SHALL NOT 自动重跑失败或超时的用例。与上一夜的逐项对比 SHALL 写进报告，但不参与判定。
+夜跑阶段 3 SHALL 仅在本夜 `results.tsv` 完整匹配登记的用例表时判定 PASS：每个登记键恰好一行，所报栈一致，状态全部为 `PASS`。运行器与夜跑 SHALL NOT 自动重跑失败或超时的用例。与上一夜的逐项对比 SHALL 写进报告，但不参与判定。
+
+#### Scenario: 全量结果缺失或重复
+- **WHEN** 本夜结果只包含表头、缺少任何已登记用例，或同一用例出现复数结果
+- **THEN** 阶段 3 判定为失败，并在报告指出缺失或重复
 
 #### Scenario: 已知失败也判失败
 - **WHEN** 某用例上一夜和本夜都是 `FAIL(1)`，其余全部 `PASS`
@@ -152,6 +156,17 @@
 #### Scenario: 正常关栈
 - **WHEN** 压测结束、各进程收到 SIGINT 后退出
 - **THEN** 这些退出不算中途退出
+
+### Requirement: rolling 压测不得停摆
+夜跑阶段 5 SHALL 在任一 rolling 组出现全队连续 60 秒不动（相邻两次每秒采样位移都不超过 0.05 米，含开局与结尾）或任一车全程完成 0 单时判定失败，报告 SHALL 写明组、原因，并注明该组数据不作数。每组（含 whole_route）的报告 SHALL 列出每车完成单数、单车最长静止与全队最长静止；whole_route 组 SHALL NOT 按这两条判失败。某组的 `state.csv` 或 `tasks.csv` 读不到时 SHALL 判定失败。
+
+#### Scenario: 暂停后整队不动
+- **WHEN** 某 rolling 组第 1659 秒起全队不动直到第 1800 秒，此前完成了 58 单、违规为 0
+- **THEN** 阶段 5 判定为失败，报告写明该组从第几秒起、连续多少秒不动
+
+#### Scenario: 对照组有车一直饿着
+- **WHEN** 某 whole_route 组有一台车全程 0 单，其他车照常完成任务
+- **THEN** 阶段 5 不因此判失败，报告里该车显示 0 单和它的最长静止时间
 
 ### Requirement: 调度台冒烟附带回放校验
 调度台冒烟 SHALL 在冒烟期间按回放格式采集，结束后用 `robot_console_replay` 回放该文件；回放退出码非 0、出现被跳过的行、或缺少 `graph`、`pose`、`traffic`、`snapshot` 任一类记录时，冒烟判定 SHALL 为 `FAIL` 并写明原因。

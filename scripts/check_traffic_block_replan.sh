@@ -22,6 +22,25 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# 从实际等待队列取样。移除检查发生在封路通知之后、本用例重新申请之前。
+expect_beta_waiting() {
+  local expected="$1" snapshot
+  snapshot="$(timeout 8 ros2 topic echo --once /traffic/state \
+    robot_interfaces_mission/msg/TrafficState --full-length)"
+  printf '%s\n' "${snapshot}" | python3 -c '
+import sys
+import yaml
+
+state = next(yaml.safe_load_all(sys.stdin), None)
+robots = state.get("waiting_robot_ids") if isinstance(state, dict) else None
+if not isinstance(robots, list):
+    sys.exit("missing waiting_robot_ids in /traffic/state")
+expected = sys.argv[1] == "yes"
+if ("robot_beta" in robots) != expected:
+    sys.exit(f"expected robot_beta waiting={expected}, got waiting_robot_ids={robots}")
+' "${expected}"
+}
+
 # 1. alpha 获授予
 out="$(call_request_route_segment robot_alpha receiving storage_a 10)"
 echo "${out}"
@@ -34,9 +53,10 @@ echo "${out}"
 expect_eq "beta granted" "$(resp_scalar granted <<<"${out}")" False
 expect_eq "beta queued" "$(resp_scalar queued <<<"${out}")" True
 rg -q "robot_alpha" <<<"${out}"
+expect_beta_waiting yes
 
 # 3. 先开始收 /traffic/grants，再封 beta 要走的路段
-timeout 40 ros2 topic echo /traffic/grants robot_interfaces_mission/msg/TrafficGrant > "${GRANTS}" 2>/dev/null &
+PYTHONUNBUFFERED=1 timeout 40 ros2 topic echo /traffic/grants robot_interfaces_mission/msg/TrafficGrant --full-length > "${GRANTS}" 2>/dev/null &
 ECHO_PID=$!
 sleep 3
 out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
@@ -59,6 +79,8 @@ do
   sleep 1
 done
 echo "ok: robot_beta received replan notice"
+expect_beta_waiting no
+echo "ok: robot_beta removed from waiting queue"
 
 # 4. 撞上封路：replan_required
 out="$(call_request_route_segment robot_beta packing storage_a 10)"

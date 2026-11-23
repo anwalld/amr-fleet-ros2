@@ -194,7 +194,9 @@ stage_3() {
     n=$(grep -v '^#' "${SCRIPT_DIR}/acceptance_cases.tsv" | awk -F'\t' 'NF && $1 != "suite"' | wc -l | tr -d ' ')
     skip "DRY_RUN：验收运行器存在，用例表列出 ${n} 个用例"
   fi
-  "${runner}" "${SDIR}/acceptance" > "${SDIR}/runner.log" 2>&1
+  local runner_rc=0
+  env -u ONLY_CASES -u ACCEPTANCE_CASES_FILE "${runner}" "${SDIR}/acceptance" \
+    > "${SDIR}/runner.log" 2>&1 || runner_rc=$?
   local results="${SDIR}/acceptance/results.tsv"
   [[ -f "${results}" ]] || { summary "运行器没有产出 results.tsv"; exit 1; }
   cp "${results}" "${SDIR}/results.tsv"
@@ -211,7 +213,11 @@ stage_3() {
     "${SCRIPT_DIR}/acceptance_cases.tsv" "${ROOT_DIR}/docs/baseline/acceptance_case_map.tsv" \
     "${SDIR}/compare.md" > /dev/null
   local rc=$?
-  cat "${SDIR}/compare.md" >> "${SDIR}/summary.md"
+  [[ ! -f "${SDIR}/compare.md" ]] || cat "${SDIR}/compare.md" >> "${SDIR}/summary.md"
+  if (( runner_rc != 0 )); then
+    summary "验收运行器退出码：${runner_rc}"
+    exit "${runner_rc}"
+  fi
   exit "${rc}"
 }
 
@@ -305,8 +311,8 @@ stage_5() {
     skip "压测脚本还没有死锁指标列（M3 tasks 8.1 未完成）；M2 吞吐数据见 docs/baseline/M2.md"
   dry && skip "DRY_RUN：压测脚本已有死锁列；6 组 × ${STRESS_MINUTES} 分钟留给夜跑"
   printf "%s\n" "${METRICS_HEADER}" > "${SDIR}/metrics.tsv"
-  local robots mode rc fails=0 dir capture tasks exits
-  local -a stalled=() exited=()
+  local robots mode rc fails=0 dir capture tasks exits stall
+  local -a stalled=() exited=() frozen=() motion=()
   for robots in 2 4 6; do
     for mode in whole_route rolling; do
       dir="${SDIR}/stress_${robots}_${mode}"
@@ -330,16 +336,30 @@ stage_5() {
       if ! exits="$(python3 "${SCRIPT_DIR}/stress_process_exits.py" "${dir}/launch.log" 2>&1)"; then
         exited+=("${robots}台${mode}（${exits//$'\n'/、}）")
       fi
+      # rolling 停摆（全队 60 秒不动、或有车全程 0 单）判失败；whole_route 只列不判
+      # （acceptance-suite-rework specs：rolling 压测不得停摆）。
+      if ! stall="$(python3 "${SCRIPT_DIR}/stress_stalls.py" "${dir}" "${mode}" 2>&1)"; then
+        frozen+=("${robots}台${mode}（${stall//$'\n'/、}）")
+      fi
+      motion+=("${robots}台${mode}：${stall%%$'\n'*}")
     done
   done
-  summary "6 组中 ${fails} 组退出码非 0（1 = 有安全违规，2 = 车队没就绪），${#stalled[@]} 组没有完成任务，${#exited[@]} 组有进程中途退出或无法检查；路网 ${STRESS_NETWORK}，每组 ${STRESS_MINUTES} 分钟"
+  summary "6 组中 ${fails} 组退出码非 0（1 = 有安全违规，2 = 车队没就绪），${#stalled[@]} 组没有完成任务，${#exited[@]} 组有进程中途退出或无法检查，${#frozen[@]} 组停摆或无法检查；路网 ${STRESS_NETWORK}，每组 ${STRESS_MINUTES} 分钟"
   (( ${#stalled[@]} == 0 )) || summary "没有完成任务的组：${stalled[*]}"
   (( ${#exited[@]} == 0 )) || summary "有进程中途退出或无法检查的组（数据不作数，不要引用）：${exited[*]}"
+  (( ${#frozen[@]} == 0 )) || summary "停摆或无法检查的组（数据不作数，不要引用）：${frozen[*]}"
+  summary ""
+  summary "每车单数与最长静止（只对 rolling 判停摆）："
+  local line
+  for line in "${motion[@]}"; do
+    summary "- ${line}"
+  done
+  summary ""
   capture_summary "${SDIR}" "stress_*/console.jsonl"
   summary ""
   awk -F'\t' 'NR==1 { h="|"; s="|"; for (i=1;i<=NF;i++) { h=h" "$i" |"; s=s" --- |" } print h; print s; next }
               { r="|"; for (i=1;i<=NF;i++) r=r" "$i" |"; print r }' "${SDIR}/metrics.tsv" >> "${SDIR}/summary.md"
-  (( fails == 0 && ${#stalled[@]} == 0 && ${#exited[@]} == 0 ))
+  (( fails == 0 && ${#stalled[@]} == 0 && ${#exited[@]} == 0 && ${#frozen[@]} == 0 ))
 }
 
 stage_6() {

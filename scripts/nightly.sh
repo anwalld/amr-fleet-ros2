@@ -10,7 +10,7 @@
 # 八个阶段（阶段之间互不依赖，一个失败不中断后面的；每阶段自带超时，阶段间清掉全部 ROS/Gazebo 进程）：
 #   1 编译        全量 colcon build                              build.log
 #   2 单测        colcon test 全部包                              测试汇总
-#   3 全量验收    run_acceptance_baseline.sh 99 个用例             results.tsv + 与上一夜逐项 diff
+#   3 全量验收    run_acceptance_baseline.sh 跑用例表全部用例       results.tsv；全部 PASS 才通过，与上一夜对照只作报告
 #   4 一键演示    headless amr_demo 跑一遍，按关键日志行判定        demo.log 判定结果
 #   5 交通压测    2/4/6 台 × whole_route/rolling，每组 30 分       stress_*/、metrics.tsv
 #   6 死锁场景    两车对向、三车成环、环外有车等待，各 3 遍         deadlock_scenarios.tsv
@@ -32,7 +32,7 @@
 # 注意：所有 ros2 service call 都必须带 timeout。FastDDS 在高负载下会丢服务应答，
 # 不带超时的调用会一直挂到用例的 600 秒上限。本脚本自身不直接调用 ros2 service call；
 # 被调用的脚本若要调用，必须用 `timeout <秒> ros2 service call ...`（现有脚本统一为
-# `timeout "${ROS2_CALL_TIMEOUT:-120}"`，默认 120 秒，可用环境变量调）。报告里会列出
+# `timeout "${ROS2_CALL_TIMEOUT:-30}"`，默认 30 秒，可用环境变量调；用例脚本另由 lint:script_timeouts 检查）。报告里会列出
 # scripts/ 下仍有不带 timeout 的 ros2 service call 的脚本。
 
 # 阶段函数经 "stage_${N}" 间接调用，shellcheck 看不出来。
@@ -191,47 +191,34 @@ stage_3() {
   [[ -x "${runner}" ]] || { summary "找不到 ${runner}"; exit 1; }
   if dry; then
     local n
-    n=$(bash -c "eval \"\$(sed -n '/^suite_cases() {/,/^}/p' '${SCRIPT_DIR}/check_robot.sh')\"; \
-      for s in mission facility amr_sim business safety ops; do suite_cases \$s; done" | wc -w)
-    skip "DRY_RUN：验收运行器存在，check_robot.sh 列出 ${n} 个用例"
+    n=$(grep -v '^#' "${SCRIPT_DIR}/acceptance_cases.tsv" | awk -F'\t' 'NF && $1 != "suite"' | wc -l | tr -d ' ')
+    skip "DRY_RUN：验收运行器存在，用例表列出 ${n} 个用例"
   fi
-  "${runner}" "${SDIR}/acceptance" > "${SDIR}/runner.log" 2>&1
+  local runner_rc=0
+  env -u ONLY_CASES -u ACCEPTANCE_CASES_FILE "${runner}" "${SDIR}/acceptance" \
+    > "${SDIR}/runner.log" 2>&1 || runner_rc=$?
   local results="${SDIR}/acceptance/results.tsv"
   [[ -f "${results}" ]] || { summary "运行器没有产出 results.tsv"; exit 1; }
   cp "${results}" "${SDIR}/results.tsv"
-  local total pass
-  total=$(tail -n +2 "${results}" | wc -l)
-  pass=$(awk -F'\t' 'NR>1 && $4=="PASS"' "${results}" | wc -l)
-  summary "通过 ${pass}/${total}"
 
-  local prev ref_label
+  # 对比基准：上一夜的结果；找不到时用新基线 docs/baseline/acceptance_baseline.tsv。
+  local prev
   prev="$(prev_night_file "stage3_acceptance/results.tsv")"
-  ref_label="上一夜 ${prev}"
-  if [[ -z "${prev}" && -f "${ROOT_DIR}/docs/baseline/m2_acceptance.tsv" ]]; then
-    prev="${ROOT_DIR}/docs/baseline/m2_acceptance.tsv"; ref_label="M2 基线 docs/baseline/m2_acceptance.tsv"
+  if [[ -z "${prev}" && -f "${ROOT_DIR}/docs/baseline/acceptance_baseline.tsv" ]]; then
+    prev="${ROOT_DIR}/docs/baseline/acceptance_baseline.tsv"
   fi
-  if [[ -z "${prev}" ]]; then
-    summary "没有可比对的上一夜结果，本夜作为基线"
-    exit 0
+  # 判定：本夜全部用例 PASS 才算通过；对比（经映射表换算）、新增、已删除、超预算只写进报告
+  # （acceptance-suite-rework design D10）。
+  python3 "${SCRIPT_DIR}/acceptance_compare.py" "${results}" "${prev}" \
+    "${SCRIPT_DIR}/acceptance_cases.tsv" "${ROOT_DIR}/docs/baseline/acceptance_case_map.tsv" \
+    "${SDIR}/compare.md" > /dev/null
+  local rc=$?
+  [[ ! -f "${SDIR}/compare.md" ]] || cat "${SDIR}/compare.md" >> "${SDIR}/summary.md"
+  if (( runner_rc != 0 )); then
+    summary "验收运行器退出码：${runner_rc}"
+    exit "${runner_rc}"
   fi
-  # 逐项对比：suite:case → 状态。新失败 = 上次 PASS、这次不是；新通过 = 反过来。
-  awk -F'\t' -v OFS='\t' '
-    FNR==1 { next }
-    NR==FNR { before[$1":"$2]=$4; next }
-    { now=$4; key=$1":"$2; was=(key in before)?before[key]:"(无)";
-      if (was!=now) print key, was, now }' "${prev}" "${results}" > "${SDIR}/diff.tsv"
-  local new_fail new_pass
-  new_fail=$(awk -F'\t' '$2=="PASS" && $3!="PASS"' "${SDIR}/diff.tsv" | wc -l)
-  new_pass=$(awk -F'\t' '$2!="PASS" && $3=="PASS"' "${SDIR}/diff.tsv" | wc -l)
-  summary "对比 ${ref_label}：新失败 ${new_fail}，新通过 ${new_pass}，状态变化 $(wc -l < "${SDIR}/diff.tsv") 项"
-  if [[ -s "${SDIR}/diff.tsv" ]]; then
-    summary ""
-    summary "| 用例 | 之前 | 本夜 |"
-    summary "| --- | --- | --- |"
-    awk -F'\t' '{ printf "| `%s` | %s | %s |\n", $1, $2, $3 }' "${SDIR}/diff.tsv" >> "${SDIR}/summary.md"
-  fi
-  # 结论：没有新失败即 PASS（已知的稳定失败不算本夜回归）。
-  (( new_fail == 0 ))
+  exit "${rc}"
 }
 
 # 一键演示判定：编排器的关键日志行（顺序即演示流程）全部出现，且没有动作失败。
@@ -305,6 +292,17 @@ print("\t".join([robots, mode, g("network") or network, rc, g("tasks_finished"),
 PY
 }
 
+# 一组压测完成的任务数；summary.json 缺失或读不出时输出 -1。
+stress_tasks_finished() {
+  python3 - "$1" <<'PY2'
+import json, sys
+try:
+    print(int(json.load(open(sys.argv[1])).get("tasks_finished") or 0))
+except Exception:
+    print(-1)
+PY2
+}
+
 stage_5() {
   local stress="${SCRIPT_DIR}/run_fleet_traffic_stress.sh"
   [[ -x "${stress}" ]] || skip "找不到 ${stress}"
@@ -313,7 +311,8 @@ stage_5() {
     skip "压测脚本还没有死锁指标列（M3 tasks 8.1 未完成）；M2 吞吐数据见 docs/baseline/M2.md"
   dry && skip "DRY_RUN：压测脚本已有死锁列；6 组 × ${STRESS_MINUTES} 分钟留给夜跑"
   printf "%s\n" "${METRICS_HEADER}" > "${SDIR}/metrics.tsv"
-  local robots mode rc fails=0 dir capture
+  local robots mode rc fails=0 dir capture tasks exits stall
+  local -a stalled=() exited=() frozen=() motion=()
   for robots in 2 4 6; do
     for mode in whole_route rolling; do
       dir="${SDIR}/stress_${robots}_${mode}"
@@ -328,14 +327,39 @@ stage_5() {
       ros_sweep
       metrics_row "${robots}" "${mode}" "${rc}" "${dir}/summary.json" >> "${SDIR}/metrics.tsv"
       (( rc == 0 )) || fails=$((fails + 1))
+      # 每组须完成任务：违规为 0 但一单不成（开局即卡死）也判失败；暂停次数只记录
+      # （acceptance-suite-rework specs：压测每组须完成任务）。
+      tasks="$(stress_tasks_finished "${dir}/summary.json")"
+      (( tasks > 0 )) || stalled+=("${robots}台${mode}（完成 ${tasks} 单）")
+      # 有进程中途退出时这组数据不作数，即使违规为 0、也完成了任务
+      # （acceptance-suite-rework specs：压测期间进程不得中途退出）。
+      if ! exits="$(python3 "${SCRIPT_DIR}/stress_process_exits.py" "${dir}/launch.log" 2>&1)"; then
+        exited+=("${robots}台${mode}（${exits//$'\n'/、}）")
+      fi
+      # rolling 停摆（全队 60 秒不动、或有车全程 0 单）判失败；whole_route 只列不判
+      # （acceptance-suite-rework specs：rolling 压测不得停摆）。
+      if ! stall="$(python3 "${SCRIPT_DIR}/stress_stalls.py" "${dir}" "${mode}" 2>&1)"; then
+        frozen+=("${robots}台${mode}（${stall//$'\n'/、}）")
+      fi
+      motion+=("${robots}台${mode}：${stall%%$'\n'*}")
     done
   done
-  summary "6 组中 ${fails} 组退出码非 0（1 = 有安全违规，2 = 车队没就绪）；路网 ${STRESS_NETWORK}，每组 ${STRESS_MINUTES} 分钟"
+  summary "6 组中 ${fails} 组退出码非 0（1 = 有安全违规，2 = 车队没就绪），${#stalled[@]} 组没有完成任务，${#exited[@]} 组有进程中途退出或无法检查，${#frozen[@]} 组停摆或无法检查；路网 ${STRESS_NETWORK}，每组 ${STRESS_MINUTES} 分钟"
+  (( ${#stalled[@]} == 0 )) || summary "没有完成任务的组：${stalled[*]}"
+  (( ${#exited[@]} == 0 )) || summary "有进程中途退出或无法检查的组（数据不作数，不要引用）：${exited[*]}"
+  (( ${#frozen[@]} == 0 )) || summary "停摆或无法检查的组（数据不作数，不要引用）：${frozen[*]}"
+  summary ""
+  summary "每车单数与最长静止（只对 rolling 判停摆）："
+  local line
+  for line in "${motion[@]}"; do
+    summary "- ${line}"
+  done
+  summary ""
   capture_summary "${SDIR}" "stress_*/console.jsonl"
   summary ""
   awk -F'\t' 'NR==1 { h="|"; s="|"; for (i=1;i<=NF;i++) { h=h" "$i" |"; s=s" --- |" } print h; print s; next }
               { r="|"; for (i=1;i<=NF;i++) r=r" "$i" |"; print r }' "${SDIR}/metrics.tsv" >> "${SDIR}/summary.md"
-  (( fails == 0 ))
+  (( fails == 0 && ${#stalled[@]} == 0 && ${#exited[@]} == 0 && ${#frozen[@]} == 0 ))
 }
 
 stage_6() {

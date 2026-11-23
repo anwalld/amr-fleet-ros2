@@ -40,16 +40,19 @@ wait_service_type /v2/reprioritize_queued_mission "robot_interfaces_mission/srv/
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 10 /tmp/robot_reprio_events.err
 wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_reprio_state_topic.err
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${first}\", priority: 5, start_if_idle: false}" | rg "success=True"
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
   "{mission_file: \"${second}\", priority: 1, start_if_idle: false}" | rg "success=True"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/reprioritize_queued_mission robot_interfaces_mission/srv/ReprioritizeQueuedMission \
-  "{mission_id: reprio_second, priority: 20}" \
-  | rg "success=True|reprio_second|20|queue_size=2"
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/reprioritize_queued_mission robot_interfaces_mission/srv/ReprioritizeQueuedMission \
+  "{mission_id: reprio_second, priority: 20}" | response_only)"
+rg "success=True" <<<"${_rg_out}"
+rg "reprio_second" <<<"${_rg_out}"
+rg "20" <<<"${_rg_out}"
+rg "queue_size=2" <<<"${_rg_out}"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
+service_response "${ROS2_CALL_TIMEOUT:-30}" /start_mission_profile std_srvs/srv/Trigger "{}" | rg "success=True"
 
 # 判定改为查任务事件日志（/v2/list_mission_events），不再轮询 /mission_runner/state：
 # 两条任务目标点只差 0.1 米、很快跑完，虚拟机慢时轮询状态会错过 reprio_second（M1 记录的竞态）。
@@ -57,7 +60,7 @@ timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /start_mission_profile std
 event_stamp() {
   local mission_id="$1"
   local state="$2"
-  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 200, state_filter: ${state}, mission_id_filter: ${mission_id}}" 2>/tmp/robot_reprio_events.err \
     | python3 -c '
 import re, sys
@@ -68,21 +71,28 @@ print(min(stamps) if stamps else "")
 '
 }
 
-deadline=$((SECONDS + 60))
+# 期限从脚本开始算 40 秒（用例表里外层是 60 秒）：要在被 timeout 杀掉之前报出原因。
+deadline=40
+dump_events() {
+  echo "mission events at deadline:" >&2
+  service_response 8 /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    "{limit: 50, state_filter: '', mission_id_filter: ''}" >&2 || echo "(no response)" >&2
+}
 first_finished=""
 while true; do
   first_finished="$(event_stamp reprio_first FINISHED)"
   if [[ -n "${first_finished}" ]]; then
     break
   fi
-  if timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  if service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 20, state_filter: FAILED, mission_id_filter: reprio_first}" 2>/dev/null \
       | rg "loaded [1-9]" >/dev/null; then
     echo "reprioritize queue: reprio_first FAILED" >&2
     exit 1
   fi
   if (( SECONDS >= deadline )); then
-    echo "reprioritize queue did not finish reprio_first within 60s" >&2
+    echo "reprioritize queue did not finish reprio_first by ${deadline}s" >&2
+    dump_events
     exit 1
   fi
   sleep 1

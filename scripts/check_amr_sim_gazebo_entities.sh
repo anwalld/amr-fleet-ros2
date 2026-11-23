@@ -142,7 +142,7 @@ wait_station_finished() {
           'BEGIN { exit !(x < -1.0 && y > 1.0 && z > 0.1 && z < 0.4) }'; then
       return 0
     fi
-    if timeout 6s ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    if service_response 6s /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
         "{limit: 10, state_filter: FINISHED, mission_id_filter: station_order_sim_auto_transport}" \
         >"${sample}" 2>"${LOG_DIR}/station_events.err" &&
       rg "mission_ids=\\['station_order_sim_auto_transport'\\]" "${sample}" >/dev/null &&
@@ -159,7 +159,9 @@ wait_station_finished() {
   done
 }
 
-start_bg amr_demo ros2 launch robot_bringup amr_demo.launch.py gui:=false use_rviz:=false
+# amr_demo 的 labels_enabled 默认已改为 false（有 RViz 时不在 Gazebo 里显示文字），本用例检查的正是
+# Gazebo 里的 14 个对象标签，必须显式打开，否则它们一直停在隐藏位 z=-2。
+start_bg amr_demo ros2 launch robot_bringup amr_demo.launch.py gui:=false use_rviz:=false labels_enabled:=true
 
 wait_service_type /world/indoor_room/set_pose "ros_gz_interfaces/srv/SetEntityPose" 30 \
   "${LOG_DIR}/wait_set_pose.err"

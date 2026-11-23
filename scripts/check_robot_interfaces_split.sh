@@ -5,10 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 LEGACY_PACKAGE="robot_interfaces"
+# 旧包已冻结：只剩 10 个 msg/action，不得再增减。
 LEGACY_REMAINING_INTERFACE_COUNT=10
-# M2 新增 5 个：mission 的 RequestRouteSegment/ReleaseRouteSegment/TrafficGrant/TrafficState，
-# fleet 的 ListRemoteTasks。
-TARGET_INTERFACE_COUNT=99
+# 新包的接口总数不写死（原来写死 99，M3 加 TrafficYield.msg 后就失败了）：
+# 改为双向核对"目录里的每个接口文件都在 CMakeLists 注册"与"注册的每一项都有文件"。
 NEW_PACKAGES=(
   robot_interfaces_core
   robot_interfaces_navigation
@@ -88,9 +88,17 @@ for package in "${NEW_PACKAGES[@]}"; do
   done < <(interface_files "${package_dir}")
 done
 
+for package in "${NEW_PACKAGES[@]}"; do
+  package_dir="${ROOT_DIR}/src/${package}"
+  while IFS= read -r registered; do
+    [[ -f "${package_dir}/${registered}" ]] ||
+      fail "${package}/CMakeLists.txt registers ${registered} but the file is missing"
+  done < <(grep -oE '"(msg|srv|action)/[A-Za-z0-9_]+\.(msg|srv|action)"' "${package_dir}/CMakeLists.txt" | tr -d '"')
+done
+
 new_count="${#new_interfaces[@]}"
-[[ "${new_count}" -eq "${TARGET_INTERFACE_COUNT}" ]] ||
-  fail "new packages expose ${new_count} interfaces, expected ${TARGET_INTERFACE_COUNT}"
+[[ "${new_count}" -gt 0 ]] || fail "new packages expose no interfaces"
+echo "new packages expose ${new_count} interfaces, all registered"
 
 for rel_path in "${!legacy_interfaces[@]}"; do
   [[ -n "${new_interfaces[${rel_path}]+x}" ]] ||

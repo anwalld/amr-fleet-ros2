@@ -497,12 +497,26 @@ std::optional<RouteWaiter> WithdrawRouteWaits(
 
 std::vector<RouteWaiter> PlanRouteBlockWaiterReplan(
     const std::string& resource_id, RouteWaitQueueMap& wait_queues) {
+  // 按"要申请的整组资源"找，不能只看被封路段自己的队列：封路只允许封空闲路段，
+  // 而车只排在被占的资源上，那条队列在运行中总是空的。
   std::vector<RouteWaiter> affected;
-  const auto queue_it = wait_queues.find(resource_id);
-  if (queue_it == wait_queues.end()) {
-    return affected;
+  for (const auto& [queued_on, queue] : wait_queues) {
+    for (const auto& waiter : queue) {
+      const bool needs_blocked =
+          queued_on == resource_id ||
+          std::find(waiter.resource_ids.begin(), waiter.resource_ids.end(), resource_id) !=
+              waiter.resource_ids.end();
+      const bool seen = std::any_of(affected.begin(), affected.end(), [&](const RouteWaiter& w) {
+        return w.robot_id == waiter.robot_id;
+      });
+      if (needs_blocked && !seen) {
+        affected.push_back(waiter);
+      }
+    }
   }
-  affected = queue_it->second;
+  std::sort(affected.begin(), affected.end(), [](const RouteWaiter& a, const RouteWaiter& b) {
+    return a.priority != b.priority ? a.priority > b.priority : a.sequence < b.sequence;
+  });
   for (const auto& waiter : affected) {
     EraseWaiter(waiter.robot_id, wait_queues);
   }

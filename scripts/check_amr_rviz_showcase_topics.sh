@@ -84,17 +84,32 @@ wait_path_has_pose 90
 
 wait_topic_sample /navigate_sequence/current_path nav_msgs/msg/Path 90 \
   "${LOG_DIR}/nav_sequence_path.txt"
-rg "poses:|position:" "${LOG_DIR}/nav_sequence_path.txt"
+rg "poses:" "${LOG_DIR}/nav_sequence_path.txt"
+rg "position:" "${LOG_DIR}/nav_sequence_path.txt"
 wait_topic_sample /navigate_sequence/current_goal geometry_msgs/msg/PoseStamped 90 \
   "${LOG_DIR}/nav_sequence_goal.txt"
 rg "position:" "${LOG_DIR}/nav_sequence_goal.txt"
 
 wait_topic_sample /amr_simulation/demo_timeline std_msgs/msg/String 60 \
   "${LOG_DIR}/timeline.txt"
-rg "当前阶段:|下一阶段:|进度:" "${LOG_DIR}/timeline.txt"
+rg "当前阶段:" "${LOG_DIR}/timeline.txt"
+rg "下一阶段:" "${LOG_DIR}/timeline.txt"
+rg "进度:" "${LOG_DIR}/timeline.txt"
 
-wait_topic_sample /amr_simulation/markers visualization_msgs/msg/MarkerArray 60 \
-  "${LOG_DIR}/markers.txt"
-rg "mission_panel|station_routes|safety|localization|当前阶段:|下一阶段:" "${LOG_DIR}/markers.txt"
+# ros2 topic echo 默认把字符串截到 128 字符，看板里 target 那行会被截掉（夜跑 #3），所以要 --full-length。
+if ! timeout 60s ros2 topic echo --once --full-length /amr_simulation/markers \
+    visualization_msgs/msg/MarkerArray >"${LOG_DIR}/markers.txt" 2>&1; then
+  echo "/amr_simulation/markers topic did not publish a sample" >&2
+  cat "${LOG_DIR}/markers.txt" >&2
+  exit 1
+fi
+rg "mission_panel" "${LOG_DIR}/markers.txt"
+rg "station_routes" "${LOG_DIR}/markers.txt"
+rg "safety" "${LOG_DIR}/markers.txt"
+rg "localization" "${LOG_DIR}/markers.txt"
+# 任务看板标记的写法是"当前阶段 phase: …""目标站点 target: …"，没有"下一阶段"（那是 demo_timeline 话题的内容）；
+# 只匹配英文键名。
+rg "phase: " "${LOG_DIR}/markers.txt"
+rg "target: " "${LOG_DIR}/markers.txt"
 
 echo "AMR RViz showcase topics passed"

@@ -138,7 +138,7 @@ wait_mission_event() {
   local out_file="${LOG_DIR}/${mission_id}_${state}.out"
   local deadline=$((SECONDS + timeout_sec))
   while true; do
-    timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+    service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
       "{limit: 80, state_filter: ${state}, mission_id_filter: ${mission_id}}" \
       >"${out_file}" 2>"${out_file}.err" || true
     if rg "success=True" "${out_file}" >/dev/null &&
@@ -160,7 +160,7 @@ assert_no_mission_event() {
   local mission_id="$1"
   local state="$2"
   local out_file="${LOG_DIR}/${mission_id}_${state}_absent.out"
-  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
     "{limit: 80, state_filter: ${state}, mission_id_filter: ${mission_id}}" \
     >"${out_file}" 2>"${out_file}.err" || true
   rg "success=True" "${out_file}"
@@ -185,10 +185,10 @@ wait_active_mission() {
     timeout 4s ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state >"${state_file}" 2>"${state_file}.err" || true
     if rg "${mission_id}" "${active_file}" >/dev/null &&
-        rg "STARTING|RUNNING|PAUSED" "${state_file}" >/dev/null; then
+        rg "STARTING|RUNNING|PAUSED" "${state_file}" >/dev/null; then  # lint:allow-alternation 等任务进入任一活动状态
       return 0
     fi
-    if rg "FAILED|ERROR|CANCELED|FINISHED" "${state_file}" >/dev/null; then
+    if rg "FAILED|ERROR|CANCELED|FINISHED" "${state_file}" >/dev/null; then  # lint:allow-alternation 出现任一终态即停止轮询
       echo "mission ${mission_id} left active state too early" >&2
       cat "${state_file}" >&2 || true
       cat "${active_file}" >&2 || true
@@ -253,12 +253,12 @@ run_autostart_success_phase() {
 run_queued_cancel_phase() {
   set_phase_domain 1
   start_success_stack queued_cancel "${MISSION_DIR}/queued_cancel.yaml" autostart:=false
-  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
     "{mission_file: \"${MISSION_DIR}/queued_cancel.yaml\", priority: 42, start_if_idle: true}" \
     >"${LOG_DIR}/queued_cancel_enqueue.out" 2>"${LOG_DIR}/queued_cancel_enqueue.err"
   rg "success=True" "${LOG_DIR}/queued_cancel_enqueue.out"
   wait_active_mission action_queued_cancel 20
-  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/cancel_queued_mission robot_interfaces_mission/srv/CancelQueuedMission \
     "{mission_id: action_queued_cancel, cancel_active: true}" \
     >"${LOG_DIR}/queued_cancel_cancel.out" 2>"${LOG_DIR}/queued_cancel_cancel.err"
   rg "success=True" "${LOG_DIR}/queued_cancel_cancel.out"
@@ -285,18 +285,18 @@ run_action_failure_phase() {
       preflight_enabled:=false \
       estimate_use_nav2_path:=false
   wait_common_runtime failure
-  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
     "{mission_file: \"${MISSION_DIR}/action_failure_should_wait.yaml\", priority: 1, start_if_idle: false}" \
     >"${LOG_DIR}/failure_enqueue_waiting.out" 2>"${LOG_DIR}/failure_enqueue_waiting.err"
   rg "success=True" "${LOG_DIR}/failure_enqueue_waiting.out"
-  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/enqueue_mission_profile robot_interfaces_mission/srv/EnqueueMission \
     "{mission_file: \"${MISSION_DIR}/action_failure.yaml\", priority: 10, start_if_idle: true}" \
     >"${LOG_DIR}/failure_enqueue_start.out" 2>"${LOG_DIR}/failure_enqueue_start.err"
   rg "success=True" "${LOG_DIR}/failure_enqueue_start.out"
   wait_mission_event action_failure_runtime FAILED 35
   sleep 3
   assert_no_mission_event action_failure_should_wait FAILED
-  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_mission_recovery_state \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/get_mission_recovery_state \
     robot_interfaces_mission/srv/GetMissionRecoveryState "{}" \
     >"${LOG_DIR}/failure_recovery.out" 2>"${LOG_DIR}/failure_recovery.err"
   rg "success=True" "${LOG_DIR}/failure_recovery.out"

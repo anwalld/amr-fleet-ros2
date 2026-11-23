@@ -248,6 +248,14 @@ class TestSimulationModelRuntime(unittest.TestCase):
                 abs(_angle_delta(_yaw(robot2_after), _yaw(robot2_start))), 0.02
             )
 
+            # 先等主车停稳再记起点。夜跑 #2、#3 在这里报的"漂移"不是滑行，是与并行的导航测试
+            # 同处一个 ROS 域、/odom 混了两个来源（acceptance-suite-rework design D20）。
+            spin_until(
+                lambda: abs(messages["/odom"].twist.twist.linear.x) < 0.005
+                and abs(messages["/odom"].twist.twist.angular.z) < 0.01,
+                10.0,
+                "main robot did not settle after the forward command",
+            )
             main_before_robot2 = messages["/odom"]
             robot2_before_turn = messages["/robot_2/odom"]
             turn = Twist()

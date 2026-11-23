@@ -10,25 +10,29 @@ wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/
 # 站点运输要等装卸确认，后台自动发（见 robot_wait.sh）。
 start_station_auto_confirm
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_scenario_workflows robot_interfaces_business/srv/ListScenarioWorkflows \
-  "{scenario_id: warehouse}" \
-  | rg "success=True|inbound_crossdock|inbound_to_storage,storage_to_packing"
+_rg_out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_scenario_workflows robot_interfaces_business/srv/ListScenarioWorkflows \
+  "{scenario_id: warehouse}" | response_only)"
+rg "success=True" <<<"${_rg_out}"
+rg "inbound_crossdock" <<<"${_rg_out}"
+rg "inbound_to_storage,storage_to_packing" <<<"${_rg_out}"
 
-call_submit_order workflow_alpha scenario_workflow 0 \
+_rg_out="$(call_submit_order workflow_alpha scenario_workflow 0 \
   "scenario_id=warehouse;workflow_id=inbound_crossdock;order_id=workflow_alpha;start_if_idle=true;preempt_current=false" \
-  scenario_workflow \
-  | rg "accepted=True|station_order_fleet_workflow_alpha_step_1|station_order_fleet_workflow_alpha_step_2"
+  scenario_workflow | response_only)"
+rg "accepted=True" <<<"${_rg_out}"
+rg "station_order_fleet_workflow_alpha_step_1" <<<"${_rg_out}"
+rg "station_order_fleet_workflow_alpha_step_2" <<<"${_rg_out}"
 
 seen_first=false
 seen_second=false
 deadline=$((SECONDS + 180))
 while true; do
   active_goal="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field active_goal_id 2>/tmp/robot_scenario_workflow_state.err || true
   )"
   state="$(
-    ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
+    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
       --field state 2>/tmp/robot_scenario_workflow_state.err || true
   )"
 

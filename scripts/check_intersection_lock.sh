@@ -67,7 +67,7 @@ call_request_route_segment robot_alpha receiving storage_a 10 >"${LOG_DIR}/alpha
 rg "granted=True" "${LOG_DIR}/alpha_seg.out"
 rg "route_node:storage_a" "${LOG_DIR}/alpha_seg.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
   >"${LOG_DIR}/traffic.out"
 rg "success=True" "${LOG_DIR}/traffic.out"
 rg "route_node:storage_a" "${LOG_DIR}/traffic.out"
@@ -92,7 +92,7 @@ wait "${grant_pid}" || true
 rg "robot_beta" "${LOG_DIR}/grant.out"
 rg "granted" "${LOG_DIR}/grant.out"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_traffic_reservations robot_interfaces_mission/srv/ListTrafficReservations "{}" \
   >"${LOG_DIR}/traffic_after.out"
 rg "route_node:storage_a" "${LOG_DIR}/traffic_after.out"
 rg "robot_beta" "${LOG_DIR}/traffic_after.out"

@@ -59,6 +59,8 @@ start_bg station_auto_confirm station_auto_confirm_loop acceptance_tote "${tmp_d
 
 python3 "${SCRIPT_DIR}/vda5050_file_bridge.py" "${order_json}" "${state_json}" 90
 python3 -m json.tool "${state_json}" >/dev/null
-rg '"order_id": "bridge_alpha"|"mission_id": "station_order_vda5050_bridge_alpha"|"state": "FINISHED"' "${state_json}"
+rg '"order_id": "bridge_alpha"' "${state_json}"
+rg '"mission_id": "station_order_vda5050_bridge_alpha"' "${state_json}"
+rg '"state": "FINISHED"' "${state_json}"
 
 echo "vda5050 state bridge passed"

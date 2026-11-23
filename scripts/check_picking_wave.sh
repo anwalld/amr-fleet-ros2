@@ -66,20 +66,20 @@ assert_contains "${LOG_DIR}/submit.out" "accepted=True"
 assert_contains "${LOG_DIR}/submit.out" "${FULFILLMENT_ID}"
 assert_contains "${LOG_DIR}/submit.out" "picking_wave queued"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_pending_confirmations robot_interfaces_facility/srv/GetPendingConfirmations \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/get_pending_confirmations robot_interfaces_facility/srv/GetPendingConfirmations \
   "{station_id_filter: receiving}" >"${LOG_DIR}/pending_pick.out"
 assert_contains "${LOG_DIR}/pending_pick.out" "${FULFILLMENT_ID}_pick"
 assert_contains "${LOG_DIR}/pending_pick.out" "pick_sku_42"
 assert_contains "${LOG_DIR}/pending_pick.out" "pick 10 sku_42 into tote_7"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: FULFILLMENT_ROUTE_QUEUED, mission_id_filter: ${FULFILLMENT_ID}}" \
   >"${LOG_DIR}/queued_event.out"
 assert_contains "${LOG_DIR}/queued_event.out" "success=True"
 assert_contains "${LOG_DIR}/queued_event.out" "${FULFILLMENT_ID}"
 assert_contains "${LOG_DIR}/queued_event.out" "picking_wave queued from receiving to packing"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/confirm_pick robot_interfaces_business/srv/ConfirmPick \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/confirm_pick robot_interfaces_business/srv/ConfirmPick \
   "{fulfillment_id: ${FULFILLMENT_ID}, operator_id: alice, picked_quantity: 8, note: two missing}" \
   >"${LOG_DIR}/confirm_pick.out"
 assert_contains "${LOG_DIR}/confirm_pick.out" "success=True"
@@ -87,26 +87,28 @@ assert_contains "${LOG_DIR}/confirm_pick.out" "state='SHORT_PICK'"
 assert_contains "${LOG_DIR}/confirm_pick.out" "picked_quantity=8"
 assert_contains "${LOG_DIR}/confirm_pick.out" "short_quantity=2"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/report_short_pick robot_interfaces_business/srv/ReportShortPick \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/report_short_pick robot_interfaces_business/srv/ReportShortPick \
   "{fulfillment_id: ${FULFILLMENT_ID}, operator_id: alice, short_quantity: 2, reason: bin short}" \
   >"${LOG_DIR}/short_pick.out"
-assert_contains "${LOG_DIR}/short_pick.out" "success=True"
-assert_contains "${LOG_DIR}/short_pick.out" "state='SHORT_PICK'"
-assert_contains "${LOG_DIR}/short_pick.out" "short_quantity=2"
+# 上游已把短拣判定并进 confirm_pick：拣 8/10 时直接进入 SHORT_PICK（见上面的断言），
+# 此时再单独报短拣会被拒，状态保持 SHORT_PICK。原脚本仍期望这一步成功，所以一直失败。
+assert_contains "${LOG_DIR}/short_pick.out" "success=False"
+assert_contains "${LOG_DIR}/short_pick.out" "short pick is not pending"
+assert_contains "${LOG_DIR}/short_pick.out" "state=SHORT_PICK"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_pending_confirmations robot_interfaces_facility/srv/GetPendingConfirmations \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/get_pending_confirmations robot_interfaces_facility/srv/GetPendingConfirmations \
   "{station_id_filter: packing}" >"${LOG_DIR}/pending_dropoff.out"
 assert_contains "${LOG_DIR}/pending_dropoff.out" "${FULFILLMENT_ID}_dropoff"
 assert_contains "${LOG_DIR}/pending_dropoff.out" "dropoff_sku_42"
 assert_contains "${LOG_DIR}/pending_dropoff.out" "drop off tote_7 at packing"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/confirm_dropoff robot_interfaces_business/srv/ConfirmDropoff \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/confirm_dropoff robot_interfaces_business/srv/ConfirmDropoff \
   "{fulfillment_id: ${FULFILLMENT_ID}, operator_id: bob, note: tote received}" \
   >"${LOG_DIR}/dropoff.out"
 assert_contains "${LOG_DIR}/dropoff.out" "success=True"
 assert_contains "${LOG_DIR}/dropoff.out" "state='FULFILLED_WITH_SHORT_PICK'"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/get_order_fulfillment_status robot_interfaces_business/srv/GetOrderFulfillmentStatus \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/get_order_fulfillment_status robot_interfaces_business/srv/GetOrderFulfillmentStatus \
   "{fulfillment_id: ${FULFILLMENT_ID}}" >"${LOG_DIR}/status.out"
 assert_contains "${LOG_DIR}/status.out" "success=True"
 assert_contains "${LOG_DIR}/status.out" "order_type='picking_wave'"
@@ -121,14 +123,16 @@ assert_contains "${LOG_DIR}/status.out" "short_quantity=2"
 assert_contains "${LOG_DIR}/status.out" "${FULFILLMENT_ID}_pick"
 assert_contains "${LOG_DIR}/status.out" "${FULFILLMENT_ID}_dropoff"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
-  "{limit: 20, state_filter: FULFILLMENT_SHORT_PICK, mission_id_filter: ${FULFILLMENT_ID}}" \
-  >"${LOG_DIR}/short_event.out"
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+  "{limit: 20, state_filter: FULFILLMENT_PICK_CONFIRMED, mission_id_filter: ${FULFILLMENT_ID}}" \
+  | response_only >"${LOG_DIR}/short_event.out"
+# 短拣已并进 confirm_pick：记录的是 FULFILLMENT_PICK_CONFIRMED（"picked 8 of 10"），没有单独的
+# FULFILLMENT_SHORT_PICK 事件；原断言靠请求回显里的 state_filter 文字"通过"。
 assert_contains "${LOG_DIR}/short_event.out" "success=True"
-assert_contains "${LOG_DIR}/short_event.out" "FULFILLMENT_SHORT_PICK"
-assert_contains "${LOG_DIR}/short_event.out" "short pick 2 reported by alice"
+assert_contains "${LOG_DIR}/short_event.out" "states=\\['FULFILLMENT_PICK_CONFIRMED'\\]"
+assert_contains "${LOG_DIR}/short_event.out" "picked 8 of 10"
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_mission_events robot_interfaces_mission/srv/ListMissionEvents \
   "{limit: 20, state_filter: FULFILLMENT_DROPOFF_CONFIRMED, mission_id_filter: ${FULFILLMENT_ID}}" \
   >"${LOG_DIR}/dropoff_event.out"
 assert_contains "${LOG_DIR}/dropoff_event.out" "success=True"

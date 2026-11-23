@@ -57,6 +57,10 @@ wait_service_type /v2/submit_order "robot_interfaces_business/srv/SubmitOrder" 2
 wait_service_type /v2/list_mission_events "robot_interfaces_mission/srv/ListMissionEvents" 20 \
   "${LOG_DIR}/wait_events.err"
 
+# vda5050 单是站点运输：取货站会停在 WAIT_LOAD 等上货确认。M0 给站点运输用例补自动确认器时漏了本脚本，
+# 任务永远到不了 FINISHED，桥在自己的 45 秒超时后失败（4.2 定性：脚本问题）。
+start_station_auto_confirm
+
 python3 "${SCRIPT_DIR}/vda5050_mqtt_mock_bridge.py" \
   --mock-broker-dir "${BROKER_DIR}" \
   --timeout-sec 45

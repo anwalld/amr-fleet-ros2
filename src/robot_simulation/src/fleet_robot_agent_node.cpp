@@ -8,6 +8,7 @@
 //     traffic_reservation_mode:=whole_route 时改为整条路径一次申请、拿不到隔几秒重试（对照组）。
 //     M3：申请时带本程目的地 goal_station；按授予应答给出的资源号释放（不自己拼资源号）；
 //     执行 /traffic/yield 的让路指令（reroute 改道 / backoff 退到避让点 / pause 暂停）。
+//     查站点、路网、任务和申请路权 5 秒没有应答就按原样重发（见 agent_request.hpp）。
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -16,7 +17,6 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <queue>
 #include <random>
 #include <set>
 #include <sstream>
@@ -29,6 +29,10 @@
 #include "rclcpp/rclcpp.hpp"
 #include "robot_interfaces_fleet/srv/list_fleet_robots.hpp"
 #include "robot_interfaces_fleet/srv/list_remote_tasks.hpp"
+#include "robot_simulation/agent_idle.hpp"
+#include "robot_simulation/agent_request.hpp"
+#include "robot_simulation/agent_route.hpp"
+#include "robot_simulation/agent_yield.hpp"
 #include "robot_interfaces_fleet/srv/update_remote_task_state.hpp"
 #include "robot_interfaces_mission/msg/traffic_grant.hpp"
 #include "robot_interfaces_mission/msg/traffic_state.hpp"
@@ -334,19 +338,12 @@ class FleetStationFollower final : public rclcpp::Node {
 
 namespace {
 
-struct DirectedEdge {
-  std::string to;
-  double distance_m = 0.0;
-};
+using robot_simulation::DirectedEdge;
+using robot_simulation::EdgeKey;
+using robot_simulation::MakeEdgeKey;
 
 // 资源号只由路权服务生成（规格里写明了格式）。代理只解析，不拼接：
 //   route_edge:<a>__<b> → 无序站点对；route_node:<站点> → 站点。
-using EdgeKey = std::pair<std::string, std::string>;
-
-EdgeKey MakeEdgeKey(const std::string& a, const std::string& b) {
-  return a <= b ? EdgeKey{a, b} : EdgeKey{b, a};
-}
-
 std::optional<EdgeKey> ParseEdgeResource(const std::string& resource_id) {
   const std::string prefix = "route_edge:";
   if (resource_id.rfind(prefix, 0) != 0) {
@@ -518,6 +515,7 @@ class FleetTaskAgent final : public rclcpp::Node {
       PublishOdom();
       last_odom_pub_ = t;
     }
+    ResendOverdueRequests(t);
 
     switch (phase_) {
       case Phase::kLoadMap: LoadMap(); break;
@@ -532,30 +530,41 @@ class FleetTaskAgent final : public rclcpp::Node {
     }
   }
 
+  // 与阶段无关：换了阶段，在途请求也还要等到应答（否则 pending 永远不清）。
+  void ResendOverdueRequests(const double t) {
+    const auto resend = [&](auto& call, const char* service) {
+      if (call.ResendIfOverdue(t)) {
+        RCLCPP_WARN(get_logger(), "%s: no response from %s for %.0fs, resending",
+                    robot_id_.c_str(), service, robot_simulation::kServiceResponseTimeoutS);
+      }
+    };
+    resend(stations_call_, "/v2/list_stations");
+    resend(routes_call_, "/v2/list_station_routes");
+    resend(tasks_call_, "/v2/list_remote_tasks");
+    resend(route_call_, "/v2/request_route_segment");
+  }
+
   // ---------------------------------------------------------------- map
   void LoadMap() {
     if (!stations_client_->service_is_ready() || !routes_client_->service_is_ready()) {
       return;
     }
-    if (!stations_pending_ && stations_.empty() && t_ok(last_map_request_, 1.0)) {
-      stations_pending_ = true;
-      stations_client_->async_send_request(
+    if (!stations_call_.pending() && stations_.empty() && t_ok(last_map_request_, 1.0)) {
+      stations_call_.Send(
+          stations_client_,
           std::make_shared<robot_interfaces_mission::srv::ListStations::Request>(),
-          [this](rclcpp::Client<robot_interfaces_mission::srv::ListStations>::SharedFuture f) {
-            stations_pending_ = false;
-            const auto r = f.get();
+          [this](const auto& r) {
             for (std::size_t i = 0; i < r->station_ids.size() && i < r->x.size(); ++i) {
               stations_[r->station_ids[i]] = {r->x[i], r->y[i], i < r->yaw.size() ? r->yaw[i] : 0.0};
             }
-          });
+          },
+          Now());
     }
-    if (!routes_pending_ && graph_.empty() && t_ok(last_route_request_, 1.0)) {
-      routes_pending_ = true;
-      routes_client_->async_send_request(
+    if (!routes_call_.pending() && graph_.empty() && t_ok(last_route_request_, 1.0)) {
+      routes_call_.Send(
+          routes_client_,
           std::make_shared<robot_interfaces_mission::srv::ListStationRoutes::Request>(),
-          [this](rclcpp::Client<robot_interfaces_mission::srv::ListStationRoutes>::SharedFuture f) {
-            routes_pending_ = false;
-            const auto r = f.get();
+          [this](const auto& r) {
             std::map<std::string, std::vector<DirectedEdge>> graph;
             for (std::size_t i = 0; i < r->from_station.size(); ++i) {
               if (i < r->enabled.size() && !r->enabled[i]) {
@@ -568,7 +577,8 @@ class FleetTaskAgent final : public rclcpp::Node {
               }
             }
             graph_ = std::move(graph);
-          });
+          },
+          Now());
     }
     if (!stations_.empty() && !graph_.empty()) {
       const auto it = stations_.find(initial_station_id_);
@@ -597,7 +607,7 @@ class FleetTaskAgent final : public rclcpp::Node {
 
   // 起点：占住所在站点的路口，再在车队里登记为 available。
   void ClaimStart() {
-    if (request_pending_ || !request_client_->service_is_ready() ||
+    if (route_call_.pending() || !request_client_->service_is_ready() ||
         !fleet_state_client_->service_is_ready() || !t_ok(last_claim_, 1.0)) {
       return;
     }
@@ -616,41 +626,42 @@ class FleetTaskAgent final : public rclcpp::Node {
   void Idle() { PollTasks(); }
 
   void PollTasks() {
-    if (tasks_pending_ || !tasks_client_->service_is_ready() || !t_ok(last_task_poll_, 0.5)) {
+    if (tasks_call_.pending() || !tasks_client_->service_is_ready() || !t_ok(last_task_poll_, 0.5)) {
       return;
     }
-    tasks_pending_ = true;
     auto req = std::make_shared<robot_interfaces_fleet::srv::ListRemoteTasks::Request>();
     req->robot_id = robot_id_;
     req->state = "DISPATCHED_REMOTE";
-    tasks_client_->async_send_request(
-        req, [this](rclcpp::Client<robot_interfaces_fleet::srv::ListRemoteTasks>::SharedFuture f) {
-          tasks_pending_ = false;
-          const auto r = f.get();
+    tasks_call_.Send(
+        tasks_client_, req,
+        [this](const auto& r) {
           if (!r->success) {
             return;
           }
           const bool heading_home =
               goal_ == Goal::kHome &&
-              (phase_ == Phase::kRoute || (phase_ == Phase::kWaitGrant && !request_pending_));
+              (phase_ == Phase::kRoute || (phase_ == Phase::kWaitGrant && !route_call_.pending()));
           if (!r->task_ids.empty() && task_id_.empty() && (phase_ == Phase::kIdle || heading_home)) {
             StartTask(r->task_ids[0], r->pickup_stations[0], r->dropoff_stations[0],
                       r->priorities.empty() ? 0 : r->priorities[0]);
             return;
           }
-          if (r->task_ids.empty() && phase_ == Phase::kIdle && return_home_when_idle_ &&
-              current_station_ != home_station_id_ && task_id_.empty()) {
+          if (r->task_ids.empty() &&
+              robot_simulation::ShouldReturnHomeWhenIdle(
+                  return_home_when_idle_, !task_id_.empty(), phase_ == Phase::kIdle,
+                  completed_any_task_, current_station_, home_station_id_)) {
             goal_ = Goal::kHome;
             goal_station_ = home_station_id_;
             priority_ = 0;
             phase_ = Phase::kRoute;
           }
-        });
+        },
+        Now());
   }
 
   // 兜底暂停解除后：重新占住所在路口，再继续本程。
   void Reclaim() {
-    if (request_pending_ || !t_ok(last_claim_, 1.0)) {
+    if (route_call_.pending() || !t_ok(last_claim_, 1.0)) {
       return;
     }
     SendRouteRequest("", current_station_, {}, [this](const auto& r) {
@@ -681,52 +692,8 @@ class FleetTaskAgent final : public rclcpp::Node {
 
   // ---------------------------------------------------------------- routing
   std::vector<std::string> ShortestPath(const std::string& from, const std::string& to) const {
-    if (from == to) {
-      return {from};
-    }
-    std::map<std::string, double> dist;
-    std::map<std::string, std::string> prev;
-    using Item = std::pair<double, std::string>;
-    std::priority_queue<Item, std::vector<Item>, std::greater<Item>> open;
-    dist[from] = 0.0;
-    open.push({0.0, from});
-    while (!open.empty()) {
-      const auto [d, u] = open.top();
-      open.pop();
-      if (d > dist[u]) {
-        continue;
-      }
-      if (u == to) {
-        break;
-      }
-      const auto it = graph_.find(u);
-      if (it == graph_.end()) {
-        continue;
-      }
-      for (const auto& e : it->second) {
-        const auto key = MakeEdgeKey(u, e.to);
-        if (blocked_edges_.count(key) != 0U || avoid_edges_.count(key) != 0U ||
-            (e.to != to && avoid_nodes_.count(e.to) != 0U)) {
-          continue;
-        }
-        const double nd = d + e.distance_m;
-        const auto old = dist.find(e.to);
-        if (old == dist.end() || nd < old->second) {
-          dist[e.to] = nd;
-          prev[e.to] = u;
-          open.push({nd, e.to});
-        }
-      }
-    }
-    if (dist.find(to) == dist.end()) {
-      return {};
-    }
-    std::vector<std::string> path{to};
-    while (path.back() != from) {
-      path.push_back(prev.at(path.back()));
-    }
-    std::reverse(path.begin(), path.end());
-    return path;
+    return robot_simulation::ShortestPath(
+        graph_, from, to, blocked_edges_, avoid_edges_, avoid_nodes_);
   }
 
   void Route() {
@@ -740,7 +707,13 @@ class FleetTaskAgent final : public rclcpp::Node {
       ArrivedAtTarget();
       return;
     }
-    path_ = ShortestPath(current_station_, RouteTarget());
+    auto plan = robot_simulation::PlanRoute(
+        graph_, current_station_, RouteTarget(), blocked_edges_, avoid_edges_, avoid_nodes_);
+    if (plan.detours_dropped) {
+      RCLCPP_WARN(get_logger(), "%s: temporary detours dropped, they cut off %s -> %s",
+                  robot_id_.c_str(), current_station_.c_str(), RouteTarget().c_str());
+    }
+    path_ = std::move(plan.path);
     if (path_.size() < 2U) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%s: no path %s -> %s",
                            robot_id_.c_str(), current_station_.c_str(), RouteTarget().c_str());
@@ -757,7 +730,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     if (task_id_.empty() && goal_ == Goal::kHome) {
       PollTasks();  // 在站点等路权时也可以改去接新任务
     }
-    if (request_pending_ || phase_ != Phase::kWaitGrant || paused_) {
+    if (route_call_.pending() || phase_ != Phase::kWaitGrant || paused_) {
       return;
     }
     if (pending_yield_.has_value()) {
@@ -777,7 +750,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     }
     grant_hint_ = false;
     last_request_t_ = t;
-    const std::string next = path_[path_index_];
+    const std::string next = robot_simulation::NextStation(path_, path_index_);
     const std::vector<std::string> whole =
         WholeRoute() ? std::vector<std::string>(path_.begin() + path_index_ - 1, path_.end())
                      : std::vector<std::string>{};
@@ -827,7 +800,6 @@ class FleetTaskAgent final : public rclcpp::Node {
       const std::string& from, const std::string& to, const std::vector<std::string>& path,
       std::function<void(const robot_interfaces_mission::srv::RequestRouteSegment::Response::SharedPtr&)>
           on_done) {
-    request_pending_ = true;
     auto req = std::make_shared<robot_interfaces_mission::srv::RequestRouteSegment::Request>();
     req->robot_id = robot_id_;
     req->from_station = from;
@@ -835,12 +807,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     req->priority = priority_;
     req->station_path = path;
     req->goal_station = goal_station_;
-    request_client_->async_send_request(
-        req, [this, on_done](
-                 rclcpp::Client<robot_interfaces_mission::srv::RequestRouteSegment>::SharedFuture f) {
-          request_pending_ = false;
-          on_done(f.get());
-        });
+    route_call_.Send(request_client_, req, std::move(on_done), Now());
   }
 
   void Release(const std::vector<std::string>& ids) {
@@ -923,7 +890,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     }
     if (WholeRoute()) {
       // 整条路径已经拿到，直接开往下一站。
-      target_station_ = path_[path_index_];
+      target_station_ = robot_simulation::NextStation(path_, path_index_);
       return;
     }
     wait_started_t_ = Now();
@@ -946,7 +913,7 @@ class FleetTaskAgent final : public rclcpp::Node {
   // ---------------------------------------------------------------- yield (M3)
   // 当前要去的站点：退避中是避让点，否则是本程目的地。
   const std::string& RouteTarget() const {
-    return backoff_station_.empty() ? goal_station_ : backoff_station_;
+    return robot_simulation::RouteTarget(goal_station_, backoff_station_);
   }
 
   void ArrivedAtTarget() {
@@ -990,6 +957,8 @@ class FleetTaskAgent final : public rclcpp::Node {
   }
 
   void ApplyYield(const robot_interfaces_mission::msg::TrafficYield& msg) {
+    backoff_station_ =
+        robot_simulation::BackoffStationAfterYield(msg.action, msg.station_path, backoff_station_);
     if (msg.action == "reroute") {
       for (const auto& id : msg.avoid_resource_ids) {
         if (const auto edge = ParseEdgeResource(id)) {
@@ -1007,7 +976,6 @@ class FleetTaskAgent final : public rclcpp::Node {
       if (msg.station_path.empty()) {
         return;
       }
-      backoff_station_ = msg.station_path.back();
       backoff_hold_s_ = msg.hold_s;
       path_ = ValidPath(msg.station_path) ? msg.station_path
                                           : ShortestPath(current_station_, backoff_station_);
@@ -1062,6 +1030,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     message << "finished by " << robot_id_ << " duration_s=" << (finished - task_started_t_)
             << " wait_route_s=" << task_wait_s_ << " distance_m=" << task_distance_m_;
     UpdateTaskState("FINISHED", message.str());
+    completed_any_task_ = true;
     std::ostringstream event;
     event.setf(std::ios::fixed);
     event.precision(3);
@@ -1119,6 +1088,8 @@ class FleetTaskAgent final : public rclcpp::Node {
   double whole_route_retry_s_ = 2.0;
   double rolling_rerequest_s_ = 2.0;
   bool return_home_when_idle_ = true;
+  // 至少完成过一个任务后，空闲时才回停车位（见 agent_idle.hpp）。
+  bool completed_any_task_ = false;
   double control_period_s_ = 0.05;
 
   Phase phase_ = Phase::kLoadMap;
@@ -1154,10 +1125,18 @@ class FleetTaskAgent final : public rclcpp::Node {
   double retry_jitter_ = 0.0;
   bool grant_hint_ = false;
   bool replan_requested_ = false;
-  bool request_pending_ = false;
-  bool tasks_pending_ = false;
-  bool stations_pending_ = false;
-  bool routes_pending_ = false;
+  robot_simulation::RetryingRequest<
+      rclcpp::Client<robot_interfaces_mission::srv::ListStations>>
+      stations_call_;
+  robot_simulation::RetryingRequest<
+      rclcpp::Client<robot_interfaces_mission::srv::ListStationRoutes>>
+      routes_call_;
+  robot_simulation::RetryingRequest<
+      rclcpp::Client<robot_interfaces_fleet::srv::ListRemoteTasks>>
+      tasks_call_;
+  robot_simulation::RetryingRequest<
+      rclcpp::Client<robot_interfaces_mission::srv::RequestRouteSegment>>
+      route_call_;
   double last_map_request_ = 0.0;
   double last_route_request_ = 0.0;
   double last_claim_ = 0.0;

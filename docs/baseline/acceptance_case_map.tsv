@@ -1,0 +1,15 @@
+# 验收用例新旧映射（acceptance-suite-rework design D10）。夜跑阶段 3 每晚都先用这张表把上一夜的结果换算到当前用例键再对比。
+# 改名：一行；合并：多行指向同一 new_key（全部 PASS 才算 PASS）；删除：new_key 为 - 并写明理由。
+# 永久保留，以后再有删并就追加。
+old_key	new_key	reason
+amr_sim:full	-	按顺序重跑 sensor、slam、nav2、default、gazebo_entities、station_motion 6 个已有用例（每个最多 2 次），完全重复
+business:fulfillment_benchmark	-	只是跑一遍 check_warehouse_fulfillment.sh 再写一个内容固定为 PASS 的 CSV，与 business:warehouse_fulfillment 重复
+business:webhook	-	脚本全文就是 source check_external_callbacks_and_idempotency.sh，与 business:callbacks 完全相同
+ops:interfaces_split	lint:interfaces_split	不需要起栈的静态检查，归入 lint 套件
+ops:operator_static	lint:operator_static	不需要起栈的静态检查，归入 lint 套件
+amr_sim:assets	lint:assets	不需要起栈的静态检查，归入 lint 套件
+business:fleet_preview	business:fleet_dispatch	三个用例各测一组车队服务又各自完整跑同一种本地 fleet_station 任务；合并后全部断言保留并加强，任务只跑一遍
+business:fleet_runtime	business:fleet_dispatch	三个用例各测一组车队服务又各自完整跑同一种本地 fleet_station 任务；合并后全部断言保留并加强，任务只跑一遍
+business:fleet_task_pool	business:fleet_dispatch	三个用例各测一组车队服务又各自完整跑同一种本地 fleet_station 任务；合并后全部断言保留并加强，任务只跑一遍
+business:industry_workflows	business:scenario_workflow_shapes	11 个行业模板执行路径相同；验收改为全部受理检查加两种执行形态各完整跑一个，模板路径有效性由 GoogleTest industry_scenarios_test 校验
+business:more_industry_workflows	business:scenario_workflow_shapes	11 个行业模板执行路径相同；验收改为全部受理检查加两种执行形态各完整跑一个，模板路径有效性由 GoogleTest industry_scenarios_test 校验

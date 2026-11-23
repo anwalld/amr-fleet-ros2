@@ -29,7 +29,11 @@ MissionResultWorkflowDecision PlanMissionResultWorkflow(
   if (input.code == MissionActionResultCode::kSucceeded && input.result_success) {
     decision.branch = "succeeded";
     decision.mission_succeeded = true;
-    decision.release_all_resources = !input.completed_dock;
+    // 成功时只释放路权；设施预约交给 mark_resource_occupied 按 hold_after_action 保持或释放。
+    // 若这里也要求释放全部资源，节点先执行释放，设施预约就被删掉，"执行后保持"永远不生效
+    // （acceptance-suite-rework design D9）。对桩任务两者都不释放，留给充电流程。
+    decision.release_all_resources = false;
+    decision.release_route_locks = !input.completed_dock;
     decision.probe_docking_contact_failure = true;
     decision.reset_failure_retry_count = true;
     decision.mark_resource_occupied = true;

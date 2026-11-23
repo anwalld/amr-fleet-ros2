@@ -40,7 +40,7 @@ call_service() {
   local request="$4"
   local attempt
   for attempt in 1 2 3; do
-    if timeout -k 5s 35s ros2 service call "${service}" "${type}" "${request}" \
+    if service_response 35s "${service}" "${type}" "${request}" \
         >"${LOG_DIR}/${name}.out" 2>"${LOG_DIR}/${name}.err"; then
       return 0
     fi

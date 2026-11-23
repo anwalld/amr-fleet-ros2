@@ -13,11 +13,11 @@ rg -n "/api/workflows/resume" "${HTML_FILE}"
 rg -n "/api/workflows/cancel" "${HTML_FILE}"
 rg -n "fetch\\(" "${HTML_FILE}"
 rg -n "order_id" "${HTML_FILE}"
-if rg -n "['\"]workflow_order_id['\"]|workflow_order_id:" "${HTML_FILE}" >/dev/null; then
+if rg -n "['\"]workflow_order_id['\"]|workflow_order_id:" "${HTML_FILE}" >/dev/null; then  # lint:allow-alternation 同一字段的两种写法
   echo "operator console must use REST gateway order_id field, not workflow_order_id" >&2
   exit 1
 fi
-if rg -n "https?://" "${HTML_FILE}" | rg -v "127.0.0.1|localhost" >/dev/null; then
+if rg -n "https?://" "${HTML_FILE}" | rg -v "127.0.0.1|localhost" >/dev/null; then  # lint:allow-alternation rg -v 排除本机地址的任一写法
   echo "unexpected external dependency in operator console html" >&2
   exit 1
 fi

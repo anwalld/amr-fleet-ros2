@@ -4,6 +4,8 @@ set -eo pipefail
 set +u
 source install/setup.bash
 set -u
+# self 用例自选 DDS 域，避免和别的进程串台。
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((RANDOM % 200 + 20))}"
 
 mux_log="/tmp/robot_fault_supervisor_mux.log"
 supervisor_log="/tmp/robot_fault_supervisor.log"
@@ -20,8 +22,9 @@ trap cleanup EXIT
 
 wait_for_service() {
   local service_name="$1"
-  local deadline=$((SECONDS + 10))
-  while ! ros2 service list 2>/dev/null | grep -qx "${service_name}"; do
+  # 30 秒：daemon 冷启动加两个节点启动在 VM 上偶尔超过 10 秒（夜跑 #1 因此失败）；每次查询带超时。
+  local deadline=$((SECONDS + 30))
+  while ! timeout 10 ros2 service list 2>/dev/null | grep -qx "${service_name}"; do
     if (( SECONDS >= deadline )); then
       echo "service did not appear: ${service_name}" >&2
       exit 1
@@ -35,7 +38,7 @@ wait_for_estop() {
   local deadline=$((SECONDS + 10))
   while true; do
     local state
-    state="$(ros2 topic echo --once /emergency_stop/state std_msgs/msg/Bool --field data 2>/tmp/robot_fault_estop.err || true)"
+    state="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /emergency_stop/state std_msgs/msg/Bool --field data 2>/tmp/robot_fault_estop.err || true)"
     if grep -qi "${expected}" <<<"${state}"; then
       echo "${state}"
       return

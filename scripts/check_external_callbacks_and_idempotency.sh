@@ -101,7 +101,7 @@ print("IDEMPOTENT_FIRST=" + json.dumps(first, sort_keys=True))
 print("IDEMPOTENT_SECOND=" + json.dumps(second, sort_keys=True))
 PY
 
-timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/request_station_confirmation robot_interfaces_facility/srv/RequestStationConfirmation \
+service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/request_station_confirmation robot_interfaces_facility/srv/RequestStationConfirmation \
   "{confirmation_id: webhook_alpha, station_id: receiving, action: external_callback_probe, mission_id: webhook_probe, operator_hint: callback test, timeout_sec: 0, timeout_policy: manual}" \
   >"${LOG_DIR}/confirmation.out"
 rg "success=True" "${LOG_DIR}/confirmation.out"

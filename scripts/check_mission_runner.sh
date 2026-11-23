@@ -1,28 +1,18 @@
 #!/usr/bin/env bash
+# 任务中枢基本接口：服务与话题类型齐全；调用 /start_mission_profile 后默认任务跑完（FINISHED）。
+# 原脚本假定启动时任务会自动开跑，运行器起栈时不自动开跑，所以这里自己发 start。
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/robot_wait.sh"
 
-ros2 service type /start_mission_profile | rg "std_srvs/srv/Trigger"
-ros2 service type /reload_mission_profile | rg "std_srvs/srv/Trigger"
-ros2 service type /pause_mission_profile | rg "std_srvs/srv/Trigger"
-ros2 service type /resume_mission_profile | rg "std_srvs/srv/Trigger"
-ros2 service type /cancel_mission_profile | rg "std_srvs/srv/Trigger"
-ros2 service type /v2/enqueue_mission_profile | rg "robot_interfaces_mission/srv/EnqueueMission"
-ros2 topic type /mission_runner/state | rg "robot_interfaces/msg/RobotState"
-
-deadline=$((SECONDS + 20))
-while true; do
-  state="$(ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState --field state 2>/tmp/robot_mission_runner_state.err || true)"
-  if grep -q "FINISHED" <<<"${state}"; then
-    echo "${state}"
-    exit 0
-  fi
-  if grep -q "FAILED\\|ERROR" <<<"${state}"; then
-    echo "mission runner failed with state: ${state}" >&2
-    exit 1
-  fi
-  if (( SECONDS >= deadline )); then
-    echo "mission runner did not finish before timeout; last state: ${state}" >&2
-    exit 1
-  fi
-  sleep 1
+for svc in /start_mission_profile /reload_mission_profile /pause_mission_profile /resume_mission_profile /cancel_mission_profile; do
+  wait_service_type "${svc}" "std_srvs/srv/Trigger" 10 /tmp/robot_mission_runner_service.err
 done
+wait_service_type /v2/enqueue_mission_profile "robot_interfaces_mission/srv/EnqueueMission" 10 /tmp/robot_mission_runner_enqueue.err
+wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_mission_runner_topic.err
+
+out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /start_mission_profile std_srvs/srv/Trigger "{}" | response_only)"
+rg "success=True" <<<"${out}"
+wait_active_mission demo_patrol 30
+
+echo "mission runner passed"

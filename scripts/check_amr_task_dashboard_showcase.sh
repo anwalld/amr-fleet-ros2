@@ -16,7 +16,7 @@ LOG_DIR="$(mktemp -d /tmp/robot_task_dashboard.XXXXXX)"
 PIDS=()
 
 cleanup() {
-  timeout "${ROS2_CALL_TIMEOUT:-120}" ros2 service call /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
+  service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/unblock_station_route robot_interfaces_mission/srv/UnblockStationRoute \
     "{from_station: storage_a, to_station: packing}" >/dev/null 2>&1 || true
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "$pid" >/dev/null 2>&1; then
@@ -40,7 +40,7 @@ call_service() {
   local service="$2"
   local type="$3"
   local request="$4"
-  if ! timeout -k 5s 35s ros2 service call "${service}" "${type}" "${request}" \
+  if ! service_response 35s "${service}" "${type}" "${request}" \
       >"${LOG_DIR}/${name}.out" 2>"${LOG_DIR}/${name}.err"; then
     echo "${service} call failed" >&2
     cat "${LOG_DIR}/${name}.out" >&2 2>/dev/null || true
@@ -57,7 +57,7 @@ wait_dashboard_marker() {
     if timeout 8s ros2 topic echo --once --full-length \
         /amr_simulation/markers visualization_msgs/msg/MarkerArray \
         >"${sample}" 2>"${sample}.err" &&
-      rg "AMR任务看板|task_board" "${sample}" >/dev/null &&
+      rg "task_board" "${sample}" >/dev/null &&
       rg "当前机器人 robot:" "${sample}" >/dev/null &&
       rg "当前任务 task:" "${sample}" >/dev/null &&
       rg "当前阶段 phase:" "${sample}" >/dev/null &&
@@ -101,13 +101,17 @@ wait_service_type /v2/block_station_route "robot_interfaces_mission/srv/BlockSta
   "${LOG_DIR}/wait_block_route.err"
 
 call_service snapshot /v2/get_operator_snapshot robot_interfaces_business/srv/GetOperatorSnapshot "{event_limit: 8}"
-rg "success=True|operator snapshot|fleet_robot_ids=\\[|facility_resource_ids=\\[|recent_event_states=\\[" \
-  "${LOG_DIR}/snapshot.out"
+rg "success=True" "${LOG_DIR}/snapshot.out"
+rg "operator snapshot" "${LOG_DIR}/snapshot.out"
+rg "fleet_robot_ids=\\[" "${LOG_DIR}/snapshot.out"
+rg "facility_resource_ids=\\[" "${LOG_DIR}/snapshot.out"
+rg "recent_event_states=\\[" "${LOG_DIR}/snapshot.out"
 
 call_service block_route /v2/block_station_route robot_interfaces_mission/srv/BlockStationRoute \
   "{from_station: storage_a, to_station: packing, reason: task_dashboard_probe}"
-rg "success=True|route_edge:storage_a__packing|route_edge:packing__storage_a" \
-  "${LOG_DIR}/block_route.out"
+rg "success=True" "${LOG_DIR}/block_route.out"
+# 路段号按站点名排序生成（RouteLockId），packing 在 storage_a 之前；原来两种写法都放行。
+rg "resource_id='route_edge:packing__storage_a'" "${LOG_DIR}/block_route.out"
 
 wait_dashboard_marker 90
 

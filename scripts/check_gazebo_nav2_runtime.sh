@@ -67,7 +67,7 @@ call_service_checked() {
   local name="$1"
   shift
   local output_file="${LOG_DIR}/${name}.txt"
-  if ! timeout 15s ros2 service call "$@" >"${output_file}" 2>&1; then
+  if ! service_response 15s "$@" >"${output_file}" 2>&1; then
     echo "service call failed: ${name}" >&2
     cat "${output_file}" >&2
     return 1
@@ -93,7 +93,9 @@ for service in \
   node_name="$(basename "$(dirname "${service}")")"
   wait_service_type "${service}" "lifecycle_msgs/srv/GetState" \
     60 "${LOG_DIR}/${node_name}_service.err"
-  wait_lifecycle_active "${service}" 60 "${LOG_DIR}/${node_name}_state.err"
+  # 生命周期管理器在 navigation_start_delay 之后依次激活；Gazebo 软件渲染负载高时 map_server
+  # 偶尔超过 60 秒才进入 active（2026-11-19-m4 夜跑失败于此）。只放宽轮询上限，不重跑。
+  wait_lifecycle_active "${service}" 120 "${LOG_DIR}/${node_name}_state.err"
 done
 
 wait_topic_type /nav2_cmd_vel "geometry_msgs/msg/Twist" \

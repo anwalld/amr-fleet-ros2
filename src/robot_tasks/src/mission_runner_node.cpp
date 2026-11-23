@@ -121,6 +121,7 @@
 #include "robot_tasks/mission_queue.hpp"
 #include "robot_tasks/mission_recovery_behavior_tree.hpp"
 #include "robot_tasks/mission_recovery_policy.hpp"
+#include "robot_tasks/pause_state.hpp"
 #include "robot_tasks/mission_resource_cleanup_behavior_tree.hpp"
 #include "robot_tasks/mission_resource_cleanup.hpp"
 #include "robot_tasks/mission_result_behavior_tree.hpp"
@@ -132,6 +133,7 @@
 #include "robot_tasks/queued_mission_start_behavior_tree.hpp"
 #include "robot_tasks/sanitize_id.hpp"
 #include "robot_tasks/scenario_catalog.hpp"
+#include "robot_tasks/sequence_cancel.hpp"
 #include "robot_tasks/station_confirmation_workflow.hpp"
 #include "robot_tasks/station_sequence_workflow.hpp"
 #include "robot_tasks/station_catalog.hpp"
@@ -181,16 +183,21 @@ double PathLength(const nav_msgs::msg::Path& path) {
   return distance_m;
 }
 
+bool IsCancelledResult(const GoalHandleNavigateSequence::WrappedResult& result) {
+  return robot_tasks::IsSequenceCancelled(
+      result.code == rclcpp_action::ResultCode::CANCELED,
+      result.code == rclcpp_action::ResultCode::ABORTED,
+      result.result ? result.result->message : "");
+}
+
 robot_tasks::MissionActionResultCode ToMissionActionResultCode(
-    const rclcpp_action::ResultCode code) {
-  switch (code) {
-    case rclcpp_action::ResultCode::SUCCEEDED:
-      return robot_tasks::MissionActionResultCode::kSucceeded;
-    case rclcpp_action::ResultCode::CANCELED:
-      return robot_tasks::MissionActionResultCode::kCanceled;
-    default:
-      return robot_tasks::MissionActionResultCode::kFailed;
+    const GoalHandleNavigateSequence::WrappedResult& result) {
+  if (IsCancelledResult(result)) {
+    return robot_tasks::MissionActionResultCode::kCanceled;
   }
+  return result.code == rclcpp_action::ResultCode::SUCCEEDED
+             ? robot_tasks::MissionActionResultCode::kSucceeded
+             : robot_tasks::MissionActionResultCode::kFailed;
 }
 
 }  // namespace
@@ -1094,7 +1101,7 @@ class MissionRunnerNode final : public rclcpp::Node {
         robot_tasks::WorkflowCancelRequest{
             order_id, request->cancel_active, mission_queue_,
             robot_tasks::WorkflowActiveMission{
-                RunnerBusy(), paused_, ActiveMissionId()}});
+                RunnerBusy(), paused_.paused(), ActiveMissionId()}});
     mission_queue_ = decision.remaining_queue;
     response->canceled_mission_ids = decision.canceled_mission_ids;
     response->active_cancel_requested = decision.active_cancel_requested;
@@ -1134,13 +1141,13 @@ class MissionRunnerNode final : public rclcpp::Node {
         robot_tasks::WorkflowPauseRequest{
             order_id, request->pause_active, mission_queue_, paused_workflow_orders_,
             robot_tasks::WorkflowActiveMission{
-                RunnerBusy(), paused_, ActiveMissionId()}});
+                RunnerBusy(), paused_.paused(), ActiveMissionId()}});
     paused_workflow_orders_ = decision.paused_order_ids;
     response->affected_mission_ids = decision.affected_mission_ids;
     response->active_pause_requested = decision.active_pause_requested;
 
     if (decision.active_pause_requested) {
-      paused_ = decision.runner_paused;
+      paused_.SetByRunner(decision.runner_paused);
       SendControlRequest<std_srvs::srv::Trigger>(pause_client_, pause_service_name_);
       SetState("PAUSED", "workflow pause requested for " + order_id, true);
     }
@@ -1177,13 +1184,13 @@ class MissionRunnerNode final : public rclcpp::Node {
         robot_tasks::WorkflowResumeRequest{
             order_id, request->resume_active, mission_queue_, paused_workflow_orders_,
             robot_tasks::WorkflowActiveMission{
-                RunnerBusy(), paused_, ActiveMissionId()}});
+                RunnerBusy(), paused_.paused(), ActiveMissionId()}});
     paused_workflow_orders_ = decision.paused_order_ids;
     response->affected_mission_ids = decision.affected_mission_ids;
     response->active_resume_requested = decision.active_resume_requested;
 
     if (decision.active_resume_requested) {
-      paused_ = decision.runner_paused;
+      paused_.SetByRunner(decision.runner_paused);
       SendControlRequest<std_srvs::srv::Trigger>(resume_client_, resume_service_name_);
       SetState("RUNNING", "workflow resume requested for " + order_id, true);
     }
@@ -1217,7 +1224,7 @@ class MissionRunnerNode final : public rclcpp::Node {
         robot_tasks::WorkflowStatusRequest{
             order_id, mission_queue_,
             robot_tasks::WorkflowActiveMission{
-                RunnerBusy(), paused_, ActiveMissionId()},
+                RunnerBusy(), paused_.paused(), ActiveMissionId()},
             paused_workflow_orders_, mission_events_, current_state_});
     response->queued_mission_ids = snapshot.queued_mission_ids;
     response->running_mission_id = snapshot.running_mission_id;
@@ -2129,7 +2136,7 @@ class MissionRunnerNode final : public rclcpp::Node {
             last_message_,
             recoverable_,
             RunnerBusy(),
-            paused_,
+            paused_.paused(),
             mission_queue_,
             paused_workflow_orders_,
             fleet.has_value() ? &*fleet : nullptr,
@@ -2907,7 +2914,7 @@ class MissionRunnerNode final : public rclcpp::Node {
 
     auto* transport = FindActiveStationTransport();
     if (transport != nullptr) {
-      if (paused_) {
+      if (paused_.paused()) {
         response->success = false;
         response->message =
             "station transport is paused; resume it before confirming load";
@@ -2997,7 +3004,7 @@ class MissionRunnerNode final : public rclcpp::Node {
 
     auto* transport = FindActiveStationTransport();
     if (transport != nullptr) {
-      if (paused_) {
+      if (paused_.paused()) {
         response->success = false;
         response->message =
             "station transport is paused; resume it before confirming unload";
@@ -3198,11 +3205,11 @@ class MissionRunnerNode final : public rclcpp::Node {
           decision.event.message, decision.event.recoverable);
     }
     if (decision.side_effects.request_pause) {
-      paused_ = true;
+      paused_.SetByRunner(true);
       SendControlRequest<std_srvs::srv::Trigger>(pause_client_, pause_service_name_);
     }
     if (decision.side_effects.request_resume) {
-      paused_ = false;
+      paused_.SetByRunner(false);
       SendControlRequest<std_srvs::srv::Trigger>(resume_client_, resume_service_name_);
     }
     if (decision.side_effects.set_runner_state) {
@@ -3217,8 +3224,11 @@ class MissionRunnerNode final : public rclcpp::Node {
         robot_tasks::MissionLocalizationPoseUpdateRequest{
             CurrentLocalizationState(), pose.pose.covariance[0], pose.pose.covariance[7],
             localization_covariance_threshold_, localization_pause_on_lost_, mission_active_,
-            paused_});
+            paused_.paused()});
     ApplyLocalizationDecision(decision);
+    if (localization_pause_on_lost_ && mission_active_ && decision.localization.state == "LOST") {
+      paused_.HoldByRunner();
+    }
     PublishLocalizationHealth();
   }
 
@@ -3269,7 +3279,7 @@ class MissionRunnerNode final : public rclcpp::Node {
     initial_pose_pub_->publish(pose);
     const auto decision = robot_tasks::PlanInitialPoseRecovery(
         robot_tasks::MissionInitialPoseRecoveryRequest{
-            CurrentLocalizationState(), station->id, mission_active_, paused_, 0.05});
+            CurrentLocalizationState(), station->id, mission_active_, paused_.paused(), 0.05});
     ApplyLocalizationDecision(decision);
     PublishLocalizationHealth();
     response->success = true;
@@ -3318,11 +3328,11 @@ class MissionRunnerNode final : public rclcpp::Node {
           decision.event.message, decision.event.recoverable);
     }
     if (decision.side_effects.request_pause) {
-      paused_ = true;
+      paused_.SetByRunner(true);
       SendControlRequest<std_srvs::srv::Trigger>(pause_client_, pause_service_name_);
     }
     if (decision.side_effects.request_resume) {
-      paused_ = false;
+      paused_.SetByRunner(false);
       SendControlRequest<std_srvs::srv::Trigger>(resume_client_, resume_service_name_);
     }
     if (decision.side_effects.set_runner_state) {
@@ -3357,8 +3367,13 @@ class MissionRunnerNode final : public rclcpp::Node {
         robot_tasks::MissionSafetyReportBlockageRequest{
             CurrentMissionSafetyState(), blockage_id, request->reason,
             profile_.has_value() ? profile_->mission_id : "", previous_state_,
-            request->pause_active, safety_obstacle_pause_on_blockage_, mission_active_, paused_});
+            request->pause_active, safety_obstacle_pause_on_blockage_, mission_active_,
+            paused_.paused()});
     ApplyMissionSafetyDecision(decision);
+    if (decision.success && request->pause_active && safety_obstacle_pause_on_blockage_ &&
+        mission_active_) {
+      paused_.HoldByRunner();
+    }
     if (decision.mutate_state) {
       PublishSafetyState();
     }
@@ -3376,7 +3391,7 @@ class MissionRunnerNode final : public rclcpp::Node {
         robot_tasks::MissionSafetyClearBlockageRequest{
             CurrentMissionSafetyState(), SanitizeId(request->blockage_id),
             request->resolution, current_state_, request->resume_active, mission_active_,
-            paused_});
+            paused_.paused()});
     ApplyMissionSafetyDecision(decision);
     if (decision.mutate_state) {
       PublishSafetyState();
@@ -5141,7 +5156,7 @@ class MissionRunnerNode final : public rclcpp::Node {
     }
     active_station_transport_id_.clear();
     cancellation_requested_ = false;
-    paused_ = false;
+    paused_.SetByRunner(false);
     current_goal_handle_.reset();
     mission_active_ = false;
     SetState(state, message, true);
@@ -5179,7 +5194,7 @@ class MissionRunnerNode final : public rclcpp::Node {
 
     it->second.state = transition.next_state;
     mission_active_ = false;
-    paused_ = false;
+    paused_.SetByRunner(false);
     current_goal_handle_.reset();
     cancellation_requested_ = false;
 
@@ -5276,8 +5291,7 @@ class MissionRunnerNode final : public rclcpp::Node {
               result.code == rclcpp_action::ResultCode::SUCCEEDED &&
               result.result && result.result->success;
           const bool canceled =
-              result.code == rclcpp_action::ResultCode::CANCELED ||
-              cancellation_requested_;
+              IsCancelledResult(result) || cancellation_requested_;
           on_result(succeeded, canceled, result.result ? result.result->message : "");
         };
     options.feedback_callback =
@@ -5288,13 +5302,13 @@ class MissionRunnerNode final : public rclcpp::Node {
             return;
           }
           current_goal_index_ = feedback->current_goal_index;
+          paused_.OnFeedback(feedback->state == "paused");
           if (feedback->state == "paused") {
-            paused_ = true;
             SetState("PAUSED", feedback->message, true);
             return;
           }
           const auto* transport = FindActiveStationTransport();
-          if (transport != nullptr && !paused_) {
+          if (transport != nullptr && !paused_.paused()) {
             SetState(
                 robot_tasks::StationTransportPhaseName(transport->state.phase),
                 feedback->state + ": " + feedback->message, true);
@@ -5332,7 +5346,7 @@ class MissionRunnerNode final : public rclcpp::Node {
     profile_ = leg == robot_tasks::StationTransportLeg::kPickup
                    ? it->second.pickup_profile
                    : it->second.dropoff_profile;
-    paused_ = false;
+    paused_.SetByRunner(false);
     cancellation_requested_ = false;
     current_goal_handle_.reset();
 
@@ -5596,7 +5610,7 @@ class MissionRunnerNode final : public rclcpp::Node {
 
   void DispatchMission(const std::shared_ptr<std_srvs::srv::Trigger::Response>& response,
                        const std::string& accepted_message) {
-    paused_ = false;
+    paused_.SetByRunner(false);
     cancellation_requested_ = false;
     current_goal_handle_.reset();
     if (!profile_.has_value()) {
@@ -5640,7 +5654,13 @@ class MissionRunnerNode final : public rclcpp::Node {
                        const std::shared_ptr<std_srvs::srv::Trigger::Response>& response,
                        const std::string& accepted_message) {
     auto options = rclcpp_action::Client<NavigateSequence>::SendGoalOptions();
-    options.goal_response_callback = [this](GoalHandleNavigateSequence::SharedPtr goal_handle) {
+    // 发出、受理、拒绝各一行（连同导航序列服务收到时那一行）：目标卡住时才分得清丢在哪一段
+    // （acceptance-suite-rework design D20）。
+    const std::string mission_id = profile_.has_value() ? profile_->mission_id : "";
+    options.goal_response_callback =
+        [this, mission_id](GoalHandleNavigateSequence::SharedPtr goal_handle) {
+      RCLCPP_INFO(get_logger(), "mission goal %s: id=%s", goal_handle ? "accepted" : "rejected",
+                  mission_id.c_str());
       if (!goal_handle) {
         mission_active_ = false;
         current_goal_handle_.reset();
@@ -5658,10 +5678,10 @@ class MissionRunnerNode final : public rclcpp::Node {
           ((dock_profile.has_value() && completed_mission_id == dock_profile->mission_id) ||
            dock_by_mission_.find(completed_mission_id) != dock_by_mission_.end());
       mission_active_ = false;
-      paused_ = false;
+      paused_.SetByRunner(false);
       current_goal_handle_.reset();
       robot_tasks::MissionResultWorkflowInput result_input;
-      result_input.code = ToMissionActionResultCode(result.code);
+      result_input.code = ToMissionActionResultCode(result);
       result_input.result_success = result.result && result.result->success;
       result_input.result_message = result.result ? result.result->message : "";
       result_input.cancellation_requested = cancellation_requested_;
@@ -5684,10 +5704,10 @@ class MissionRunnerNode final : public rclcpp::Node {
             GoalHandleNavigateSequence::SharedPtr,
             const std::shared_ptr<const NavigateSequence::Feedback> feedback) {
           current_goal_index_ = feedback->current_goal_index;
+          paused_.OnFeedback(feedback->state == "paused");
           if (feedback->state == "paused") {
-            paused_ = true;
             SetState("PAUSED", feedback->message, true);
-          } else if (paused_) {
+          } else if (paused_.paused()) {
             SetState("PAUSED", feedback->state + ": " + feedback->message, true);
           } else {
             SetState("RUNNING", feedback->state + ": " + feedback->message, true);
@@ -5697,6 +5717,8 @@ class MissionRunnerNode final : public rclcpp::Node {
     mission_active_ = true;
     autostart_sent_ = true;
     SetState("STARTING", "sending mission profile to navigate sequence", true);
+    RCLCPP_INFO(get_logger(), "mission goal sent: id=%s waypoints=%zu", mission_id.c_str(),
+                goal.goals.size());
     action_client_->async_send_goal(goal, options);
     if (response != nullptr) {
       response->success = true;
@@ -5707,6 +5729,10 @@ class MissionRunnerNode final : public rclcpp::Node {
   bool ApplyMissionResultDecision(
       const robot_tasks::MissionResultWorkflowDecision& result_decision,
       const std::string& completed_mission_id, const bool completed_dock) {
+    // 释放会清掉任务到设施的映射，记日志用的资源号要先取。
+    const auto facility_it = facility_resource_by_mission_.find(completed_mission_id);
+    const std::string facility_id =
+        facility_it == facility_resource_by_mission_.end() ? "" : facility_it->second;
     if (result_decision.clear_cancellation_requested) {
       cancellation_requested_ = false;
     }
@@ -5723,6 +5749,7 @@ class MissionRunnerNode final : public rclcpp::Node {
 
     if (result_decision.probe_docking_contact_failure) {
       if (HandleDockingContactFailure(completed_mission_id)) {
+        LogMissionResult(result_decision, completed_mission_id, facility_id);
         HandleMissionFailure("docking contact failed", false);
         return false;
       }
@@ -5737,6 +5764,7 @@ class MissionRunnerNode final : public rclcpp::Node {
       CompleteDockingMission(completed_mission_id);
     }
 
+    LogMissionResult(result_decision, completed_mission_id, facility_id);
     if (result_decision.handle_failure) {
       HandleMissionFailure(result_decision.failure_message, completed_dock);
     } else {
@@ -5744,6 +5772,25 @@ class MissionRunnerNode final : public rclcpp::Node {
     }
 
     return true;
+  }
+
+  void LogMissionResult(
+      const robot_tasks::MissionResultWorkflowDecision& decision, const std::string& mission_id,
+      const std::string& facility_id) const {
+    std::string facility = "-";
+    if (!facility_id.empty()) {
+      const auto it = facility_reservations_.find(facility_id);
+      facility = facility_id + "=" +
+                 (it == facility_reservations_.end()
+                      ? std::string("available")
+                      : it->second.status + " holder=" + it->second.holder_id);
+    }
+    RCLCPP_INFO(
+        get_logger(),
+        "mission result: id=%s branch=%s release_all=%d release_route=%d mark_occupied=%d "
+        "facility=%s",
+        mission_id.c_str(), decision.branch.c_str(), decision.release_all_resources,
+        decision.release_route_locks, decision.mark_resource_occupied, facility.c_str());
   }
 
   void ApplyMissionResultPostActions(
@@ -5774,7 +5821,7 @@ class MissionRunnerNode final : public rclcpp::Node {
       response->message = "no active mission profile to pause";
       return;
     }
-    paused_ = true;
+    paused_.SetByRunner(true);
     SetState("PAUSED", "mission profile pause requested", true);
     SendControlRequest<std_srvs::srv::Trigger>(pause_client_, pause_service_name_);
     response->success = true;
@@ -5783,12 +5830,12 @@ class MissionRunnerNode final : public rclcpp::Node {
 
   void ResumeMission(
       const std::shared_ptr<std_srvs::srv::Trigger::Response>& response) {
-    if (!mission_active_ || !paused_) {
+    if (!mission_active_ || !paused_.paused()) {
       response->success = false;
       response->message = "no paused mission profile to resume";
       return;
     }
-    paused_ = false;
+    paused_.SetByRunner(false);
     SetState("RUNNING", "mission profile resume requested", true);
     SendControlRequest<std_srvs::srv::Trigger>(resume_client_, resume_service_name_);
     response->success = true;
@@ -5988,7 +6035,7 @@ class MissionRunnerNode final : public rclcpp::Node {
     }
 
     cancellation_requested_ = true;
-    paused_ = false;
+    paused_.SetByRunner(false);
     SetState("CANCELING", message, true);
     if (current_goal_handle_) {
       action_client_->async_cancel_goal(current_goal_handle_);
@@ -6145,7 +6192,7 @@ class MissionRunnerNode final : public rclcpp::Node {
   bool autostart_ = false;
   bool autostart_sent_ = false;
   bool mission_active_ = false;
-  bool paused_ = false;
+  robot_tasks::PauseState paused_;
   bool cancellation_requested_ = false;
   bool queue_running_ = false;
   bool queue_start_requested_ = false;

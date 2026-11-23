@@ -39,7 +39,7 @@ start_bg() {
 SVC_TIMEOUT="${SVC_TIMEOUT:-20}"
 
 svc() {
-  timeout --kill-after=5 "${SVC_TIMEOUT}" ros2 service call "$@"
+  service_response "${SVC_TIMEOUT}" "$@"
 }
 
 request_segment() {

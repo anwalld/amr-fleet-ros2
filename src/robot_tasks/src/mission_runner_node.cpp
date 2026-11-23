@@ -5654,7 +5654,13 @@ class MissionRunnerNode final : public rclcpp::Node {
                        const std::shared_ptr<std_srvs::srv::Trigger::Response>& response,
                        const std::string& accepted_message) {
     auto options = rclcpp_action::Client<NavigateSequence>::SendGoalOptions();
-    options.goal_response_callback = [this](GoalHandleNavigateSequence::SharedPtr goal_handle) {
+    // 发出、受理、拒绝各一行（连同导航序列服务收到时那一行）：目标卡住时才分得清丢在哪一段
+    // （acceptance-suite-rework design D20）。
+    const std::string mission_id = profile_.has_value() ? profile_->mission_id : "";
+    options.goal_response_callback =
+        [this, mission_id](GoalHandleNavigateSequence::SharedPtr goal_handle) {
+      RCLCPP_INFO(get_logger(), "mission goal %s: id=%s", goal_handle ? "accepted" : "rejected",
+                  mission_id.c_str());
       if (!goal_handle) {
         mission_active_ = false;
         current_goal_handle_.reset();
@@ -5711,6 +5717,8 @@ class MissionRunnerNode final : public rclcpp::Node {
     mission_active_ = true;
     autostart_sent_ = true;
     SetState("STARTING", "sending mission profile to navigate sequence", true);
+    RCLCPP_INFO(get_logger(), "mission goal sent: id=%s waypoints=%zu", mission_id.c_str(),
+                goal.goals.size());
     action_client_->async_send_goal(goal, options);
     if (response != nullptr) {
       response->success = true;

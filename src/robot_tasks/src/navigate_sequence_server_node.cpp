@@ -148,6 +148,7 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
       RCLCPP_WARN(get_logger(), "reject navigate sequence while another mission is active");
       return rclcpp_action::GoalResponse::REJECT;
     }
+    RCLCPP_INFO(get_logger(), "accept navigate sequence goal: waypoints=%zu", goal->goals.size());
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
   }
 

@@ -33,3 +33,16 @@
 #### Scenario: 临时绕行切断了去目的地的路
 - **WHEN** robot_1 先执行绕开 `route_node:jn_s` 去 packing 的 `reroute`，走到 jn_n 又被退避到 park_5，停完后去 packing 的路都要经过 jn_s
 - **THEN** robot_1 清空临时绕行，经 jn_s 驶往 packing；若这条路上有封路且没有别的路，则仍不穿过封路，停在原地重试
+
+## ADDED Requirements
+
+### Requirement: 幂等请求丢应答时重发
+任务代理查询站点、查询路网、查询派给自己的任务、申请路权这四种请求，发出 5 秒仍无应答且服务可用时，SHALL 按原样重发并记一条警告，直到拿到应答；被放弃的那次请求迟到的应答 SHALL 被忽略。拿到应答之前 SHALL NOT 换内容发同一种请求。
+
+#### Scenario: 启动时路网查询的应答丢了
+- **WHEN** robot_3 启动后 `/v2/list_station_routes` 的第一次应答丢失
+- **THEN** robot_3 约 5 秒后重发，拿到路网后占住起点并就绪
+
+#### Scenario: 已授予但应答丢了
+- **WHEN** 路权服务已把一段路授予 robot_2，但应答丢失
+- **THEN** robot_2 按原样重发，服务对已被本车持有的资源照样返回授予，robot_2 驶入该段，没有遗留无人释放的资源

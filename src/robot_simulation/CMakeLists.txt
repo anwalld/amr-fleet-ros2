@@ -115,6 +115,9 @@ if(BUILD_TESTING)
   ament_add_gtest(agent_idle_test test/agent_idle_test.cpp)
   target_include_directories(agent_idle_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+  ament_add_gtest(agent_request_test test/agent_request_test.cpp)
+  target_include_directories(agent_request_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
   ament_add_gtest(agent_route_test test/agent_route_test.cpp)
   target_include_directories(agent_route_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -136,7 +139,13 @@ if(BUILD_TESTING)
       "ROBOT_HARDWARE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../robot_hardware"
       "ROBOT_BRINGUP_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../robot_bringup")
 
-  add_launch_test(test/test_sim_model_runtime.launch.py TIMEOUT 180)
+  # launch 测试各用独立的 ROS 域：colcon 并行跑多个包时，同名话题和 TF 会串（夜跑 #2、#3 的"漂移"）。
+  # 不 find_package(ament_cmake_ros)：它会把 BUILD_SHARED_LIBS 打开，改变本包库的链接方式。
+  ament_index_get_prefix_path(ament_prefixes)
+  find_file(RUN_TEST_ISOLATED run_test_isolated.py
+    PATHS ${ament_prefixes} PATH_SUFFIXES share/ament_cmake_ros/cmake
+    NO_DEFAULT_PATH REQUIRED)
+  add_launch_test(test/test_sim_model_runtime.launch.py TIMEOUT 180 RUNNER "${RUN_TEST_ISOLATED}")
 endif()
 
 ament_export_include_directories(include)

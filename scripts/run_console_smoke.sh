@@ -66,6 +66,7 @@ trap cleanup EXIT
 echo "[$(date +%T)] 压测栈已在后台拉起（${SMOKE_ROBOTS} 车 rolling，${SMOKE_NETWORK}，ROS_DOMAIN_ID=${ROS_DOMAIN_ID}）"
 timeout --kill-after=10 $((SMOKE_SECONDS + 180)) \
   ros2 run robot_console robot_console --smoke-seconds "${SMOKE_SECONDS}" --smoke-out "${METRICS}" \
+    --ros-args --log-level robot_console:=debug \
   > "${OUT_DIR}/console.log" 2>&1 < /dev/null
 console_rc=$?
 echo "[$(date +%T)] 调度台退出码 ${console_rc}"
@@ -92,6 +93,11 @@ else
     reason="${reason}robots_with_pose=${robots_with_pose} < ${SMOKE_ROBOTS}; "
 fi
 
+if ! python3 "${SCRIPT_DIR}/m4_ops_smoke_boundary.py" "${OUT_DIR}/console.log" \
+    > "${OUT_DIR}/console_service_boundary.tsv"; then
+  reason="${reason}调度台服务及发布边界核对失败；"
+fi
+
 # 先停栈（采集进程随之收尾、写完文件），再校验录像：每行可解析、四类记录齐全、回放程序退出 0 且不跳行。
 cleanup
 REPLAY_BIN="${ROOT_DIR}/install/robot_console_core/bin/robot_console_replay"
@@ -110,6 +116,9 @@ fi
     printf "metric\tvalue\n"
   fi
   printf "console_rc\t%s\n" "${console_rc}"
+  printf "network\t%s\n" "${SMOKE_NETWORK}"
+  printf "qt_platform\t%s\n" "${QT_QPA_PLATFORM}"
+  printf "service_boundary\t%s\n" "console_service_boundary.tsv"
   printf "replay_check\t%s\n" "${replay_check}"
   if [[ -z "${reason}" ]]; then
     printf "verdict\tPASS\n"

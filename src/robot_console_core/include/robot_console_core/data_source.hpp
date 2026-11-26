@@ -31,6 +31,8 @@ class DataSource : public QObject {
   void trafficReceived(const robot_console::TrafficStateData& traffic);
   void snapshotReceived(const robot_console::OperatorSnapshotData& snapshot);
   void eventReceived(const robot_console::FleetEvent& event);
+  void alarmReceived(const QString& source, const QString& state, const QString& message);
+  void fleetStopReceived(bool stopped);
   void connectionChanged(const robot_console::ConnectionStatus& status);
 
  protected:

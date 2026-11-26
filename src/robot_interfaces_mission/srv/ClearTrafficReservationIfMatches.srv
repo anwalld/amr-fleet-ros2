@@ -1,0 +1,10 @@
+string resource_id
+string expected_owner_id
+string[] expected_resource_ids
+string[] expected_resume_robot_ids
+---
+uint8 SUCCESS=0
+uint8 CONFLICT=1
+uint8 ERROR=2
+uint8 result
+string message

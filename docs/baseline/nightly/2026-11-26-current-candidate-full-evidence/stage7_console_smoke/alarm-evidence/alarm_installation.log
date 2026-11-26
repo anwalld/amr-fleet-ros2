@@ -1,0 +1,10 @@
+/home/ubuntu/nightly/2026-11-26-merged-control-current-full/stage7_console_smoke/alarm-evidence/desktop/robot-console.desktop
+/home/ubuntu/nightly/2026-11-26-merged-control-current-full/stage7_console_smoke/alarm-evidence/desktop/robot-console-replay.desktop
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+This plugin does not support propagateSizeHints()
+[INFO] [1795685699.466083684] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+[INFO] [1795685700.471760851] [robot_console]: 订阅 robot_1 的位置：/robot_1/odom
+[INFO] [1795685700.472621932] [robot_console]: 订阅 robot_2 的位置：/robot_2/odom
+[INFO] [1795685702.574007348] [robot_console]: console_publisher_audit_complete
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+This plugin does not support propagateSizeHints()

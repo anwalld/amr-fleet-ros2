@@ -1,0 +1,36 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::clear_scope_conflict() This plugin does not support propagateSizeHints()
+[INFO] [1795685676.536948176] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+[INFO] [1795685677.541069847] [robot_console]: 订阅 robot_1 的位置：/robot_1/odom
+[INFO] [1795685677.542419926] [robot_console]: 订阅 robot_2 的位置：/robot_2/odom
+[INFO] [1795685677.787565165] [robot_console]: console_service_request service=/v2/preview_traffic_reservation_clear operation_id=1 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"message":"cleared mission route reservation route_edge:receiving__storage_a","outcome":0,"request_id":1,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+[INFO] [1795685677.837631126] [robot_console]: console_service_request service=/v2/clear_traffic_reservation_if_matches operation_id=2 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"message":"reservation or clear impact changed; preview again","outcome":3,"request_id":2,"step":"console_reply"}
+[INFO] [1795685677.887400172] [robot_console]: console_service_request service=/v2/preview_traffic_reservation_clear operation_id=3 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"message":"cleared mission route reservation route_edge:receiving__storage_a","outcome":0,"request_id":3,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/release_route_segment","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+[INFO] [1795685678.787433100] [robot_console]: console_service_request service=/v2/preview_traffic_reservation_clear operation_id=4 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"message":"cleared mission route reservation route_edge:receiving__storage_a","outcome":0,"request_id":4,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/block_station_route","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/block_station_route","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+[INFO] [1795685679.787566785] [robot_console]: console_service_request service=/v2/clear_traffic_reservation_if_matches operation_id=5 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"message":"reservation or clear impact changed; preview again","outcome":3,"request_id":5,"step":"console_reply"}
+[INFO] [1795685679.837497372] [robot_console]: console_service_request service=/v2/preview_traffic_reservation_clear operation_id=6 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"message":"cleared mission route reservation route_edge:receiving__storage_a","outcome":0,"request_id":6,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_scope_conflict() OPS_EVIDENCE {"owner":"alpha","resource_change":true,"resume_change":true,"step":"clear_scope_conflict_observed","target":"route_edge:receiving__storage_a"}
+[INFO] [1795685679.864582241] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::clear_scope_conflict()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 3371ms
+********* Finished testing of ConsoleOpsAcceptance *********

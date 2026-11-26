@@ -1,0 +1,11 @@
+suite	case	kind	status	seconds
+ops-ui	workflow_submit	core	PASS	3
+ops-ui	workflow_control	core	PASS	4
+ops-ui	fleet_submit_remote	fleet_sim	PASS	71
+ops-ui	fleet_submit_local	core	PASS	20
+ops-ui	route_block	core	PASS	11
+ops-ui	fleet_enabled	core	PASS	4
+ops-ui	clear_match	traffic_core	PASS	4
+ops-ui	clear_owner_conflict	traffic_core	PASS	5
+ops-ui	clear_scope_conflict	traffic_core	PASS	5
+ops-ui	submit_timeout	delay_fixture	PASS	4

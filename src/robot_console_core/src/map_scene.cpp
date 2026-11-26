@@ -114,6 +114,7 @@ void MapScene::setGraph(const StationGraph& g) {
     const QPointF pb = stations_.value(e.b)->pos();
     e.line = addLine(QLineF(pa, pb));
     e.line->setZValue(kZEdge);
+    e.line->setData(kRouteResourceData, routeResourceId(e.a, e.b));
     e.line->setToolTip(QStringLiteral("%1 — %2").arg(e.a, e.b));
     if (e.forward != e.backward) {
       // 单向：在中点画箭头，指向行驶方向。

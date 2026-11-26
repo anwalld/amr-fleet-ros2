@@ -1,0 +1,17 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::fleet_submit_local() This plugin does not support propagateSizeHints()
+[INFO] [1795685632.956370905] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+[INFO] [1795685633.962961704] [robot_console]: 订阅 robot_1 的位置：/robot_1/odom
+[INFO] [1795685633.964039076] [robot_console]: 订阅 robot_2 的位置：/robot_2/odom
+QINFO  : ConsoleOpsAcceptance::fleet_submit_local() OPS_EVIDENCE {"service":"/v2/update_fleet_robot_state","step":"fixture_call"}
+[INFO] [1795685634.006835478] [robot_console]: console_service_request service=/v2/submit_fleet_station_task operation_id=1 target=ops_transport_0b6420625d8c4d21a1fff00b2526ac6a include_active=false
+QINFO  : ConsoleOpsAcceptance::fleet_submit_local() OPS_EVIDENCE {"message":"assigned fleet task ops_transport_0b6420625d8c4d21a1fff00b2526ac6a to robot_1 estimated_total_distance_m=5.100000: queued station transport order station_order_fleet_ops_transport_0b6420625d8c4d21a1fff00b2526ac6a priority 0","outcome":0,"request_id":1,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::fleet_submit_local() OPS_EVIDENCE {"mission_id":"station_order_fleet_ops_transport_0b6420625d8c4d21a1fff00b2526ac6a","robot":"robot_1","state":"FINISHED","step":"local_task_observed","target":"ops_transport_0b6420625d8c4d21a1fff00b2526ac6a"}
+[INFO] [1795685647.984744116] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::fleet_submit_local()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 15063ms
+********* Finished testing of ConsoleOpsAcceptance *********

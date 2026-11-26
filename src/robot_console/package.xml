@@ -3,7 +3,7 @@
 <package format="3">
   <name>robot_console</name>
   <version>0.0.0</version>
-  <description>Qt 6 调度台：RosBridge 在 QThread 里跑 rclcpp 执行器，只读地订阅话题、轮询快照与路网，驱动 robot_console_core 的界面；支持冒烟模式（夜跑阶段 7）。</description>
+  <description>Qt 6 调度台：RosBridge 在 QThread 里跑 rclcpp 执行器，订阅话题、轮询快照和路网，接入调度操作、故障告警与仿真车队停止。</description>
   <maintainer email="ubuntu@todo.todo">ubuntu</maintainer>
   <license>MIT</license>
 
@@ -13,9 +13,14 @@
   <depend>qt6-base-dev</depend>
   <depend>rclcpp</depend>
   <depend>robot_console_core</depend>
+  <depend>robot_interfaces</depend>
   <depend>robot_interfaces_business</depend>
+  <depend>robot_interfaces_fleet</depend>
   <depend>robot_interfaces_mission</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+
+  <exec_depend>python3</exec_depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
 

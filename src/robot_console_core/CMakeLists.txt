@@ -19,6 +19,7 @@ set(CORE_HEADERS
   include/robot_console_core/types.hpp
   include/robot_console_core/json_codec.hpp
   include/robot_console_core/data_source.hpp
+  include/robot_console_core/operation_source.hpp
   include/robot_console_core/replay_source.hpp
   include/robot_console_core/resource_id.hpp
   include/robot_console_core/fleet_table_model.hpp
@@ -48,6 +49,7 @@ add_library(robot_console_core STATIC
   src/map_view.cpp
   src/traffic_panel.cpp
   src/main_window.cpp
+  src/operation_panel.cpp
   src/smoke_metrics.cpp
   src/smoke_run.cpp
 )
@@ -67,6 +69,7 @@ if(BUILD_TESTING)
     test_json_codec
     test_replay_source
     test_main_window
+    test_operations
     test_fleet_model
     test_task_model
     test_resource_id

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite name="ConsoleOpsAcceptance" timestamp="2026&#x002D;11&#x002D;26T17:34:12" hostname="lm&#x002D;worker&#x002D;1" tests="3" failures="0" errors="0" skipped="0" time="9.251">
+  <properties>
+    <property name="QTestVersion" value="6.4.2"/>
+    <property name="QtVersion" value="6.4.2"/>
+    <property name="QtBuild" value="Qt 6.4.2 (arm64&#x002D;little_endian&#x002D;lp64 shared (dynamic) release build; by GCC 13.2.0)"/>
+  </properties>
+  <testcase name="initTestCase" classname="ConsoleOpsAcceptance" time="0.000"/>
+  <testcase name="route_block" classname="ConsoleOpsAcceptance" time="9.251">
+    <system-out>
+      <![CDATA[OPS_EVIDENCE {"service":"/v2/block_station_route","step":"fixture_call"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"unblocked route receiving -> storage_a","outcome":0,"request_id":1,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"blocked route receiving -> storage_a","outcome":0,"request_id":2,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"unblocked route receiving -> storage_a","outcome":0,"request_id":3,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"route resource already reserved: route_edge:receiving__storage_a by alpha","outcome":1,"request_id":4,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"external_refresh_ms":169,"occupied_owner":"alpha","rejection":"route resource already reserved: route_edge:receiving__storage_a by alpha","step":"route_observed","target":"route_edge:receiving__storage_a"}]]>
+    </system-out>
+    <system-err>
+      <![CDATA[This plugin does not support propagateSizeHints()]]>
+    </system-err>
+  </testcase>
+  <testcase name="cleanupTestCase" classname="ConsoleOpsAcceptance" time="0.000"/>
+</testsuite>

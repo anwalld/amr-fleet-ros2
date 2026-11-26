@@ -1,0 +1,24 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::route_block() This plugin does not support propagateSizeHints()
+[INFO] [1795685652.418118191] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+[INFO] [1795685653.425040238] [robot_console]: 订阅 robot_1 的位置：/robot_1/odom
+[INFO] [1795685653.425951485] [robot_console]: 订阅 robot_2 的位置：/robot_2/odom
+QINFO  : ConsoleOpsAcceptance::route_block() OPS_EVIDENCE {"service":"/v2/block_station_route","step":"fixture_call"}
+[INFO] [1795685657.619087011] [robot_console]: console_service_request service=/v2/unblock_station_route operation_id=1 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::route_block() OPS_EVIDENCE {"message":"unblocked route receiving -> storage_a","outcome":0,"request_id":1,"step":"console_reply"}
+[INFO] [1795685658.619905245] [robot_console]: console_service_request service=/v2/block_station_route operation_id=2 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::route_block() OPS_EVIDENCE {"message":"blocked route receiving -> storage_a","outcome":0,"request_id":2,"step":"console_reply"}
+[INFO] [1795685659.618719694] [robot_console]: console_service_request service=/v2/unblock_station_route operation_id=3 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::route_block() OPS_EVIDENCE {"message":"unblocked route receiving -> storage_a","outcome":0,"request_id":3,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::route_block() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+[INFO] [1795685660.669011725] [robot_console]: console_service_request service=/v2/block_station_route operation_id=4 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::route_block() OPS_EVIDENCE {"message":"route resource already reserved: route_edge:receiving__storage_a by alpha","outcome":1,"request_id":4,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::route_block() OPS_EVIDENCE {"external_refresh_ms":169,"occupied_owner":"alpha","rejection":"route resource already reserved: route_edge:receiving__storage_a by alpha","step":"route_observed","target":"route_edge:receiving__storage_a"}
+[INFO] [1795685661.624455066] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::route_block()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 9251ms
+********* Finished testing of ConsoleOpsAcceptance *********

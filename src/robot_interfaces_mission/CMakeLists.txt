@@ -37,6 +37,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/UnblockStationRoute.srv"
   "srv/ListTrafficReservations.srv"
   "srv/ClearTrafficReservation.srv"
+  "srv/PreviewTrafficReservationClear.srv"
+  "srv/ClearTrafficReservationIfMatches.srv"
   "srv/RequestRouteSegment.srv"
   "srv/ReleaseRouteSegment.srv"
   "msg/TrafficGrant.msg"

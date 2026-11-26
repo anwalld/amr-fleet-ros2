@@ -1,0 +1,17 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::fleet_submit_remote() This plugin does not support propagateSizeHints()
+[INFO] [1795685561.320352902] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+[INFO] [1795685564.326533714] [robot_console]: 订阅 robot_1 的位置：/robot_1/odom
+[INFO] [1795685564.327604044] [robot_console]: 订阅 robot_2 的位置：/robot_2/odom
+QINFO  : ConsoleOpsAcceptance::fleet_submit_remote() OPS_EVIDENCE {"service":"/v2/update_fleet_robot_state","step":"fixture_call"}
+[INFO] [1795685566.371267277] [robot_console]: console_service_request service=/v2/submit_fleet_station_task operation_id=1 target=ops_transport_37378a3a409d434da5f2b9d9d014453d include_active=false
+QINFO  : ConsoleOpsAcceptance::fleet_submit_remote() OPS_EVIDENCE {"message":"dispatched remote fleet task ops_transport_37378a3a409d434da5f2b9d9d014453d to robot_1 estimated_total_distance_m=40.240000","outcome":0,"request_id":1,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::fleet_submit_remote() OPS_EVIDENCE {"robot":"robot_1","state":"FINISHED","step":"remote_task_observed","target":"ops_transport_37378a3a409d434da5f2b9d9d014453d"}
+[INFO] [1795685631.351376809] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::fleet_submit_remote()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 70078ms
+********* Finished testing of ConsoleOpsAcceptance *********

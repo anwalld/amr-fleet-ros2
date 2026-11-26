@@ -1,39 +1,66 @@
 #!/usr/bin/env bash
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/robot_wait.sh"
 
-wait_service_type /return_to_dock "std_srvs/srv/Trigger" 10 /tmp/robot_return_to_dock_service.err
-wait_topic_type /mission_runner/state "robot_interfaces/msg/RobotState" 10 /tmp/robot_return_to_dock_topic.err
+python3 - <<'PY'
+import os
+from time import monotonic
 
-service_response "${ROS2_CALL_TIMEOUT:-30}" /return_to_dock std_srvs/srv/Trigger "{}" | rg "success=True"
+import rclpy
+from robot_interfaces.msg import RobotState
+from std_srvs.srv import Trigger
 
-seen_dock=false
-deadline=$((SECONDS + 20))
-while true; do
-  active_goal="$(
-    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
-      --field active_goal_id 2>/tmp/robot_return_to_dock_state.err || true
-  )"
-  state="$(
-    timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /mission_runner/state robot_interfaces/msg/RobotState \
-      --field state 2>/tmp/robot_return_to_dock_state.err || true
-  )"
 
-  if grep -q "dock_return" <<<"${active_goal}"; then
-    seen_dock=true
-  fi
-  if ${seen_dock} && grep -q "FINISHED" <<<"${state}"; then
-    echo "return-to-dock mission finished"
-    exit 0
-  fi
-  if grep -q "FAILED\\|ERROR" <<<"${state}"; then
-    echo "return-to-dock failed with state: ${state}, active_goal_id: ${active_goal}" >&2
-    exit 1
-  fi
-  if (( SECONDS >= deadline )); then
-    echo "return-to-dock did not finish; seen_dock=${seen_dock}, state=${state}, active_goal_id=${active_goal}" >&2
-    exit 1
-  fi
-  sleep 1
-done
+def check(node):
+    latest_state = None
+    seen_dock = False
+
+    def on_state(msg):
+        nonlocal latest_state, seen_dock
+        latest_state = msg
+        seen_dock |= msg.active_goal_id == "dock_return"
+
+    client = node.create_client(Trigger, "/return_to_dock")
+    node.create_subscription(RobotState, "/mission_runner/state", on_state, 10)
+    if not client.wait_for_service(timeout_sec=10):
+        raise SystemExit("return-to-dock service not discovered")
+    deadline = monotonic() + 10.0
+    while latest_state is None and monotonic() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    if latest_state is None:
+        raise SystemExit("return-to-dock: no mission state before request")
+
+    seen_dock = False
+    result = client.call_async(Trigger.Request())
+    rclpy.spin_until_future_complete(
+        node, result, timeout_sec=float(os.environ.get("ROS2_CALL_TIMEOUT", "30"))
+    )
+    if not result.done():
+        raise SystemExit(
+            f"return-to-dock reply timed out; seen_dock={seen_dock}, state={latest_state.state}"
+        )
+    response = result.result()
+    print(response)
+    if not response.success:
+        raise SystemExit("return-to-dock was rejected")
+
+    deadline = monotonic() + 20.0
+    while True:
+        if seen_dock and latest_state.state == "FINISHED":
+            print("return-to-dock mission finished")
+            return
+        if latest_state.state in {"FAILED", "ERROR"} or monotonic() >= deadline:
+            raise SystemExit(
+                f"return-to-dock did not finish; seen_dock={seen_dock}, state={latest_state.state}, "
+                f"active_goal_id={latest_state.active_goal_id}"
+            )
+        rclpy.spin_once(node, timeout_sec=0.1)
+
+
+rclpy.init()
+node = rclpy.create_node("check_return_to_dock")
+try:
+    check(node)
+finally:
+    node.destroy_node()
+    rclpy.shutdown()
+PY

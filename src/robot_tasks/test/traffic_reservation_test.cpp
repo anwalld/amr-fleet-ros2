@@ -4,6 +4,62 @@
 
 namespace robot_tasks {
 
+TEST(TrafficReservationTest, ClearImpactChecksOwnerResourcesAndPausedGroup) {
+  RouteLockMap locks{{"edge", "robot_1"}, {"node", "robot_1"}, {"other", "robot_3"}};
+  std::unordered_map<std::string, std::string> groups{
+      {"robot_1", "group"}, {"robot_2", "group"}, {"robot_3", "other_group"}};
+  const auto preview = PlanTrafficClearImpact("edge", locks, groups);
+  EXPECT_EQ(preview.resource_ids, (std::vector<std::string>{"edge", "node"}));
+  EXPECT_EQ(preview.resume_robot_ids, (std::vector<std::string>{"robot_1", "robot_2"}));
+  const auto matches = [&](const TrafficClearImpact& impact) {
+    return impact.Matches("robot_1", {"node", "edge"}, {"robot_2", "robot_1"});
+  };
+  EXPECT_TRUE(matches(preview));
+  EXPECT_FALSE(matches(PlanTrafficClearImpact("absent", locks, groups)));
+  auto moved = locks;
+  moved["edge"] = "robot_3";
+  EXPECT_FALSE(matches(PlanTrafficClearImpact("edge", moved, groups)));
+  moved = locks;
+  moved["added"] = "robot_1";
+  EXPECT_FALSE(matches(PlanTrafficClearImpact("edge", moved, groups)));
+  groups.erase("robot_2");
+  EXPECT_FALSE(matches(PlanTrafficClearImpact("edge", locks, groups)));
+  EXPECT_EQ(locks.size(), 3U);
+}
+
+TEST(TrafficReservationTest, BlockClearImpactOnlyRemovesSelectedResource) {
+  const auto owner = TrafficBlockOwnerId("maintenance");
+  RouteLockMap locks{{"edge", owner}, {"other_edge", owner}};
+  RouteLockReservationMap reservations;
+  const auto impact = PlanTrafficClearImpact("edge", locks, {});
+  EXPECT_TRUE(impact.Matches(owner, {"edge"}, {}));
+  ApplyTrafficClearImpact(impact, locks, reservations);
+  EXPECT_EQ(locks, (RouteLockMap{{"other_edge", owner}}));
+}
+
+TEST(TrafficReservationTest, ApplyClearImpactRemovesSharedAndLegacyReservations) {
+  RouteLockMap locks;
+  RouteLockReservationMap reservations;
+  ASSERT_TRUE(ReserveRouteLocksForMission(
+      locks, reservations, "mission_1", "robot_1", {"shared", "edge"}, nullptr));
+  ASSERT_TRUE(ReserveRouteLocksForMission(
+      locks, reservations, "mission_2", "robot_1", {"shared", "node"}, nullptr));
+  ASSERT_TRUE(ReserveRouteLocksForMission(
+      locks, reservations, "legacy_task", {"legacy"}, nullptr));
+  locks["rolling"] = "robot_1";
+  const auto impact = PlanTrafficClearImpact("shared", locks, {});
+  EXPECT_TRUE(impact.Matches("robot_1", {"shared", "edge", "node", "rolling"}, {}));
+  ApplyTrafficClearImpact(impact, locks, reservations);
+  EXPECT_EQ(locks, (RouteLockMap{{"legacy", "legacy_task"}}));
+  EXPECT_EQ(reservations.count("legacy_task"), 1U);
+  EXPECT_EQ(reservations.size(), 1U);
+  const auto legacy = PlanTrafficClearImpact("legacy", locks, {});
+  EXPECT_TRUE(legacy.Matches("legacy_task", {"legacy"}, {}));
+  ApplyTrafficClearImpact(legacy, locks, reservations);
+  EXPECT_TRUE(locks.empty());
+  EXPECT_TRUE(reservations.empty());
+}
+
 TEST(TrafficReservationTest, RouteLockId_SortsEndpointsForSharedEdge) {
   EXPECT_EQ(RouteLockId("storage_b", "packing"), "route_edge:packing__storage_b");
   EXPECT_EQ(RouteLockId("packing", "storage_b"), "route_edge:packing__storage_b");

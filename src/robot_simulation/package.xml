@@ -20,6 +20,7 @@
   <depend>robot_interfaces_navigation</depend>
   <depend>ros_gz_interfaces</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
   <depend>visualization_msgs</depend>

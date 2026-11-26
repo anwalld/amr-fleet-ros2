@@ -1,0 +1,6 @@
+[auto_confirm 17:34:01] WAIT_LOAD at receiving -> confirm_load
+response:
+robot_interfaces_facility.srv.ConfirmLoad_Response(success=True, message='loaded acceptance_tote at receiving; dropoff navigation dispatched', payload_id='acceptance_tote', state='LOADED', loaded=True, weight_kg=8.5)
+[auto_confirm 17:34:05] WAIT_UNLOAD at storage_a -> confirm_unload
+response:
+robot_interfaces_facility.srv.ConfirmUnload_Response(success=True, message='unloaded acceptance_tote at storage_a; station transport completed', payload_id='acceptance_tote', state='EMPTY', loaded=False)

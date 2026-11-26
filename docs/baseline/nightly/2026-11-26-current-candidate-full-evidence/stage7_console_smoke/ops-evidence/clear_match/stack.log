@@ -1,0 +1,13 @@
+[INFO] [launch]: All log files can be found below /home/ubuntu/.ros/log/2026-11-26-17-34-27-011786-lm-worker-1-802090
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [mission_runner_node-1]: process started with pid [802112]
+[mission_runner_node-1] [INFO] [1795685667.070358721] [mission_runner_node]: traffic deadlock: resolution=on starvation=20.0s whole_route_wait_ttl=6.0s yield_hold=5.0s yield_timeout=10.0s
+[mission_runner_node-1] [INFO] [1795685667.070419471] [mission_runner_node]: traffic_reservation_mode=rolling
+[mission_runner_node-1] [WARN] [1795685668.224220454] [mission_runner_node]: traffic deadlock detected (#1 in 30s, check 12.7 us): alpha -[route_edge:packing__storage_a]-> beta -[route_edge:receiving__storage_a]-> alpha
+[mission_runner_node-1] [ERROR] [1795685668.224393495] [mission_runner_node]: traffic deadlock fallback: pausing alpha,beta (no robot in the cycle can reroute or reach a free yield point); clear one of their reservations via /v2/clear_traffic_reservation to resume
+[mission_runner_node-1] [INFO] [1795685669.188745027] [mission_runner_node]: traffic deadlock fallback: resumed alpha,beta
+[mission_runner_node-1] [INFO] [1795685669.188887902] [mission_runner_node]: traffic granted: beta storage_a -> receiving
+[mission_runner_node-1] [INFO] [1795685670.071611249] [mission_runner_node]: traffic deadlock resolved after 1847 ms (pause by -): alpha -[route_edge:packing__storage_a]-> beta -[route_edge:receiving__storage_a]-> alpha
+[INFO] [1795685670.272588714] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[mission_runner_node-1] [INFO] [1795685670.272593422] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [mission_runner_node-1]: process has finished cleanly [pid 802112]

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite name="ConsoleOpsAcceptance" timestamp="2026&#x002D;11&#x002D;26T17:34:51" hostname="lm&#x002D;worker&#x002D;1" tests="3" failures="0" errors="0" skipped="0" time="7.127">
+  <properties>
+    <property name="QTestVersion" value="6.4.2"/>
+    <property name="QtVersion" value="6.4.2"/>
+    <property name="QtBuild" value="Qt 6.4.2 (arm64&#x002D;little_endian&#x002D;lp64 shared (dynamic) release build; by GCC 13.2.0)"/>
+  </properties>
+  <testcase name="initTestCase" classname="ConsoleOpsAcceptance" time="0.000"/>
+  <testcase name="alarm_sim_stop" classname="ConsoleOpsAcceptance" time="7.127">
+    <system-out>
+      <![CDATA[OPS_EVIDENCE {"message":"simulation fleet stop released","outcome":0,"request_id":1,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"service":"/v2/update_fleet_robot_state","step":"fixture_call"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"dispatched remote fleet task ops_transport_386268af00424c46a84b28553702bd3d to robot_1 estimated_total_distance_m=40.240000","outcome":0,"request_id":2,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"simulation fleet stop set","outcome":0,"request_id":3,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"simulation fleet stop released","outcome":0,"request_id":4,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"held_resources":1,"resumed":true,"robot":"robot_1","step":"alarm_sim_stop","stopped_ms":1200,"task":"ops_transport_386268af00424c46a84b28553702bd3d"}]]>
+    </system-out>
+    <system-err>
+      <![CDATA[This plugin does not support propagateSizeHints()]]>
+      <![CDATA[This plugin does not support propagateSizeHints()]]>
+      <![CDATA[This plugin does not support propagateSizeHints()]]>
+      <![CDATA[This plugin does not support propagateSizeHints()]]>
+    </system-err>
+  </testcase>
+  <testcase name="cleanupTestCase" classname="ConsoleOpsAcceptance" time="0.000"/>
+</testsuite>

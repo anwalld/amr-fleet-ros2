@@ -1,0 +1,11 @@
+suite	case	script	stack	budget_s	timeout_s	origin
+ops-ui	workflow_submit	console_ops_acceptance	core	30	90	m4-console-ops
+ops-ui	workflow_control	console_ops_acceptance	core	55	120	m4-console-ops
+ops-ui	fleet_submit_remote	console_ops_acceptance	fleet_sim	100	180	m4-console-ops
+ops-ui	fleet_submit_local	console_ops_acceptance	core	100	180	m4-console-ops
+ops-ui	route_block	console_ops_acceptance	core	30	90	m4-console-ops
+ops-ui	fleet_enabled	console_ops_acceptance	core	25	90	m4-console-ops
+ops-ui	clear_match	console_ops_acceptance	traffic_core	35	90	m4-console-ops
+ops-ui	clear_owner_conflict	console_ops_acceptance	traffic_core	30	90	m4-console-ops
+ops-ui	clear_scope_conflict	console_ops_acceptance	traffic_core	50	120	m4-console-ops
+ops-ui	submit_timeout	console_ops_acceptance	delay_fixture	15	60	m4-console-ops

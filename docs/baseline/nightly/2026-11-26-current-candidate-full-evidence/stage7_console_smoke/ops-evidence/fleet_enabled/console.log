@@ -1,0 +1,18 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::fleet_enabled() This plugin does not support propagateSizeHints()
+[INFO] [1795685663.241589706] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+[INFO] [1795685664.248091106] [robot_console]: 订阅 robot_1 的位置：/robot_1/odom
+[INFO] [1795685664.249147561] [robot_console]: 订阅 robot_2 的位置：/robot_2/odom
+[INFO] [1795685664.293110039] [robot_console]: console_service_request service=/v2/update_fleet_robot_state operation_id=1 target=robot_2 include_active=false
+QINFO  : ConsoleOpsAcceptance::fleet_enabled() OPS_EVIDENCE {"message":"updated runtime fleet state for robot_2","outcome":0,"request_id":1,"step":"console_reply"}
+[INFO] [1795685665.293134409] [robot_console]: console_service_request service=/v2/update_fleet_robot_state operation_id=2 target=robot_2 include_active=false
+QINFO  : ConsoleOpsAcceptance::fleet_enabled() OPS_EVIDENCE {"message":"updated runtime fleet state for robot_2","outcome":0,"request_id":2,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::fleet_enabled() OPS_EVIDENCE {"sequence":[false,true],"state":"charging","step":"fleet_flags_observed","target":"robot_2","voltage":23}
+[INFO] [1795685666.270106788] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::fleet_enabled()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 3074ms
+********* Finished testing of ConsoleOpsAcceptance *********

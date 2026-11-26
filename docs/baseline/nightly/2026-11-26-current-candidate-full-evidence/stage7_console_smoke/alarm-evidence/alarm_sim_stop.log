@@ -1,0 +1,28 @@
+std_srvs/srv/SetBool
+std_msgs/msg/Bool
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::alarm_sim_stop() This plugin does not support propagateSizeHints()
+[INFO] [1795685691.878212887] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+QWARN  : ConsoleOpsAcceptance::alarm_sim_stop() This plugin does not support propagateSizeHints()
+QWARN  : ConsoleOpsAcceptance::alarm_sim_stop() This plugin does not support propagateSizeHints()
+[INFO] [1795685694.729311225] [robot_console]: console_service_request service=/v2/set_fleet_sim_stop operation_id=1 target=仿真车队 include_active=false
+QINFO  : ConsoleOpsAcceptance::alarm_sim_stop() OPS_EVIDENCE {"message":"simulation fleet stop released","outcome":0,"request_id":1,"step":"console_reply"}
+[INFO] [1795685694.885490422] [robot_console]: 订阅 robot_1 的位置：/robot_1/odom
+[INFO] [1795685694.886704668] [robot_console]: 订阅 robot_2 的位置：/robot_2/odom
+QINFO  : ConsoleOpsAcceptance::alarm_sim_stop() OPS_EVIDENCE {"service":"/v2/update_fleet_robot_state","step":"fixture_call"}
+[INFO] [1795685696.929156360] [robot_console]: console_service_request service=/v2/submit_fleet_station_task operation_id=2 target=ops_transport_386268af00424c46a84b28553702bd3d include_active=false
+QINFO  : ConsoleOpsAcceptance::alarm_sim_stop() OPS_EVIDENCE {"message":"dispatched remote fleet task ops_transport_386268af00424c46a84b28553702bd3d to robot_1 estimated_total_distance_m=40.240000","outcome":0,"request_id":2,"step":"console_reply"}
+[INFO] [1795685697.529158480] [robot_console]: console_service_request service=/v2/set_fleet_sim_stop operation_id=3 target=仿真车队 include_active=false
+QINFO  : ConsoleOpsAcceptance::alarm_sim_stop() OPS_EVIDENCE {"message":"simulation fleet stop set","outcome":0,"request_id":3,"step":"console_reply"}
+QWARN  : ConsoleOpsAcceptance::alarm_sim_stop() This plugin does not support propagateSizeHints()
+[INFO] [1795685698.829793224] [robot_console]: console_service_request service=/v2/set_fleet_sim_stop operation_id=4 target=仿真车队 include_active=false
+QINFO  : ConsoleOpsAcceptance::alarm_sim_stop() OPS_EVIDENCE {"message":"simulation fleet stop released","outcome":0,"request_id":4,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::alarm_sim_stop() OPS_EVIDENCE {"held_resources":1,"resumed":true,"robot":"robot_1","step":"alarm_sim_stop","stopped_ms":1200,"task":"ops_transport_386268af00424c46a84b28553702bd3d"}
+[INFO] [1795685698.952124615] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::alarm_sim_stop()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 7127ms
+********* Finished testing of ConsoleOpsAcceptance *********

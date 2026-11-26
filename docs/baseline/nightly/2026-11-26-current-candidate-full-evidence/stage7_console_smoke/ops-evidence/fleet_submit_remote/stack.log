@@ -1,0 +1,20 @@
+[INFO] [launch]: All log files can be found below /home/ubuntu/.ros/log/2026-11-26-17-32-40-262572-lm-worker-1-800377
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [fleet_robot_agent_node-1]: process started with pid [800384]
+[INFO] [fleet_robot_agent_node-2]: process started with pid [800385]
+[INFO] [mission_runner_node-3]: process started with pid [800386]
+[INFO] [navigate_sequence_server_node-4]: process started with pid [800387]
+[fleet_robot_agent_node-2] [INFO] [1795685560.339127426] [robot_2_agent]: fleet task agent robot_2 start=park_2 home=park_2 kinematic=true traffic=rolling
+[fleet_robot_agent_node-1] [INFO] [1795685560.347604023] [robot_1_agent]: fleet task agent robot_1 start=park_1 home=park_1 kinematic=true traffic=rolling
+[mission_runner_node-3] [INFO] [1795685560.354007586] [mission_runner_node]: traffic deadlock: resolution=on starvation=20.0s whole_route_wait_ttl=6.0s yield_hold=5.0s yield_timeout=10.0s
+[mission_runner_node-3] [INFO] [1795685560.354057169] [mission_runner_node]: traffic_reservation_mode=rolling
+[fleet_robot_agent_node-2] [INFO] [1795685560.589780777] [robot_2_agent]: robot_2 ready at park_2
+[fleet_robot_agent_node-1] [INFO] [1795685560.799840303] [robot_1_agent]: robot_1 ready at park_1
+[mission_runner_node-3] [INFO] [1795685631.524976493] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[fleet_robot_agent_node-1] [INFO] [1795685631.525007243] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[navigate_sequence_server_node-4] [INFO] [1795685631.525002118] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[fleet_robot_agent_node-2] [INFO] [1795685631.525140201] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [fleet_robot_agent_node-2]: process has finished cleanly [pid 800385]
+[INFO] [fleet_robot_agent_node-1]: process has finished cleanly [pid 800384]
+[INFO] [navigate_sequence_server_node-4]: process has finished cleanly [pid 800387]
+[INFO] [mission_runner_node-3]: process has finished cleanly [pid 800386]

@@ -1,5 +1,7 @@
 #include "robot_console_core/resource_id.hpp"
 
+#include <algorithm>
+
 namespace robot_console {
 
 ResourceRef parseResource(const QString& id) {
@@ -23,6 +25,10 @@ ResourceRef parseResource(const QString& id) {
     r.a = s;
   }
   return r;
+}
+
+QString routeResourceId(const QString& from, const QString& to) {
+  return QStringLiteral("route_edge:%1__%2").arg(std::min(from, to), std::max(from, to));
 }
 
 QString edgeKey(const QString& s1, const QString& s2) {

@@ -13,6 +13,7 @@ find_package(robot_interfaces_mission REQUIRED)
 find_package(robot_interfaces_navigation REQUIRED)
 find_package(ros_gz_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(visualization_msgs REQUIRED)
@@ -61,6 +62,9 @@ ament_target_dependencies(amr_sim_gazebo_entity_bridge_node
   ros_gz_interfaces
   std_msgs)
 
+add_executable(fleet_sim_stop_node src/fleet_sim_stop_node.cpp)
+ament_target_dependencies(fleet_sim_stop_node rclcpp std_msgs std_srvs)
+
 # M2：原 robot2_fleet_demo_driver_node 改造成通用车队代理（两种模式，见源文件开头）。
 add_executable(fleet_robot_agent_node src/fleet_robot_agent_node.cpp)
 target_include_directories(fleet_robot_agent_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -87,6 +91,7 @@ ament_target_dependencies(gazebo_unpause_node
   ros_gz_interfaces)
 
 install(TARGETS
+  fleet_sim_stop_node
   amr_sim_visualizer_node
   amr_sim_demo_director_node
   amr_sim_gazebo_entity_bridge_node
@@ -111,6 +116,9 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
   find_package(launch_testing_ament_cmake REQUIRED)
+
+  ament_add_gtest(fleet_sim_stop_test test/fleet_sim_stop_test.cpp)
+  target_include_directories(fleet_sim_stop_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
   ament_add_gtest(agent_idle_test test/agent_idle_test.cpp)
   target_include_directories(agent_idle_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

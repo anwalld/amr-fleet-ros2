@@ -140,6 +140,26 @@ TrafficReservationDecision PlanTrafficUnblock(
     const RouteLockMap& route_locks);
 TrafficClearDecision PlanTrafficReservationClear(
     const std::string& resource_id, const RouteLockMap& route_locks);
+struct TrafficClearImpact {
+  TrafficClearDecision decision;
+  std::vector<std::string> resource_ids;
+  std::vector<std::string> resume_robot_ids;
+
+  bool Matches(const std::string& owner_id,
+               const std::vector<std::string>& expected_resources,
+               const std::vector<std::string>& expected_resume_robots) const;
+};
+
+std::vector<std::string> PausedGroupMembers(
+    const std::unordered_map<std::string, std::string>& paused_group_of,
+    const std::string& robot_id);
+TrafficClearImpact PlanTrafficClearImpact(
+    const std::string& resource_id, const RouteLockMap& route_locks,
+    const std::unordered_map<std::string, std::string>& paused_group_of);
+void ApplyTrafficClearImpact(
+    const TrafficClearImpact& impact, RouteLockMap& route_locks,
+    RouteLockReservationMap& route_locks_by_mission);
+
 // 死锁检测（M3 起为等待图找环）见 traffic_deadlock.hpp。
 std::vector<std::string> BuildRouteLockIds(
     const std::vector<std::string>& station_path, bool include_intersection_locks);

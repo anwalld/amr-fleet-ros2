@@ -1,7 +1,9 @@
 #include "robot_console_core/map_view.hpp"
 
 #include <QElapsedTimer>
+#include <QGraphicsItem>
 #include <QMouseEvent>
+#include <QMetaMethod>
 #include <QWheelEvent>
 
 #include <cmath>
@@ -66,6 +68,19 @@ void MapView::mousePressEvent(QMouseEvent* event) {
     auto_fit_ = true;
     fitToStations();
     return;
+  }
+  if (event->button() == Qt::RightButton && isSignalConnected(
+          QMetaMethod::fromSignal(&MapView::routeSelected))) {
+    const QPoint position = event->position().toPoint();
+    const auto under_cursor = items(QRect(position - QPoint(4, 4), QSize(9, 9)));
+    for (auto* item : under_cursor) {
+      const QString resource = item->data(MapScene::kRouteResourceData).toString();
+      if (!resource.isEmpty()) {
+        emit routeSelected(resource);
+        event->accept();
+        return;
+      }
+    }
   }
   auto_fit_ = false;
   QGraphicsView::mousePressEvent(event);

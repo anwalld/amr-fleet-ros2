@@ -1,0 +1,227 @@
+{
+  "profile": "shared-rework",
+  "checks": {
+    "traffic_samples": {
+      "stress_2_rolling": {
+        "samples": 1800,
+        "first_sample_seconds": 1.0,
+        "last_sample_seconds": 1800.0,
+        "largest_gap_seconds": 1.0,
+        "duration_seconds": 1800.1
+      },
+      "stress_2_whole_route": {
+        "samples": 1800,
+        "first_sample_seconds": 1.0,
+        "last_sample_seconds": 1800.0,
+        "largest_gap_seconds": 1.01,
+        "duration_seconds": 1800.0
+      },
+      "stress_4_rolling": {
+        "samples": 1800,
+        "first_sample_seconds": 0.99,
+        "last_sample_seconds": 1799.99,
+        "largest_gap_seconds": 1.03,
+        "duration_seconds": 1800.0
+      },
+      "stress_4_whole_route": {
+        "samples": 1800,
+        "first_sample_seconds": 0.91,
+        "last_sample_seconds": 1799.91,
+        "largest_gap_seconds": 1.02,
+        "duration_seconds": 1800.0
+      },
+      "stress_6_rolling": {
+        "samples": 1800,
+        "first_sample_seconds": 0.99,
+        "last_sample_seconds": 1799.99,
+        "largest_gap_seconds": 1.01,
+        "duration_seconds": 1800.0
+      },
+      "stress_6_whole_route": {
+        "samples": 1800,
+        "first_sample_seconds": 1.0,
+        "last_sample_seconds": 1800.0,
+        "largest_gap_seconds": 1.0,
+        "duration_seconds": 1800.0
+      }
+    },
+    "shared_acceptance": {
+      "cases": 110,
+      "mock_cases": 6,
+      "templates": 12,
+      "scenarios": 9,
+      "recordings": 10,
+      "smoke": {
+        "duration_s": "299.7",
+        "snapshots": "300",
+        "snapshot_hz": "1.00",
+        "traffic_msgs": "300",
+        "traffic_hz": "1.00",
+        "events": "10",
+        "event_hz": "0.033",
+        "robots": "6",
+        "robots_with_pose": "6",
+        "pose_updates": "13883",
+        "pose_hz_min": "7.68",
+        "pose_hz.robot_1": "7.73",
+        "pose_hz.robot_2": "7.68",
+        "pose_hz.robot_3": "7.73",
+        "pose_hz.robot_4": "7.68",
+        "pose_hz.robot_5": "7.71",
+        "pose_hz.robot_6": "7.79",
+        "service_timeouts": "0",
+        "latency_samples": "13883",
+        "latency_p50_ms": "17.99",
+        "latency_p95_ms": "32.07",
+        "latency_max_ms": "35.91",
+        "latency_skipped": "0",
+        "frames": "7979",
+        "fps": "26.62",
+        "paint_p95_ms": "1.882",
+        "console_rc": "0",
+        "network": "workshop_2way",
+        "qt_platform": "offscreen",
+        "service_boundary": "console_service_boundary.tsv",
+        "replay_check": "OK event=10，graph=1，meta=1，pose=13886，snapshot=300，traffic=300；时长 300.8s；回放通过",
+        "verdict": "PASS"
+      }
+    },
+    "m4_ops_stage7": {
+      "expected": 10,
+      "verified": 10,
+      "read_services": {
+        "/v2/list_stations": 61,
+        "/v2/list_station_routes": 61,
+        "/v2/get_operator_snapshot": 300
+      },
+      "business_publishers": []
+    },
+    "m4_alarm_stage7": {
+      "cases": {
+        "alarm_events_and_recovery": "PASS",
+        "alarm_sim_stop": "PASS",
+        "alarm_installation": "PASS"
+      }
+    },
+    "task_control_restart": {
+      "results": [
+        {
+          "case": "d16",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet",
+          "status": "PASS"
+        }
+      ]
+    },
+    "task_control_scenarios": {
+      "results": [
+        {
+          "case": "d16-delayed-reply",
+          "status": "PASS"
+        },
+        {
+          "case": "d16-route-hazard",
+          "status": "PASS"
+        },
+        {
+          "case": "d16-motion-cutover",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-rolling",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-whole-route",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-cancel-paused",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-restart-held",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-restart-missing-route",
+          "status": "PASS"
+        }
+      ],
+      "traces": {
+        "d16-delayed-reply": {
+          "operator_request": 4,
+          "operator_reply": 4,
+          "navigation_pause_sent": 3,
+          "navigation_pause_ack": 3,
+          "forwarded_pause_ack": 3
+        },
+        "d16-route-hazard": {
+          "state": 7,
+          "localized": 4,
+          "service_request": 3,
+          "service_reply": 3,
+          "goals": 1
+        },
+        "d16-motion-cutover": {
+          "odometry": 41,
+          "mission_state": 8,
+          "localization": 10,
+          "service_request": 7,
+          "service_reply": 7,
+          "velocity_command": 19,
+          "navigation_goals": 4,
+          "stationary_window_start": 1,
+          "stationary_window_end": 1
+        },
+        "fleet-rolling": {
+          "service_request": 222,
+          "service_reply": 222,
+          "odometry": 115,
+          "traffic": 15,
+          "stationary_window_start": 5,
+          "stationary_window_end": 5
+        },
+        "fleet-whole-route": {
+          "service_request": 217,
+          "service_reply": 217,
+          "odometry": 116,
+          "traffic": 15,
+          "stationary_window_start": 5,
+          "stationary_window_end": 5
+        },
+        "fleet-cancel-paused": {
+          "service_request": 519,
+          "service_reply": 519,
+          "odometry": 125,
+          "traffic": 16,
+          "stationary_window_start": 5,
+          "stationary_window_end": 5
+        },
+        "fleet-restart-held": {
+          "agent_started": 2,
+          "service_request": 362,
+          "service_reply": 362,
+          "odometry": 129,
+          "traffic": 18,
+          "stationary_window_start": 6,
+          "stationary_window_end": 6,
+          "agent_stopped": 2
+        },
+        "fleet-restart-missing-route": {
+          "agent_started": 2,
+          "service_request": 561,
+          "service_reply": 561,
+          "traffic": 14,
+          "odometry": 51,
+          "stationary_window_start": 4,
+          "stationary_window_end": 4,
+          "agent_stopped": 2
+        }
+      }
+    }
+  },
+  "issues": []
+}

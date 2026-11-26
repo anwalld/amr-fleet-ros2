@@ -1,0 +1,5 @@
+case	fleet_submit_remote
+kind	fleet_sim
+ros_domain_id	111
+revision	58b9000-merged-59a37fbf
+exit_code	0

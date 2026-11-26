@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=AMR 实时调度台
+Terminal=false
+Exec="/home/ubuntu/nightly/2026-11-26-merged-control-current-full/stage7_console_smoke/alarm-evidence/desktop/robot-console.sh"

@@ -1,0 +1,18 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::workflow_submit() This plugin does not support propagateSizeHints()
+[INFO] [1795685554.307108719] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+[INFO] [1795685555.658680442] [robot_console]: console_service_request service=/v2/list_scenario_workflows operation_id=1 target= include_active=false
+QINFO  : ConsoleOpsAcceptance::workflow_submit() OPS_EVIDENCE {"message":"loaded 14 scenario workflow(s)","outcome":0,"request_id":1,"step":"console_reply"}
+[INFO] [1795685555.707921032] [robot_console]: console_service_request service=/v2/submit_order operation_id=2 target=ops_workflow_544c70c7820e4542b7673a71001ae758 include_active=false
+QINFO  : ConsoleOpsAcceptance::workflow_submit() OPS_EVIDENCE {"message":"queued scenario workflow warehouse/inbound_crossdock with 2 task(s)","outcome":0,"request_id":2,"step":"console_reply"}
+[INFO] [1795685555.857768211] [robot_console]: console_service_request service=/v2/get_workflow_status operation_id=3 target=ops_workflow_544c70c7820e4542b7673a71001ae758 include_active=false
+QINFO  : ConsoleOpsAcceptance::workflow_submit() OPS_EVIDENCE {"service":"/v2/get_workflow_status","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::workflow_submit() OPS_EVIDENCE {"children":["station_order_fleet_ops_workflow_544c70c7820e4542b7673a71001ae758_step_1","station_order_fleet_ops_workflow_544c70c7820e4542b7673a71001ae758_step_2"],"state":"QUEUED","step":"workflow_observed","target":"ops_workflow_544c70c7820e4542b7673a71001ae758"}
+[INFO] [1795685555.877216981] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::workflow_submit()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 1616ms
+********* Finished testing of ConsoleOpsAcceptance *********

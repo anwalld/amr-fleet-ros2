@@ -45,37 +45,65 @@ void RosBridge::start() {
       "/fleet/agent_events", rclcpp::QoS(100).reliable(),
       [this](std_msgs::msg::String::ConstSharedPtr msg) { emit eventReceived(eventFromRos(*msg)); });
 
+  supervisor_sub_ = node_->create_subscription<robot_interfaces::msg::RobotState>(
+      "/fault_supervisor/state", 10,
+      [this](robot_interfaces::msg::RobotState::ConstSharedPtr msg) {
+        emit alarmReceived(QStringLiteral("故障监控"), QString::fromStdString(msg->state),
+                           QString::fromStdString(msg->message));
+      });
+  fleet_stop_sub_ = node_->create_subscription<std_msgs::msg::Bool>(
+      "/fleet/sim_stop/state", rclcpp::QoS(1).reliable().transient_local(),
+      [this](std_msgs::msg::Bool::ConstSharedPtr msg) { emit fleetStopReceived(msg->data); });
+
   snapshot_timer_ = node_->create_wall_timer(1s, [this] { pollSnapshot(); });
   graph_timer_ = node_->create_wall_timer(5s, [this] { pollGraph(); });
   timeout_timer_ = node_->create_wall_timer(500ms, [this] { checkTimeouts(); });
   // 启动后尽快取一次路网，不用等第一个 5 秒。
-  auto first_graph = std::make_shared<rclcpp::TimerBase::SharedPtr>();
-  *first_graph = node_->create_wall_timer(300ms, [this, first_graph] {
+  first_graph_timer_ = node_->create_wall_timer(300ms, [this] {
     pollGraph();
-    (*first_graph)->cancel();
+    first_graph_timer_->cancel();
   });
+  operations_.start(node_);
 
   executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
   executor_->add_node(node_);
   thread_ = QThread::create([exec = executor_] { exec->spin(); });
   thread_->setObjectName(QStringLiteral("ros_executor"));
   thread_->start();
-  RCLCPP_INFO(node_->get_logger(), "robot_console 已连接 ROS（只读），话题覆盖 %zu 项", odom_overrides_.size());
+  RCLCPP_INFO(node_->get_logger(), "robot_console 已连接 ROS，话题覆盖 %zu 项", odom_overrides_.size());
 }
 
 void RosBridge::stop() {
   if (!executor_) return;
-  executor_->cancel();
+  operations_.stopAccepting();
   if (thread_) {
+    while (thread_->isRunning() && !executor_->is_spinning() && rclcpp::ok()) {
+      if (thread_->wait(1)) break;
+    }
+    executor_->cancel();
     thread_->wait();
     delete thread_;
     thread_ = nullptr;
   }
+  if (rclcpp::ok()) {
+    const auto publishers = node_->get_node_graph_interface()->get_publisher_names_and_types_by_node(
+        node_->get_name(), node_->get_namespace());
+    for (const auto& [topic, types] : publishers) {
+      if (topic != "/rosout" && topic != "/parameter_events") {
+        RCLCPP_INFO(node_->get_logger(), "console_business_publisher topic=%s", topic.c_str());
+      }
+    }
+    RCLCPP_INFO(node_->get_logger(), "console_publisher_audit_complete");
+  }
   executor_->remove_node(node_);
   executor_.reset();
+  operations_.stop();
+  first_graph_timer_.reset();
   odom_subs_.clear();
   traffic_sub_.reset();
   events_sub_.reset();
+  supervisor_sub_.reset();
+  fleet_stop_sub_.reset();
   snapshot_timer_.reset();
   graph_timer_.reset();
   timeout_timer_.reset();
@@ -83,19 +111,37 @@ void RosBridge::stop() {
   stations_client_.reset();
   routes_client_.reset();
   node_.reset();
+  snapshot_tracker_ = RequestTracker{};
+  stations_tracker_ = RequestTracker{};
+  routes_tracker_ = RequestTracker{};
+  pending_stations_.reset();
+  pending_routes_.reset();
+  last_graph_.reset();
+  connected_ = false;
+  snapshot_available_ = false;
+  recovering_graph_ = false;
+  connection_detail_.clear();
+  connection_known_ = false;
 }
 
 void RosBridge::setConnected(bool connected, const QString& detail) {
-  if (connection_known_ && connected == connected_) return;
+  if (connection_known_ && connected == connected_ && detail == connection_detail_) return;
+  connection_detail_ = detail;
   connection_known_ = true;
   connected_ = connected;
   emit connectionChanged(ConnectionStatus{connected, detail});
 }
 
+void RosBridge::snapshotUnavailable(const QString& detail) {
+  recovering_graph_ = recovering_graph_ || snapshot_available_;
+  snapshot_available_ = false;
+  setConnected(false, detail);
+}
+
 void RosBridge::pollSnapshot() {
   if (!snapshot_tracker_.canSend()) return;
   if (!snapshot_client_->service_is_ready()) {
-    setConnected(false, QStringLiteral("等待 /v2/get_operator_snapshot"));
+    snapshotUnavailable(QStringLiteral("等待 /v2/get_operator_snapshot"));
     return;
   }
   auto req = std::make_shared<GetSnapshot::Request>();
@@ -108,12 +154,35 @@ void RosBridge::pollSnapshot() {
   });
   *id = sent.request_id;
   snapshot_tracker_.markSent(*id, nowS());
+  RCLCPP_DEBUG(node_->get_logger(), "console_service_request service=/v2/get_operator_snapshot");
 }
 
 void RosBridge::onSnapshot(const GetSnapshot::Response& res) {
-  setConnected(true, QString());
+  if (!res.success) {
+    snapshotUnavailable(QString::fromStdString(res.message));
+    return;
+  }
+  if (!snapshot_available_ && recovering_graph_) {
+    // 重新获取本次连接的两份路网应答，丢弃断开前发出的读取请求。
+    const double expired = nowS() + 4.0;
+    if (auto id = stations_tracker_.checkTimeout(expired)) {
+      stations_client_->remove_pending_request(*id);
+    }
+    if (auto id = routes_tracker_.checkTimeout(expired)) {
+      routes_client_->remove_pending_request(*id);
+    }
+    pending_stations_.reset();
+    pending_routes_.reset();
+  }
+  snapshot_available_ = true;
   ensureOdomSubscriptions(res.fleet_robot_ids);
   emit snapshotReceived(snapshotFromRos(res));
+  if (recovering_graph_) {
+    setConnected(false, QStringLiteral("正在恢复，等待路网"));
+    pollGraph();
+  } else {
+    setConnected(true, QString());
+  }
 }
 
 void RosBridge::pollGraph() {
@@ -130,6 +199,7 @@ void RosBridge::pollGraph() {
                                                 });
   *sid = s.request_id;
   stations_tracker_.markSent(*sid, nowS());
+  RCLCPP_DEBUG(node_->get_logger(), "console_service_request service=/v2/list_stations");
   auto rid = std::make_shared<int64_t>(-1);
   auto r = routes_client_->async_send_request(std::make_shared<ListRoutes::Request>(),
                                               [this, rid](rclcpp::Client<ListRoutes>::SharedFuture f) {
@@ -139,6 +209,7 @@ void RosBridge::pollGraph() {
                                               });
   *rid = r.request_id;
   routes_tracker_.markSent(*rid, nowS());
+  RCLCPP_DEBUG(node_->get_logger(), "console_service_request service=/v2/list_station_routes");
 }
 
 void RosBridge::maybeEmitGraph() {
@@ -148,6 +219,10 @@ void RosBridge::maybeEmitGraph() {
     if (!last_graph_ || *last_graph_ != g) {
       last_graph_ = g;
       emit graphReceived(g);
+    }
+    if (snapshot_available_ && recovering_graph_) {
+      recovering_graph_ = false;
+      setConnected(true, QString());
     }
   }
   pending_stations_.reset();
@@ -159,7 +234,7 @@ void RosBridge::checkTimeouts() {
   if (auto id = snapshot_tracker_.checkTimeout(now)) {
     snapshot_client_->remove_pending_request(*id);
     ++service_timeouts_;
-    setConnected(false, QStringLiteral("快照服务 3 秒未应答"));
+    snapshotUnavailable(QStringLiteral("快照服务 3 秒未应答"));
   }
   if (auto id = stations_tracker_.checkTimeout(now)) {
     stations_client_->remove_pending_request(*id);

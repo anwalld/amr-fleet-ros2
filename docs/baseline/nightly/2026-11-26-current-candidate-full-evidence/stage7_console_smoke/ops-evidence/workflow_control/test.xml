@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite name="ConsoleOpsAcceptance" timestamp="2026&#x002D;11&#x002D;26T17:32:37" hostname="lm&#x002D;worker&#x002D;1" tests="3" failures="0" errors="0" skipped="0" time="2.067">
+  <properties>
+    <property name="QTestVersion" value="6.4.2"/>
+    <property name="QtVersion" value="6.4.2"/>
+    <property name="QtBuild" value="Qt 6.4.2 (arm64&#x002D;little_endian&#x002D;lp64 shared (dynamic) release build; by GCC 13.2.0)"/>
+  </properties>
+  <testcase name="initTestCase" classname="ConsoleOpsAcceptance" time="0.000"/>
+  <testcase name="workflow_control" classname="ConsoleOpsAcceptance" time="2.067">
+    <system-out>
+      <![CDATA[OPS_EVIDENCE {"message":"loaded 14 scenario workflow(s)","outcome":0,"request_id":1,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"queued scenario workflow warehouse/inbound_crossdock with 2 task(s)","outcome":0,"request_id":2,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"service":"/v2/get_workflow_status","step":"fixture_call"}]]>
+      <![CDATA[OPS_EVIDENCE {"service":"/v2/get_workflow_status","step":"fixture_call"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"canceled workflow ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 mission_count=2","outcome":0,"request_id":8,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"service":"/v2/get_workflow_status","step":"fixture_call"}]]>
+      <![CDATA[OPS_EVIDENCE {"active":"station_order_fleet_ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3_step_1","active_terminal":"CANCELED","canceled":["station_order_fleet_ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3_step_2","station_order_fleet_ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3_step_1"],"final_state":"UNKNOWN","paused_after_resume":false,"paused_first":true,"step":"workflow_control_observed","target":"ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3"}]]>
+    </system-out>
+    <system-err>
+      <![CDATA[This plugin does not support propagateSizeHints()]]>
+      <![CDATA[This plugin does not support propagateSizeHints()]]>
+    </system-err>
+  </testcase>
+  <testcase name="cleanupTestCase" classname="ConsoleOpsAcceptance" time="0.000"/>
+</testsuite>

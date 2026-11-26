@@ -1,0 +1,20 @@
+{
+  "robot-guard": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 -B /Users/mima0000/CLionProjects/robot/tools/robot_guard.py hook --mode ag-pre",
+        "timeout": 10,
+        "statusMessage": "检查 robot 对话的上下文压缩次数"
+      }
+    ],
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "python3 -B /Users/mima0000/CLionProjects/robot/tools/robot_guard.py hook --mode ag-post",
+        "timeout": 10,
+        "statusMessage": "核对 robot 缺陷链阈值"
+      }
+    ]
+  }
+}

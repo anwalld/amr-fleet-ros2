@@ -1,0 +1,8 @@
+defect	round	outcome	evidence	introduced_defect
+dagu-entrypoint-name	1	fixed	Dagu v2.27.0 校验拒绝入口 name；移除后通过并执行成功。	
+dagu-working-dir	1	fixed	state2 日志记录相对路径解析到运行沙箱；显式工作区参数通过 fixture-pass。	
+dagu-params-projection	1	fixed	state3 日志记录外层变量未投射；state4 三个用例验证显式参数。	
+staged-archive-appledouble	1	fixed	rework5 的 lint:interfaces_split 计入 10 个 ._* 文件；相同源码无 Mac 元数据打包在 Ubuntu 独立目录通过同一静态检查。	
+eta-check-only-interval	1	fixed	Ubuntu Dagu 夹具实测 ETA 早于周期巡检时触发，短延误顺延，超时诊断。	
+terminal-evidence-incomplete	1	fixed	真实 rework6-r2 原始证据回查识别六车 whole_route 的 157.11 秒采样缺口；终态夹具验证缺口使作业失败。	
+progress-brief-turn-spam	1	fixed	两个运行中事件零入队；同一终态一次入队且可独立重试唤醒；现场 status 读取验收 56/110。	

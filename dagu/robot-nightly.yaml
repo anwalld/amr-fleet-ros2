@@ -1,0 +1,38 @@
+description: Run robot nightly checks, review progress at the ETA, and verify final evidence
+params:
+  type: object
+  properties:
+    ROBOT_WORKSPACE:
+      type: string
+      minLength: 1
+    DRY_RUN:
+      type: string
+      enum: ["0", "1"]
+      default: "1"
+    NIGHTLY_REV:
+      type: string
+      default: ""
+    ONLY_STAGES:
+      type: string
+      default: ""
+    STRESS_MINUTES:
+      type: string
+      default: "30"
+    SCENARIO_ROUNDS:
+      type: string
+      default: "3"
+    ROBOT_NIGHTLY_HOME:
+      type: string
+      default: ""
+    ROBOT_DEFECT_LEDGER:
+      type: string
+      default: ""
+    ROBOT_POSTCHECK:
+      type: string
+      enum: ["", "shared-rework"]
+      default: ""
+  required: [ROBOT_WORKSPACE]
+steps:
+  - name: nightly
+    working_dir: "${params.ROBOT_WORKSPACE}"
+    run: python3 scripts/dagu_nightly.py

@@ -1,0 +1,16 @@
+defect	round	outcome	evidence	introduced_defect
+D17/yield-index	1	fixed	ab73a3e；第 3 轮阶段 5 无进程异常退出。	
+D17/route-no-path	1	fixed	099c467；第 3 轮阶段 5 无 no path。	
+D18/request-inflight	1	fixed	agent_request_test 7 项通过；第 4 轮阶段 6 9/9，outside_wait 3/3。	
+D20/sim-drift	1	persists	4ad597c；第 3 轮仍报告同一漂移。	
+D20/sim-drift	2	fixed	ROS 域隔离；专项并行 10/10 与第 4 轮单测通过。	
+D20/cancel-cleanup	1	fixed	假 Nav2 响应 SIGTERM 和清理限时；专项 20/20，第 4 轮取消用例 PASS。	
+D20/rviz-topics	1	fixed	取完整标记字符串；第 4 轮 RViz 标记用例 PASS。	
+D20/reprioritize	1	pending	加日志与用例内部期限，第 4 轮 PASS；目标丢失仍只有推断，功能修复未证实。	
+D21/results-completeness	1	fixed	离线检查拒绝缺行、重复掩盖失败、未知键、错误栈和无效耗时。共同复验阶段 3 为 110/110，基线键和栈逐项一致。见归档任务 11.1–11.2。	
+D21/mock-probe	1	fixed	离线验证 TF 就绪条件。第 5 轮和共同复验均记录 6 个 mock_bringup 用例就绪。见归档任务 11.2。	
+D21/fleet-event-multiplicity	1	fixed	离线检查拒绝重复和缺失事件、残留边及缺失字段。共同复验 fleet:agent_station_task 在 fleet_sim 栈 PASS。见归档任务 11.1 和 acceptance_baseline.tsv。	
+D21/traffic-field-assertions	1	fixed	离线检查拒绝错误环成员及队列未移除。共同复验两个死锁用例在 core 栈 PASS，封路移除通过。见归档任务 11.1–11.2。	
+D21/template-acceptance	1	fixed	第 5 轮和共同复验均确认 12 个模板受理。共同复验 business:scenario_workflow_shapes PASS。见归档任务 11.2 和 acceptance_baseline.tsv。	
+D21/legacy-live-audit	1	fixed	离线模拟无 ROS 图、空图、节点查询失败或发现旧接口均判失败。共同复验 ops:legacy_usage 在 amr_demo 栈 PASS。见归档任务 11.1 和 acceptance_baseline.tsv。	
+console-smoke/missing-replay-executable	1	fixed	隔离冒烟脚本正常录像 PASS，缺少回放程序、空载荷及未知类型均 FAIL。 20:57:58 新版阶段 7 实时录像严格回放 PASS，零跳行。	

@@ -41,7 +41,7 @@ r2 Alarm 3/3，告警恢复、真实仿真停车与解除、安装入口均有�
 
 ## 11 月 26 日完整共同夜跑核验
 
-修订 `58b9000-merged-59a37fbf`。同一冻结快照八阶段全过。事件与故障重复、恢复显示和刷新由 Alarm 事件与恢复 QtTest 核对。真实仿真停车及解除、拒绝陈旧控制由仿真停车的日志与 XML 核对。安装树实时及回放入口有独立产物。同轮 Ops 10/10，后三阶段证据无缺项。见 [Alarm 原始证据](../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/stage7_console_smoke/alarm-evidence/)。 [完整后验](../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/postcheck.json)
+修订 `58b9000-merged-59a37fbf`。同一冻结快照八阶段全过。事件与故障重复、恢复显示和刷新由 Alarm 事件与恢复 QtTest 核对。真实仿真停车及解除、拒绝陈旧控制由仿真停车的日志与 XML 核对。安装树实时及回放入口有独立产物。同轮 Ops 10/10，后三阶段证据无缺项。见 [Alarm 原始证据](../../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/stage7_console_smoke/alarm-evidence/)。 [完整后验](../../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/postcheck.json)
 
 ## 交付分支实施核验
 
@@ -50,3 +50,5 @@ r2 Alarm 3/3，告警恢复、真实仿真停车与解除、安装入口均有�
 - 一致性：仿真停车须显式启用，过期状态停止运动。连接恢复沿用读轮询，安装入口沿用 colcon 前缀。阶段 7 汇总独立 Alarm 判定并保留原 Ops 结果。OpenSpec 严格校验通过。
 
 全栈夜跑结果对应共同冻结快照 `58b9000-merged-59a37fbf`。交付从冻结清单和原控制台工作树提取 Ops、Alarm 以及阶段 3 回归脚本修正，共享文件沿用主线的任务控制和 rolling 行为。交付提交另由 GitHub CI 核对构建与单测。
+
+交付提交 `701e8182457c8b020dbae43ae13771b5918029b0` 的 GitHub CI 通过，日志汇总为 679 项、零错误、失败和跳过。PR 合并到 `main` 的提交为 `a4303041c36dfb561131180ad5c1fd53b6bd718f`。 [PR #9](https://github.com/anwalld/amr-fleet-ros2/pull/9) · [GitHub CI](https://github.com/anwalld/amr-fleet-ros2/actions/runs/45827907215)

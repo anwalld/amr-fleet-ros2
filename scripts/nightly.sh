@@ -103,8 +103,8 @@ kill_group() {
 # 清掉所有 ROS / Gazebo 进程（与验收运行器一致；方括号写法避免误杀发起 ssh 的 shell）。
 ros_sweep() {
   dry && return 0
-  pkill -KILL -f "[/]opt/ros/jazzy/lib/" 2>/dev/null
-  pkill -KILL -f "[r]obot_ws/install/" 2>/dev/null
+  pkill -KILL -f "^([^[:space:]]*[p]ython[0-9.]*[[:space:]]+)?[/]opt/ros/jazzy/lib/[^[:space:]]+" 2>/dev/null
+  pkill -KILL -f "^([^[:space:]]*[p]ython[0-9.]*[[:space:]]+)?[^[:space:]]*[r]obot_ws/install/[^[:space:]]+" 2>/dev/null
   pkill -KILL -f "[g]z sim" 2>/dev/null
   pkill -KILL -f "[r]os2 (launch|run|topic|service|action|node|param)" 2>/dev/null
   pkill -KILL -f "[r]os2cli.daemon" 2>/dev/null
@@ -487,6 +487,7 @@ fi
 if ! dry; then
   exec 9>>"${HOME}/.robot-nightly.lock" || exit 1
   flock -n 9 || { log '无法取得夜跑锁，请检查当前用户下已有的夜跑进程'; exit 1; }
+  export ROBOT_NIGHTLY_LOCK_HELD=1
 fi
 
 OUT_DIR="${1:-${HOME}/nightly/$(date +%F)}"

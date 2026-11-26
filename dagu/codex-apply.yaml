@@ -1,0 +1,61 @@
+description: Dispatch a scoped code apply task to GPT-6.2 Sol with preflight guard and strict allowlist diff collection
+params:
+  type: object
+  properties:
+    ROBOT_TOOLS_ROOT:
+      type: string
+      default: /Users/mima0000/CLionProjects/robot
+    WORKTREE:
+      type: string
+      minLength: 1
+    CHANGE:
+      type: string
+      minLength: 1
+    BRIEF_FILE:
+      type: string
+      minLength: 1
+    RUN_DIR:
+      type: string
+      minLength: 1
+    EXPECTED_HEAD:
+      type: string
+      default: ""
+    LEDGER:
+      type: string
+      default: ""
+    RESUME_SESSION_ID:
+      type: string
+      default: ""
+    REWORK_BRIEF_FILE:
+      type: string
+      default: ""
+  required: [WORKTREE, CHANGE, BRIEF_FILE, RUN_DIR]
+steps:
+  - name: preflight
+    working_dir: "${params.ROBOT_TOOLS_ROOT}"
+    run: >
+      python3 -B tools/codex_apply_helper.py preflight
+      --worktree "${params.WORKTREE}"
+      --change "${params.CHANGE}"
+      --brief "${params.BRIEF_FILE}"
+      --run-dir "${params.RUN_DIR}"
+      --expected-head "${params.EXPECTED_HEAD}"
+      --ledger "${params.LEDGER}"
+  - name: apply
+    working_dir: "${params.ROBOT_TOOLS_ROOT}"
+    depends: [preflight]
+    run: >
+      python3 -B tools/codex_apply_helper.py dispatch
+      --worktree "${params.WORKTREE}"
+      --brief "${params.BRIEF_FILE}"
+      --run-dir "${params.RUN_DIR}"
+      --resume-session-id "${params.RESUME_SESSION_ID}"
+      --rework-brief "${params.REWORK_BRIEF_FILE}"
+  - name: collect
+    working_dir: "${params.ROBOT_TOOLS_ROOT}"
+    depends: [apply]
+    run: >
+      python3 -B tools/codex_apply_helper.py collect
+      --worktree "${params.WORKTREE}"
+      --brief "${params.BRIEF_FILE}"
+      --run-dir "${params.RUN_DIR}"

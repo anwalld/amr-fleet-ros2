@@ -10,6 +10,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "robot_interfaces_mission/srv/block_station_route.hpp"
 #include "robot_interfaces_mission/srv/clear_traffic_reservation.hpp"
+#include "robot_interfaces_mission/srv/clear_traffic_reservation_if_matches.hpp"
+#include "robot_interfaces_mission/srv/preview_traffic_reservation_clear.hpp"
 #include "robot_interfaces_mission/srv/detect_traffic_deadlock.hpp"
 #include "robot_interfaces_mission/msg/traffic_grant.hpp"
 #include "robot_interfaces_mission/msg/traffic_state.hpp"
@@ -103,7 +105,7 @@ class TrafficService {
   void PauseDeadlockedRobots(const WaitCycle& cycle, const std::string& reason);
   void PublishYield(const DeadlockYieldPlan& plan);
   // 运维清除了某车的占用：解除它所在暂停组。
-  void UnfreezePausedGroupOf(const std::string& robot_id);
+  void UnfreezePausedRobots(const std::vector<std::string>& robot_ids);
   double NowSeconds() const;
 
   rclcpp::Node* node_;
@@ -151,6 +153,10 @@ class TrafficService {
       v2_list_traffic_reservations_srv_;
   rclcpp::Service<robot_interfaces_mission::srv::ClearTrafficReservation>::SharedPtr
       v2_clear_traffic_reservation_srv_;
+  rclcpp::Service<robot_interfaces_mission::srv::PreviewTrafficReservationClear>::SharedPtr
+      preview_traffic_clear_srv_;
+  rclcpp::Service<robot_interfaces_mission::srv::ClearTrafficReservationIfMatches>::SharedPtr
+      conditional_traffic_clear_srv_;
   rclcpp::Service<robot_interfaces_mission::srv::DetectTrafficDeadlock>::SharedPtr
       v2_detect_traffic_deadlock_srv_;
 };

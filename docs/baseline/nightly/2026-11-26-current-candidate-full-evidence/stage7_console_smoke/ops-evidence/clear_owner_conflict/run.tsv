@@ -1,0 +1,5 @@
+case	clear_owner_conflict
+kind	traffic_core
+ros_domain_id	116
+revision	58b9000-merged-59a37fbf
+exit_code	0

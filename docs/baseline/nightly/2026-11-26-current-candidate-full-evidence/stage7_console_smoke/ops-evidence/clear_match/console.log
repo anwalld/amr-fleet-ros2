@@ -1,0 +1,25 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::clear_match() This plugin does not support propagateSizeHints()
+[INFO] [1795685667.887652981] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"service":"/v2/block_station_route","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"service":"/v2/block_station_route","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+[INFO] [1795685668.895695909] [robot_console]: 订阅 robot_1 的位置：/robot_1/odom
+[INFO] [1795685668.896817280] [robot_console]: 订阅 robot_2 的位置：/robot_2/odom
+[INFO] [1795685669.138509193] [robot_console]: console_service_request service=/v2/preview_traffic_reservation_clear operation_id=1 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"message":"cleared mission route reservation route_edge:receiving__storage_a","outcome":0,"request_id":1,"step":"console_reply"}
+[INFO] [1795685669.188183529] [robot_console]: console_service_request service=/v2/clear_traffic_reservation_if_matches operation_id=2 target=route_edge:receiving__storage_a include_active=false
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"message":"cleared mission route reservation route_edge:receiving__storage_a","outcome":0,"request_id":2,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"service":"/v2/request_route_segment","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::clear_match() OPS_EVIDENCE {"new_owner":"beta","released":["route_edge:receiving__storage_a"],"resume":["alpha","beta"],"step":"clear_match_observed","target":"route_edge:receiving__storage_a"}
+[INFO] [1795685670.105657345] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::clear_match()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 2259ms
+********* Finished testing of ConsoleOpsAcceptance *********

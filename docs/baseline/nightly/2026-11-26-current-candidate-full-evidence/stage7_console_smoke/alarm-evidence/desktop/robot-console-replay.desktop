@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=AMR 调度台回放
+Terminal=false
+Exec="/home/ubuntu/nightly/2026-11-26-merged-control-current-full/stage7_console_smoke/alarm-evidence/desktop/robot-console-replay.sh" %f
+MimeType=application/x-ndjson;

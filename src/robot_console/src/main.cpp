@@ -1,4 +1,4 @@
-// robot_console：连接真实 ROS 系统的 Qt 调度台（只读）。
+// robot_console：连接真实 ROS 系统的 Qt 调度台。
 //   ros2 run robot_console robot_console [--map <地图 yaml>]
 //       [--smoke-seconds N --smoke-out <TSV> [--smoke-wait-seconds 120]]
 //       [--ros-args -p odom_topic_overrides:="['robot_1=/odom']"]
@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
     robot_console::registerMetaTypes();
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("AMR 调度台（只读连接 ROS）"));
+    parser.setApplicationDescription(QStringLiteral("AMR 调度台（连接 ROS）"));
     parser.addHelpOption();
     QCommandLineOption map(QStringLiteral("map"), QStringLiteral("底图 yaml（可选）"), QStringLiteral("yaml"));
     QCommandLineOption smoke_seconds(QStringLiteral("smoke-seconds"), QStringLiteral("冒烟模式：计时秒数"),
@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
     }
 
     robot_console::RosBridge bridge;
-    robot_console::MainWindow window(&bridge);
+    robot_console::MainWindow window(&bridge, {}, nullptr, bridge.operations());
     QString error;
     if (parser.isSet(map) && !window.loadBaseMap(parser.value(map), &error)) {
       err << error << '\n';

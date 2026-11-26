@@ -20,6 +20,9 @@ class MapView : public QGraphicsView {
   // 位置时间戳与系统时间相差超过这个秒数时不记延迟样本（例如 Gazebo 栈用了仿真时间）。
   static constexpr double kMaxStampSkewS = 10.0;
 
+ signals:
+  void routeSelected(const QString& resource);
+
  protected:
   void paintEvent(QPaintEvent* event) override;
   void resizeEvent(QResizeEvent* event) override;

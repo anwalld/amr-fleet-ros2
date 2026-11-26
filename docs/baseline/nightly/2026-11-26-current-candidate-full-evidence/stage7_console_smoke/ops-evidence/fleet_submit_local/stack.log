@@ -1,0 +1,16 @@
+[INFO] [launch]: All log files can be found below /home/ubuntu/.ros/log/2026-11-26-17-33-52-096822-lm-worker-1-801242
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [mission_runner_node-1]: process started with pid [801271]
+[mission_runner_node-1] [INFO] [1795685632.161407333] [mission_runner_node]: traffic deadlock: resolution=on starvation=20.0s whole_route_wait_ttl=6.0s yield_hold=5.0s yield_timeout=10.0s
+[mission_runner_node-1] [INFO] [1795685632.161476916] [mission_runner_node]: traffic_reservation_mode=rolling
+[INFO] [1795685634.171760523] [navigate_sequence_server_node]: accept navigate sequence goal: waypoints=1
+[WARN] [1795685635.173067672] [navigate_sequence_server_node]: Nav2 FollowWaypoints action server unavailable, falling back to simulated sequence
+[INFO] [1795685636.175330818] [navigate_sequence_server_node]: accept navigate sequence goal: waypoints=1
+[WARN] [1795685637.175768512] [navigate_sequence_server_node]: Nav2 FollowWaypoints action server unavailable, falling back to simulated sequence
+[INFO] [1795685638.178572448] [navigate_sequence_server_node]: accept navigate sequence goal: waypoints=1
+[WARN] [1795685639.179176349] [navigate_sequence_server_node]: Nav2 FollowWaypoints action server unavailable, falling back to simulated sequence
+[INFO] [1795685642.446947645] [navigate_sequence_server_node]: accept navigate sequence goal: waypoints=1
+[WARN] [1795685643.447670379] [navigate_sequence_server_node]: Nav2 FollowWaypoints action server unavailable, falling back to simulated sequence
+[INFO] [1795685648.124334577] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[mission_runner_node-1] [INFO] [1795685648.124449368] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [mission_runner_node-1]: process has finished cleanly [pid 801271]

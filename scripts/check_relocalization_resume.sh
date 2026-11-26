@@ -89,6 +89,7 @@ done
 python3 - <<'PY'
 import time
 import rclpy
+from rclpy.duration import Duration
 from geometry_msgs.msg import PoseWithCovarianceStamped
 
 rclpy.init()
@@ -99,12 +100,23 @@ msg.header.frame_id = "map"
 msg.pose.pose.orientation.w = 1.0
 msg.pose.covariance[0] = 1.2
 msg.pose.covariance[7] = 1.1
-for _ in range(6):
-    pub.publish(msg)
-    rclpy.spin_once(node, timeout_sec=0.1)
-    time.sleep(0.1)
-node.destroy_node()
-rclpy.shutdown()
+try:
+    # Volatile publishers do not deliver samples sent before DDS matching.
+    deadline = time.monotonic() + 5.0
+    while pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    if pub.get_subscription_count() == 0:
+        raise SystemExit("localization injection: /amcl_pose subscriber did not match")
+    for _ in range(6):
+        pub.publish(msg)
+        rclpy.spin_once(node, timeout_sec=0.1)
+        time.sleep(0.1)
+    if not pub.wait_for_all_acked(Duration(seconds=2)):
+        raise SystemExit("localization injection: /amcl_pose samples not acknowledged")
+    print("localization injection: /amcl_pose samples acknowledged")
+finally:
+    node.destroy_node()
+    rclpy.shutdown()
 PY
 
 deadline=$((SECONDS + 15))

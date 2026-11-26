@@ -118,6 +118,77 @@ TrafficClearDecision PlanTrafficReservationClear(
   return decision;
 }
 
+std::vector<std::string> PausedGroupMembers(
+    const std::unordered_map<std::string, std::string>& paused_group_of,
+    const std::string& robot_id) {
+  std::vector<std::string> members;
+  const auto group = paused_group_of.find(robot_id);
+  if (group != paused_group_of.end()) {
+    for (const auto& [member, key] : paused_group_of) {
+      if (key == group->second) {
+        members.push_back(member);
+      }
+    }
+    std::sort(members.begin(), members.end());
+  }
+  return members;
+}
+
+TrafficClearImpact PlanTrafficClearImpact(
+    const std::string& resource_id, const RouteLockMap& route_locks,
+    const std::unordered_map<std::string, std::string>& paused_group_of) {
+  TrafficClearImpact impact;
+  impact.decision = PlanTrafficReservationClear(resource_id, route_locks);
+  if (!impact.decision.success) {
+    return impact;
+  }
+  if (impact.decision.erase_resource) {
+    impact.resource_ids.push_back(resource_id);
+    return impact;
+  }
+  for (const auto& [id, owner] : route_locks) {
+    if (owner == impact.decision.owner_id) {
+      impact.resource_ids.push_back(id);
+    }
+  }
+  std::sort(impact.resource_ids.begin(), impact.resource_ids.end());
+  impact.resume_robot_ids = PausedGroupMembers(paused_group_of, impact.decision.owner_id);
+  return impact;
+}
+
+bool TrafficClearImpact::Matches(
+    const std::string& owner_id, const std::vector<std::string>& expected_resources,
+    const std::vector<std::string>& expected_resume_robots) const {
+  const auto same_members = [](const auto& actual, const auto& expected) {
+    auto sorted = expected;
+    std::sort(sorted.begin(), sorted.end());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+    return actual == sorted;
+  };
+  return decision.success && decision.owner_id == owner_id &&
+         same_members(resource_ids, expected_resources) &&
+         same_members(resume_robot_ids, expected_resume_robots);
+}
+
+void ApplyTrafficClearImpact(
+    const TrafficClearImpact& impact, RouteLockMap& route_locks,
+    RouteLockReservationMap& route_locks_by_mission) {
+  for (const auto& id : impact.resource_ids) {
+    route_locks.erase(id);
+  }
+  if (impact.decision.release_mission_id.empty()) {
+    return;
+  }
+  for (auto it = route_locks_by_mission.begin(); it != route_locks_by_mission.end();) {
+    const auto& owner = it->second.owner_id.empty() ? it->first : it->second.owner_id;
+    if (owner == impact.decision.owner_id) {
+      it = route_locks_by_mission.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 std::vector<std::string> BuildRouteLockIds(
     const std::vector<std::string>& station_path, const bool include_intersection_locks) {
   std::vector<std::string> lock_ids;

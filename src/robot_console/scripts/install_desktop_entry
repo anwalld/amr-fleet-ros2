@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""为已安装的 ROS 工作区生成 Ubuntu 调度台桌面入口。"""
+
+import argparse
+import os
+from pathlib import Path
+from shlex import quote
+
+
+def desktop_arg(value):
+    if any(ord(char) < 32 for char in value):
+        raise ValueError("入口路径不能包含控制字符")
+    escaped = "".join("\\" + char if char in '\\"$\x60' else char for char in value)
+    return '"' + escaped.replace("\\", "\\\\").replace("%", "%%") + '"'
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("setup", type=Path, help="工作区 install/setup.bash")
+    parser.add_argument("--app-dir", type=Path,
+                        default=Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "applications")
+    args = parser.parse_args()
+    setup = args.setup.resolve()
+    if not setup.is_file():
+        parser.error(f"找不到工作区安装环境：{setup}")
+    args.app_dir.mkdir(parents=True, exist_ok=True)
+    for stem, name, command in (
+        ("robot-console", "AMR 实时调度台", 'ros2 run robot_console robot_console "$@"'),
+        ("robot-console-replay", "AMR 调度台回放", 'robot_console_replay "$@"'),
+    ):
+        launcher = args.app_dir / f"{stem}.sh"
+        launcher.write_text(f"#!/bin/bash\nset -e\nsource {quote(str(setup))}\nexec {command}\n", encoding="utf-8")
+        launcher.chmod(0o755)
+        fields = ["[Desktop Entry]", "Type=Application", f"Name={name}", "Terminal=false",
+                  f"Exec={desktop_arg(str(launcher.resolve()))}"]
+        if stem.endswith("replay"):
+            fields[-1] += " %f"
+            fields.append("MimeType=application/x-ndjson;")
+        desktop = args.app_dir / f"{stem}.desktop"
+        desktop.write_text("\n".join(fields) + "\n", encoding="utf-8")
+        print(desktop)
+
+
+if __name__ == "__main__":
+    main()

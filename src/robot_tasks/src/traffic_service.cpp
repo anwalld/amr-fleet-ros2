@@ -50,6 +50,43 @@ TrafficService::TrafficService(rclcpp::Node* node, MissionContext& context)
               std::shared_ptr<
                   robot_interfaces_mission::srv::ClearTrafficReservation::Response>
                   response) { ClearTrafficReservation(request, response); });
+  using Preview = robot_interfaces_mission::srv::PreviewTrafficReservationClear;
+  preview_traffic_clear_srv_ = node_->create_service<Preview>(
+      "/v2/preview_traffic_reservation_clear",
+      [this](const Preview::Request::SharedPtr request,
+             Preview::Response::SharedPtr response) {
+        auto impact = PlanTrafficClearImpact(
+            request->resource_id, context_.route_locks, paused_group_of_);
+        response->found = impact.decision.success;
+        response->owner_id = std::move(impact.decision.owner_id);
+        response->message = std::move(impact.decision.message);
+        response->resource_ids = std::move(impact.resource_ids);
+        response->resume_robot_ids = std::move(impact.resume_robot_ids);
+      });
+  using ConditionalClear = robot_interfaces_mission::srv::ClearTrafficReservationIfMatches;
+  conditional_traffic_clear_srv_ = node_->create_service<ConditionalClear>(
+      "/v2/clear_traffic_reservation_if_matches",
+      [this](const ConditionalClear::Request::SharedPtr request,
+             ConditionalClear::Response::SharedPtr response) {
+        if (request->resource_id.empty() || request->expected_owner_id.empty()) {
+          response->result = ConditionalClear::Response::ERROR;
+          response->message = "resource_id and expected_owner_id are required";
+          return;
+        }
+        const auto impact = PlanTrafficClearImpact(
+            request->resource_id, context_.route_locks, paused_group_of_);
+        if (!impact.Matches(request->expected_owner_id, request->expected_resource_ids,
+                            request->expected_resume_robot_ids)) {
+          response->result = ConditionalClear::Response::CONFLICT;
+          response->message = "reservation or clear impact changed; preview again";
+          return;
+        }
+        ApplyTrafficClearImpact(impact, context_.route_locks, context_.route_locks_by_mission);
+        UnfreezePausedRobots(impact.resume_robot_ids);
+        GrantWaiters({});
+        response->result = ConditionalClear::Response::SUCCESS;
+        response->message = impact.decision.message;
+      });
   v2_detect_traffic_deadlock_srv_ =
       node_->create_service<robot_interfaces_mission::srv::DetectTrafficDeadlock>(
           "/v2/detect_traffic_deadlock",
@@ -441,7 +478,7 @@ void TrafficService::ClearTrafficReservation(
     // M3 起占用者都是车辆号（旧数据可能残留任务号），释放该占用者持有的全部路权。
     ReleaseRouteLocksForMission(decision.release_mission_id);
     // 兜底暂停的车：运维清除其中任一辆车的占用即恢复整组。
-    UnfreezePausedGroupOf(decision.release_mission_id);
+    UnfreezePausedRobots(PausedGroupMembers(paused_group_of_, decision.release_mission_id));
   }
   GrantWaiters({});
   response->success = decision.success;
@@ -588,19 +625,14 @@ void TrafficService::PauseDeadlockedRobots(const WaitCycle& cycle, const std::st
       key.c_str(), reason.c_str());
 }
 
-void TrafficService::UnfreezePausedGroupOf(const std::string& robot_id) {
-  const auto it = paused_group_of_.find(robot_id);
-  if (it == paused_group_of_.end()) {
+void TrafficService::UnfreezePausedRobots(const std::vector<std::string>& robot_ids) {
+  if (robot_ids.empty()) {
     return;
   }
-  const auto key = it->second;
-  for (auto group = paused_group_of_.begin(); group != paused_group_of_.end();) {
-    if (group->second == key) {
-      frozen_robot_ids_.erase(group->first);
-      group = paused_group_of_.erase(group);
-    } else {
-      ++group;
-    }
+  const auto key = paused_group_of_.at(robot_ids.front());
+  for (const auto& robot_id : robot_ids) {
+    frozen_robot_ids_.erase(robot_id);
+    paused_group_of_.erase(robot_id);
   }
   RCLCPP_INFO(node_->get_logger(), "traffic deadlock fallback: resumed %s", key.c_str());
 }

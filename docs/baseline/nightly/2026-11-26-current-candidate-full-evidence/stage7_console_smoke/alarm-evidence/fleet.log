@@ -1,0 +1,23 @@
+[INFO] [launch]: All log files can be found below /home/ubuntu/.ros/log/2026-11-26-17-34-50-827012-lm-worker-1-802884
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [fleet_robot_agent_node-1]: process started with pid [802891]
+[INFO] [fleet_robot_agent_node-2]: process started with pid [802892]
+[INFO] [mission_runner_node-3]: process started with pid [802893]
+[INFO] [navigate_sequence_server_node-4]: process started with pid [802894]
+[INFO] [fleet_sim_stop_node-5]: process started with pid [802899]
+[fleet_robot_agent_node-2] [INFO] [1795685690.879215489] [robot_2_agent]: fleet task agent robot_2 start=park_2 home=park_2 kinematic=true traffic=rolling
+[fleet_robot_agent_node-1] [INFO] [1795685690.884057723] [robot_1_agent]: fleet task agent robot_1 start=park_1 home=park_1 kinematic=true traffic=rolling
+[mission_runner_node-3] [INFO] [1795685690.912426589] [mission_runner_node]: traffic deadlock: resolution=on starvation=20.0s whole_route_wait_ttl=6.0s yield_hold=5.0s yield_timeout=10.0s
+[mission_runner_node-3] [INFO] [1795685690.912496422] [mission_runner_node]: traffic_reservation_mode=rolling
+[fleet_robot_agent_node-1] [INFO] [1795685694.835878918] [robot_1_agent]: robot_1 ready at park_1
+[fleet_robot_agent_node-2] [INFO] [1795685694.881239102] [robot_2_agent]: robot_2 ready at park_2
+[fleet_robot_agent_node-2] [INFO] [1795685704.978915312] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[navigate_sequence_server_node-4] [INFO] [1795685704.978893437] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[fleet_robot_agent_node-1] [INFO] [1795685704.978935687] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[fleet_sim_stop_node-5] [INFO] [1795685704.978881145] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[mission_runner_node-3] [INFO] [1795685704.981145638] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [fleet_sim_stop_node-5]: process has finished cleanly [pid 802899]
+[INFO] [fleet_robot_agent_node-2]: process has finished cleanly [pid 802892]
+[INFO] [fleet_robot_agent_node-1]: process has finished cleanly [pid 802891]
+[INFO] [navigate_sequence_server_node-4]: process has finished cleanly [pid 802894]
+[INFO] [mission_runner_node-3]: process has finished cleanly [pid 802893]

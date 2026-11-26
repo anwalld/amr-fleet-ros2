@@ -34,6 +34,8 @@ class MapScene : public QGraphicsScene {
     QGraphicsPolygonItem* arrow = nullptr;  // 单向时的箭头，双向时为空
   };
 
+  static constexpr int kRouteResourceData = 0;
+
   explicit MapScene(QObject* parent = nullptr);
 
   static QPointF toScene(double x, double y) { return {x, -y}; }

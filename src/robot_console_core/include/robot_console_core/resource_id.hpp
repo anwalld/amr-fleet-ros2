@@ -14,6 +14,7 @@ struct ResourceRef {
 ResourceRef parseResource(const QString& resource_id);
 
 // 无序站点对的键，路段着色用。
+QString routeResourceId(const QString& from, const QString& to);
 QString edgeKey(const QString& s1, const QString& s2);
 
 // 占用者是否是封锁（而不是车辆）。

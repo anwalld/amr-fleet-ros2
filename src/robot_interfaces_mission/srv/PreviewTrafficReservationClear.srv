@@ -1,0 +1,7 @@
+string resource_id
+---
+bool found
+string owner_id
+string[] resource_ids
+string[] resume_robot_ids
+string message

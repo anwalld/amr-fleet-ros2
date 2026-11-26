@@ -10,18 +10,17 @@
 # 八个阶段（阶段之间互不依赖，一个失败不中断后面的；每阶段自带超时，阶段间清掉全部 ROS/Gazebo 进程）：
 #   1 编译        全量 colcon build                              build.log
 #   2 单测        colcon test 全部包                              测试汇总
-#   3 全量验收    run_acceptance_baseline.sh 跑用例表全部用例       results.tsv；全部 PASS 才通过，与上一夜对照只作报告
+#   3 全量验收    run_acceptance_baseline.sh 跑用例表全部用例       results.tsv；全部 PASS 才通过，与固定参考逐项对照
 #   4 一键演示    headless amr_demo 跑一遍，按关键日志行判定        demo.log 判定结果
 #   5 交通压测    2/4/6 台 × whole_route/rolling，每组 30 分       stress_*/、metrics.tsv
 #   6 死锁场景    两车对向、三车成环、环外有车等待，各 3 遍         deadlock_scenarios.tsv
-#   7 调度台冒烟  offscreen robot_console 对着压测栈跑 5 分        console_smoke.tsv
-#   8 报告        汇总通过/失败、与上一夜 diff、指标表              report.md → docs/baseline/nightly/<日期>.md
+#   7 调度台冒烟  六车 300 秒无人操作冒烟和 10 项 Ops 专项        console_smoke.tsv、console_ops_results.tsv
+#   8 报告        汇总通过/失败、固定参考对照、指标表              report.md → docs/baseline/nightly/<日期>.md
 # 阶段 5–7 对应的模块还没做出来时自动记 SKIP 并写明原因。
 #
 # 环境变量：
 #   DRY_RUN=1        白天自检：不编译、不起仿真栈、不清进程，只检查各阶段的前置条件并出报告
 #   ONLY_STAGES="1 2 8"  只跑列出的阶段（报告阶段 8 建议总是带上）
-#   PREV_DIR=<目录>  指定"上一夜"的输出目录（默认取同级目录里最新的一个）
 #   NIGHTLY_REV      被测代码的提交号（虚拟机工作区没有 .git，由发起方传入，写进报告）
 #   STAGE<n>_TIMEOUT 覆盖第 n 阶段的超时秒数
 #   STRESS_MINUTES   阶段 5 每组分钟数（默认 30）；STRESS_NETWORK 阶段 5 路网（默认 workshop_2way）
@@ -172,27 +171,17 @@ stage_2() {
   exit "${rc}"
 }
 
-# 找"上一夜"的输出目录：PREV_DIR，或同级目录中比本次早、且有对应文件的最新一个。
-prev_night_file() {
-  local rel="$1" dir
-  if [[ -n "${PREV_DIR:-}" ]]; then
-    [[ -f "${PREV_DIR}/${rel}" ]] && echo "${PREV_DIR}/${rel}"
-    return 0
-  fi
-  local parent cur
-  parent="$(dirname "${OUT_DIR}")"; cur="$(basename "${OUT_DIR}")"
-  while IFS= read -r dir; do
-    [[ "$(basename "${dir}")" < "${cur}" && -f "${dir}/${rel}" ]] && { echo "${dir}/${rel}"; return 0; }
-  done < <(find "${parent}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -r)
-}
-
 stage_3() {
   local runner="${SCRIPT_DIR}/run_acceptance_baseline.sh"
   [[ -x "${runner}" ]] || { summary "找不到 ${runner}"; exit 1; }
   if dry; then
     local n
     n=$(grep -v '^#' "${SCRIPT_DIR}/acceptance_cases.tsv" | awk -F'\t' 'NF && $1 != "suite"' | wc -l | tr -d ' ')
-    skip "DRY_RUN：验收运行器存在，用例表列出 ${n} 个用例"
+    if ! python3 "${SCRIPT_DIR}/m4_ops_preflight.py" "${ROOT_DIR}" > "${SDIR}/reference.log" 2>&1; then
+      summary "DRY_RUN：固定参考不可比较，见 reference.log"
+      exit 1
+    fi
+    skip "DRY_RUN：固定参考与 ${n} 个用例核对通过，详情见 reference.log"
   fi
   local runner_rc=0
   env -u ONLY_CASES -u ACCEPTANCE_CASES_FILE "${runner}" "${SDIR}/acceptance" \
@@ -201,11 +190,13 @@ stage_3() {
   [[ -f "${results}" ]] || { summary "运行器没有产出 results.tsv"; exit 1; }
   cp "${results}" "${SDIR}/results.tsv"
 
-  # 对比基准：上一夜的结果；找不到时用新基线 docs/baseline/acceptance_baseline.tsv。
-  local prev
-  prev="$(prev_night_file "stage3_acceptance/results.tsv")"
-  if [[ -z "${prev}" && -f "${ROOT_DIR}/docs/baseline/acceptance_baseline.tsv" ]]; then
+  # Ops 的阶段 3 必须使用已核验的固定对照输入。
+  local prev=""
+  if python3 "${SCRIPT_DIR}/m4_ops_preflight.py" "${ROOT_DIR}" > "${SDIR}/reference.log" 2>&1; then
     prev="${ROOT_DIR}/docs/baseline/acceptance_baseline.tsv"
+    summary "阶段 3 使用固定参考 rework6-r2，摘要与覆盖见 reference.log。"
+  else
+    summary "固定参考不可比较，见 reference.log。当前验收仍按登记表判定。"
   fi
   # 判定：本夜全部用例 PASS 才算通过；对比（经映射表换算）、新增、已删除、超预算只写进报告
   # （acceptance-suite-rework design D10）。
@@ -214,6 +205,9 @@ stage_3() {
     "${SDIR}/compare.md" > /dev/null
   local rc=$?
   [[ ! -f "${SDIR}/compare.md" ]] || cat "${SDIR}/compare.md" >> "${SDIR}/summary.md"
+  if [[ -n "${prev}" ]]; then
+    python3 "${SCRIPT_DIR}/m4_ops_compare.py" 3 "${ROOT_DIR}" "${SDIR}" >> "${SDIR}/summary.md"
+  fi
   if (( runner_rc != 0 )); then
     summary "验收运行器退出码：${runner_rc}"
     exit "${runner_rc}"
@@ -359,7 +353,9 @@ stage_5() {
   summary ""
   awk -F'\t' 'NR==1 { h="|"; s="|"; for (i=1;i<=NF;i++) { h=h" "$i" |"; s=s" --- |" } print h; print s; next }
               { r="|"; for (i=1;i<=NF;i++) r=r" "$i" |"; print r }' "${SDIR}/metrics.tsv" >> "${SDIR}/summary.md"
-  (( fails == 0 && ${#stalled[@]} == 0 && ${#exited[@]} == 0 && ${#frozen[@]} == 0 ))
+  local sampling_rc=0
+  python3 "${SCRIPT_DIR}/m4_ops_compare.py" 5 "${ROOT_DIR}" "${SDIR}" >> "${SDIR}/summary.md" || sampling_rc=$?
+  (( fails == 0 && ${#stalled[@]} == 0 && ${#exited[@]} == 0 && ${#frozen[@]} == 0 && sampling_rc == 0 ))
 }
 
 stage_6() {
@@ -382,26 +378,39 @@ stage_6() {
     summary "场景脚本 rc=${rc}，没有产出 deadlock_scenarios.tsv"
     rc=1
   fi
+  python3 "${SCRIPT_DIR}/m4_ops_compare.py" 6 "${ROOT_DIR}" "${SDIR}" >> "${SDIR}/summary.md" || rc=1
   exit "${rc}"
 }
 
 stage_7() {
-  local smoke="${SCRIPT_DIR}/run_console_smoke.sh"
-  [[ -d "${ROOT_DIR}/src/robot_console" ]] || skip "调度台包 src/robot_console 还没有（M4）"
-  [[ -x "${smoke}" ]] || skip "调度台冒烟脚本 scripts/run_console_smoke.sh 还没写（M4）"
-  dry && skip "DRY_RUN：冒烟脚本存在；对着压测栈跑 5 分钟留给夜跑"
-  QT_QPA_PLATFORM=offscreen "${smoke}" "${SDIR}" > "${SDIR}/smoke.log" 2>&1 < /dev/null
-  local rc=$?
+  local smoke="${SCRIPT_DIR}/run_console_smoke.sh" ops="${SCRIPT_DIR}/run_console_ops.sh"
+  [[ -x "${smoke}" && -x "${ops}" && -x "${SCRIPT_DIR}/run_console_alarm.sh" ]] || { summary "缺少调度台冒烟或操作专项入口"; exit 1; }
+  dry && skip "DRY_RUN：已找到严格冒烟、Ops 与 Alarm 专项和证据判定入口"
+  local smoke_rc=0 ops_rc=0 evidence_rc=0
+  QT_QPA_PLATFORM=offscreen "${smoke}" "${SDIR}" > "${SDIR}/smoke.log" 2>&1 < /dev/null || smoke_rc=$?
   if [[ -f "${SDIR}/console_smoke.tsv" ]]; then
-    summary "冒烟脚本 rc=${rc}"
+    summary "冒烟脚本 rc=${smoke_rc}，通信边界见 console_service_boundary.tsv"
     summary '```'
     cat "${SDIR}/console_smoke.tsv" >> "${SDIR}/summary.md"
     summary '```'
+    python3 "${SCRIPT_DIR}/m4_ops_compare.py" 7 "${ROOT_DIR}" "${SDIR}" >> "${SDIR}/summary.md"
   else
-    summary "冒烟脚本 rc=${rc}，没有产出 console_smoke.tsv"
-    rc=1
+    summary "冒烟脚本 rc=${smoke_rc}，没有产出 console_smoke.tsv"
+    smoke_rc=1
   fi
-  exit "${rc}"
+  QT_QPA_PLATFORM=offscreen "${ops}" "${SDIR}" > "${SDIR}/ops.log" 2>&1 < /dev/null || ops_rc=$?
+  summary "Ops 场景运行器 rc=${ops_rc}，原始结果为 console_ops_results.tsv"
+  python3 "${SCRIPT_DIR}/m4_ops_evidence.py" "${ROOT_DIR}" "${SDIR}" --summary "${SDIR}/summary.md" \
+    > "${SDIR}/ops_evidence.json" || evidence_rc=$?
+  summary "Ops 专项证据 rc=${evidence_rc}，详情见 ops_evidence.json"
+  printf 'smoke_rc\tops_rc\tevidence_rc\n%s\t%s\t%s\n' \
+    "${smoke_rc}" "${ops_rc}" "${evidence_rc}" > "${SDIR}/exit_codes.tsv"
+  local alarm_rc=0 alarm_evidence_rc=0
+  "${SCRIPT_DIR}/run_console_alarm.sh" "${SDIR}" > "${SDIR}/alarm.log" 2>&1 < /dev/null || alarm_rc=$?
+  python3 "${SCRIPT_DIR}/m4_alarm_evidence.py" "${SDIR}" > "${SDIR}/alarm_evidence.json" || alarm_evidence_rc=$?
+  summary "Alarm 运行器 rc=${alarm_rc}，证据 rc=${alarm_evidence_rc}，详情见 alarm_evidence.json 和 alarm-evidence/"
+  [[ ! -f "${SDIR}/alarm-evidence/results.tsv" ]] || cat "${SDIR}/alarm-evidence/results.tsv" >> "${SDIR}/summary.md"
+  (( smoke_rc == 0 && ops_rc == 0 && evidence_rc == 0 && alarm_rc == 0 && alarm_evidence_rc == 0 ))
 }
 
 stage_8() {
@@ -475,6 +484,11 @@ if [[ "${1:-}" == "__stage" ]]; then
   exit $?
 fi
 
+if ! dry; then
+  exec 9>>"${HOME}/.robot-nightly.lock" || exit 1
+  flock -n 9 || { log '无法取得夜跑锁，请检查当前用户下已有的夜跑进程'; exit 1; }
+fi
+
 OUT_DIR="${1:-${HOME}/nightly/$(date +%F)}"
 mkdir -p "${OUT_DIR}"
 OUT_DIR="$(cd "${OUT_DIR}" && pwd)"
@@ -487,6 +501,18 @@ ONLY_STAGES="${ONLY_STAGES:-}"
 log "nightly start: out=${OUT_DIR} dry_run=${DRY_RUN} only=[${ONLY_STAGES:-全部}] rev=${NIGHTLY_REV:-未知}"
 
 trap 'ros_sweep' EXIT
+pgid=""
+cancel_nightly() {
+  local code="$1"
+  trap '' INT TERM
+  if [[ -n "${pgid}" ]]; then
+    kill_group "${pgid}" 2>/dev/null
+    wait "${pgid}" 2>/dev/null
+  fi
+  exit "${code}"
+}
+trap 'cancel_nightly 130' INT
+trap 'cancel_nightly 143' TERM
 ros_sweep
 any_fail=0
 for n in "${STAGE_IDS[@]}"; do
@@ -497,12 +523,13 @@ for n in "${STAGE_IDS[@]}"; do
   log "stage ${n} ${STAGE_NAME[$n]} start (timeout ${t}s)"
   start=${SECONDS}
   setsid timeout --kill-after=30 "${t}" bash "${SELF}" __stage "${n}" "${OUT_DIR}" \
-    > "${sdir}/stage.log" 2>&1 < /dev/null &
+    > "${sdir}/stage.log" 2>&1 < /dev/null 9>&- &
   pgid=$!
   wait "${pgid}"
   rc=$?
   secs=$(( SECONDS - start ))
   dry || kill_group "${pgid}" 2>/dev/null
+  pgid=""
   ros_sweep
   case ${rc} in
     0) verdict=PASS ;;

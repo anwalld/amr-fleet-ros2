@@ -1,0 +1,13 @@
+stations:
+  - id: a
+    x: 0.0
+    y: 0.0
+  - id: b
+    x: 1.0
+    y: 0.0
+routes:
+  - from: a
+    to: b
+    distance_m: 1.0
+    bidirectional: true
+    enabled: true

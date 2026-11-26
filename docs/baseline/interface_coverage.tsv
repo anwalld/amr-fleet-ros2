@@ -52,6 +52,7 @@ service	/v2/cancel_station_order_batch	robot_tasks/mission_runner_node	mission:s
 service	/v2/cancel_workflow	robot_tasks/mission_runner_node	business:scenario_station_sequence_cancel,business:scenario_workflow_shapes,business:vda5050_instant,mission:workflow_cancel,ops:operator_permissions	
 service	/v2/clear_obstacle_blockage	robot_tasks/mission_runner_node	safety:obstacle_recovery,safety:obstacle_stop	
 service	/v2/clear_traffic_reservation	robot_tasks/traffic_service	amr_sim:traffic_wait,safety:dynamic_route,traffic:deadlock_pause_clear	
+service	/v2/clear_traffic_reservation_if_matches	robot_tasks/traffic_service	ops-ui:clear_match,ops-ui:clear_owner_conflict,ops-ui:clear_scope_conflict	匹配、换占用者和范围变化
 service	/v2/confirm_dropoff	robot_tasks/mission_runner_node	business:picking_wave,business:replenishment,business:warehouse_fulfillment	
 service	/v2/confirm_load	robot_tasks/mission_runner_node	mission:payload	
 service	/v2/confirm_pick	robot_tasks/mission_runner_node	business:picking_wave,business:replenishment,business:warehouse_fulfillment	
@@ -90,6 +91,7 @@ service	/v2/list_traffic_reservations	robot_tasks/traffic_service	amr_sim:defaul
 service	/v2/pause_workflow	robot_tasks/mission_runner_node	business:vda5050_instant,mission:workflow_pause_resume,ops:rest_workflow	
 service	/v2/preempt_mission_profile	robot_tasks/mission_runner_node	mission:queue_control	
 service	/v2/preview_fleet_station_task	robot_tasks/mission_runner_node	business:fleet_dispatch	
+service	/v2/preview_traffic_reservation_clear	robot_tasks/traffic_service	ops-ui:clear_match,ops-ui:clear_owner_conflict,ops-ui:clear_scope_conflict	预览影响及冲突后刷新
 service	/v2/reject_station_action	robot_tasks/mission_runner_node	mission:station_confirmation	
 service	/v2/release_facility_resource	robot_tasks/mission_runner_node	facility:actions,facility:charging,facility:door_passage,facility:lift_state,facility:showcase,safety:opportunity_charging	
 service	/v2/release_lift_session	robot_tasks/mission_runner_node	facility:lift_state,facility:multi_floor,facility:showcase	
@@ -113,6 +115,7 @@ service	/v2/set_active_map	robot_navigation/map_manager_node	ops:map_manager
 service	/v2/set_chassis_mode	robot_hardware/chassis_driver_node	ops:chassis_mock	
 service	/v2/set_cmd_source	robot_teleop/cmd_vel_mux_node,robot_teleop/cmd_vel_safety_gate_node	amr_sim:gazebo_nav2,safety:system_health	
 service	/v2/set_dynamic_speed_limit	robot_tasks/mission_runner_node	amr_sim:visualization,safety:dynamic_speed	
+service	/v2/set_fleet_sim_stop	robot_simulation/fleet_sim_stop_node	alarm-ui:alarm_sim_stop	仿真停止与解除
 service	/v2/set_initial_pose_from_station	robot_tasks/mission_runner_node	safety:localization,safety:relocalization	
 service	/v2/set_payload_loaded	robot_tasks/mission_runner_node	amr_sim:visualization,mission:payload,mission:top_module	
 service	/v2/submit_fleet_station_task	robot_tasks/mission_runner_node	ops:legacy_entries	
@@ -133,6 +136,7 @@ topic	/emergency_stop/state	robot_teleop/cmd_vel_mux_node,robot_teleop/cmd_vel_s
 topic	/experiment/statistics	robot_experiments/experiment_runner_node	ops:path_tracking	
 topic	/fault_supervisor/state	robot_utils/fault_supervisor_node	safety:fault_supervisor	
 topic	/fleet/agent_events	robot_simulation/fleet_robot_agent_node	fleet:agent_station_task	
+topic	/fleet/sim_stop/state	robot_simulation/fleet_sim_stop_node	alarm-ui:alarm_sim_stop	仿真控制状态
 topic	/imu/data	robot_hardware/chassis_driver_node	amr_sim:gazebo_sensor,ops:topics	
 topic	/imu_100d4/calibration_state	robot_sensors/imu_100d4_parser_node	ops:imu_calibration	
 topic	/initialpose	robot_tasks/mission_runner_node	amr_sim:gazebo_nav2,amr_sim:rviz_topics,safety:localization	

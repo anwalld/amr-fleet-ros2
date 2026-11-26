@@ -1,0 +1,12 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::alarm_events_and_recovery() This plugin does not support propagateSizeHints()
+[INFO] [1795685684.436350155] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+QINFO  : ConsoleOpsAcceptance::alarm_events_and_recovery() OPS_EVIDENCE {"events":2,"graph_requests":3,"map_retained":true,"recovered":true,"step":"alarm_events_and_recovery","stop_status_expired":true}
+[INFO] [1795685690.525876729] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::alarm_events_and_recovery()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 6125ms
+********* Finished testing of ConsoleOpsAcceptance *********

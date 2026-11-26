@@ -1,0 +1,10 @@
+[INFO] [launch]: All log files can be found below /home/ubuntu/.ros/log/2026-11-26-17-32-36-627101-lm-worker-1-800243
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [mission_runner_node-1]: process started with pid [800265]
+[mission_runner_node-1] [INFO] [1795685556.689309546] [mission_runner_node]: traffic deadlock: resolution=on starvation=20.0s whole_route_wait_ttl=6.0s yield_hold=5.0s yield_timeout=10.0s
+[mission_runner_node-1] [INFO] [1795685556.689368379] [mission_runner_node]: traffic_reservation_mode=rolling
+[INFO] [1795685558.302225174] [navigate_sequence_server_node]: accept navigate sequence goal: waypoints=1
+[WARN] [1795685559.303738584] [navigate_sequence_server_node]: Nav2 FollowWaypoints action server unavailable, falling back to simulated sequence
+[INFO] [1795685559.705829360] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[mission_runner_node-1] [INFO] [1795685559.705673152] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [mission_runner_node-1]: process has finished cleanly [pid 800265]

@@ -18,7 +18,9 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.conditions import IfCondition
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 # 各路网的起点（也是每台车空闲时回去的停车位），按车号取前 fleet_size 个。
@@ -63,6 +65,8 @@ def _agents(context):
                         "initial_station_id": homes[index],
                         "home_station_id": parking[index],
                         "kinematic_sim": True,
+                        "fleet_sim_stop_enabled": ParameterValue(
+                            LaunchConfiguration("fleet_sim_stop_enabled"), value_type=bool),
                         "traffic_reservation_mode": mode,
                         "max_linear_mps": max_linear,
                         "dwell_s": dwell,
@@ -86,6 +90,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("fleet_size", default_value="6"),
+            DeclareLaunchArgument("fleet_sim_stop_enabled", default_value="false"),
             DeclareLaunchArgument("network", default_value="workshop",
                                   description="workshop、workshop_2way 或 warehouse"),
             DeclareLaunchArgument("traffic_reservation_mode", default_value="rolling"),
@@ -115,6 +120,12 @@ def generate_launch_description():
                 package="robot_tasks",
                 executable="navigate_sequence_server_node",
                 parameters=[{"use_nav2_action": False, "simulate_without_nav2": True}],
+                output="screen",
+            ),
+            Node(
+                package="robot_simulation",
+                executable="fleet_sim_stop_node",
+                condition=IfCondition(LaunchConfiguration("fleet_sim_stop_enabled")),
                 output="screen",
             ),
             OpaqueFunction(function=_agents),

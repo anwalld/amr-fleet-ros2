@@ -41,6 +41,11 @@
 #include "robot_interfaces_mission/srv/release_route_segment.hpp"
 #include "robot_interfaces_mission/srv/request_route_segment.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "std_msgs/msg/bool.hpp"
+
+#include <stdexcept>
+
+#include "robot_simulation/fleet_sim_stop.hpp"
 #include "robot_interfaces_mission/srv/list_stations.hpp"
 #include "robot_interfaces_fleet/srv/update_fleet_robot_state.hpp"
 
@@ -386,6 +391,18 @@ class FleetTaskAgent final : public rclcpp::Node {
     initial_station_id_ = declare_parameter<std::string>("initial_station_id", "dock");
     home_station_id_ = declare_parameter<std::string>("home_station_id", initial_station_id_);
     kinematic_sim_ = declare_parameter<bool>("kinematic_sim", true);
+    const bool stop_enabled = declare_parameter<bool>("fleet_sim_stop_enabled", false);
+    if (stop_enabled && !kinematic_sim_) {
+      throw std::invalid_argument("fleet_sim_stop_enabled requires kinematic_sim");
+    }
+    if (stop_enabled) {
+      fleet_stop_sub_ = create_subscription<std_msgs::msg::Bool>(
+          "/fleet/sim_stop/state", rclcpp::QoS(1).reliable().transient_local(),
+          [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
+            fleet_stopped_ = msg->data;
+            fleet_stop_seen_s_ = Now();
+          });
+    }
     traffic_mode_ = declare_parameter<std::string>("traffic_reservation_mode", "rolling");
     max_linear_mps_ = declare_parameter<double>("max_linear_mps", 0.8);
     max_angular_radps_ = declare_parameter<double>("max_angular_radps", 1.8);
@@ -502,8 +519,10 @@ class FleetTaskAgent final : public rclcpp::Node {
     const double dt = last_tick_ > 0.0 ? std::min(t - last_tick_, 0.2) : 0.0;
     last_tick_ = t;
 
+    const bool stopped = fleet_stop_sub_ &&
+        robot_simulation::FleetSimMotionStopped(fleet_stopped_, fleet_stop_seen_s_, t);
     geometry_msgs::msg::Twist cmd;
-    if (phase_ == Phase::kDrive) {
+    if (!stopped && phase_ == Phase::kDrive) {
       cmd = DriveCommand();
     }
     if (kinematic_sim_ && have_pose_) {
@@ -515,6 +534,7 @@ class FleetTaskAgent final : public rclcpp::Node {
       PublishOdom();
       last_odom_pub_ = t;
     }
+    if (stopped) return;
     ResendOverdueRequests(t);
 
     switch (phase_) {
@@ -1092,6 +1112,9 @@ class FleetTaskAgent final : public rclcpp::Node {
   bool completed_any_task_ = false;
   double control_period_s_ = 0.05;
 
+  bool fleet_stopped_ = true;
+  double fleet_stop_seen_s_ = 0.0;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr fleet_stop_sub_;
   Phase phase_ = Phase::kLoadMap;
   Goal goal_ = Goal::kNone;
   std::map<std::string, StationPose> stations_;

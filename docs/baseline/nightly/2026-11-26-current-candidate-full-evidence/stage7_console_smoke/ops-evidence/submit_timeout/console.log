@@ -1,0 +1,15 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::submit_timeout() This plugin does not support propagateSizeHints()
+[INFO] [1795685680.597349135] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+[INFO] [1795685680.948300486] [robot_console]: console_service_request service=/v2/submit_fleet_station_task operation_id=1 target=ops_transport_62435f1b4e8a4cb7be84c0b91d12ff30 include_active=false
+[WARN] [1795685683.998133131] [robot_console]: console_operation_timeout operation_id=1
+QINFO  : ConsoleOpsAcceptance::submit_timeout() OPS_EVIDENCE {"message":"服务 3 秒未应答","outcome":2,"request_id":1,"step":"console_reply"}
+QINFO  : ConsoleOpsAcceptance::submit_timeout() OPS_EVIDENCE {"elapsed_ms":3077,"map_refreshed":true,"requests":1,"snapshots":3,"step":"timeout_observed","target":"ops_transport_62435f1b4e8a4cb7be84c0b91d12ff30"}
+[INFO] [1795685684.018232607] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::submit_timeout()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 3455ms
+********* Finished testing of ConsoleOpsAcceptance *********

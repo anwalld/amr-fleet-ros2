@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 set -eo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/robot_wait.sh"
 
 set +u
 source install/setup.bash
 set -u
-# self 用例自选 DDS 域，避免和别的进程串台。
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((RANDOM % 200 + 20))}"
+# 本用例自起速度复用器。和外层 amr_demo 使用不同域，避免两套同名急停服务和状态话题互相干扰。
+parent_domain="${ROS_DOMAIN_ID:-$((RANDOM % 150 + 50))}"
+export ROS_DOMAIN_ID="$(( (10#${parent_domain} + 101) % 230 ))"
 
 mux_log="/tmp/robot_fault_supervisor_mux.log"
 supervisor_log="/tmp/robot_fault_supervisor.log"
@@ -20,46 +23,57 @@ cleanup() {
 }
 trap cleanup EXIT
 
-wait_for_service() {
-  local service_name="$1"
-  # 30 秒：daemon 冷启动加两个节点启动在 VM 上偶尔超过 10 秒（夜跑 #1 因此失败）；每次查询带超时。
-  local deadline=$((SECONDS + 30))
-  while ! timeout 10 ros2 service list 2>/dev/null | grep -qx "${service_name}"; do
-    if (( SECONDS >= deadline )); then
-      echo "service did not appear: ${service_name}" >&2
-      exit 1
-    fi
-    sleep 1
-  done
-}
+python3 - <<'PYTHON'
+from time import monotonic
 
-wait_for_estop() {
-  local expected="$1"
-  local deadline=$((SECONDS + 10))
-  while true; do
-    local state
-    state="$(timeout "${ROS2_CALL_TIMEOUT:-30}" ros2 topic echo --once /emergency_stop/state std_msgs/msg/Bool --field data 2>/tmp/robot_fault_estop.err || true)"
-    if grep -qi "${expected}" <<<"${state}"; then
-      echo "${state}"
-      return
-    fi
-    if (( SECONDS >= deadline )); then
-      echo "emergency stop did not become ${expected}; last state: ${state}" >&2
-      exit 1
-    fi
-    sleep 1
-  done
-}
+import rclpy
+from rclpy.duration import Duration
+from robot_interfaces.msg import RobotState
+from std_msgs.msg import Bool
+from std_srvs.srv import SetBool
 
-wait_for_service "/enable_emergency_stop"
-wait_for_service "/clear_emergency_stop"
-ros2 topic type /fault_supervisor/state | rg "robot_interfaces/msg/RobotState"
 
-ros2 topic pub --once /system_health robot_interfaces/msg/RobotState "{state: ERROR, message: injected fault, recoverable: false}" >/tmp/robot_fault_inject.log 2>&1
-wait_for_estop "true"
+def check(node):
+    observed = {}
+    health = node.create_publisher(RobotState, "/system_health", 10)
+    node.create_subscription(Bool, "/emergency_stop/state",
+                             lambda msg: observed.update(estop=msg.data), 10)
+    node.create_subscription(RobotState, "/fault_supervisor/state",
+                             lambda msg: observed.update(supervisor=msg.state), 10)
 
-ros2 topic pub --once /system_health robot_interfaces/msg/RobotState "{state: OK, message: recovered, recoverable: true}" >/tmp/robot_fault_recover.log 2>&1
-wait_for_estop "false"
+    def wait_for(predicate, description, seconds):
+        deadline = monotonic() + seconds
+        while not predicate() and monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+        if not predicate():
+            raise RuntimeError(f"{description}: {observed}")
+
+    for name in ("/enable_emergency_stop", "/clear_emergency_stop"):
+        if not node.create_client(SetBool, name).wait_for_service(timeout_sec=5):
+            raise RuntimeError(f"service did not appear: {name}")
+    wait_for(lambda: health.get_subscription_count() > 0 and
+             observed.get("estop") is False and "supervisor" in observed,
+             "fault supervisor and mux readiness", 10)
+
+    def inject(state, message, recoverable, expected):
+        health.publish(RobotState(state=state, message=message, recoverable=recoverable))
+        if not health.wait_for_all_acked(Duration(seconds=2)):
+            raise RuntimeError(f"system health {state} did not reach the supervisor")
+        wait_for(lambda: observed.get("estop") is expected,
+                 f"emergency stop did not become {expected}", 10)
+        print(f"emergency stop observed: {expected}")
+
+    inject("ERROR", "injected fault", False, True)
+    inject("OK", "recovered", True, False)
+
+
+rclpy.init()
+node = rclpy.create_node("fault_supervisor_acceptance")
+try:
+    check(node)
+finally:
+    node.destroy_node()
+    rclpy.shutdown()
+PYTHON
 
 echo "Fault supervisor acceptance OK; logs: ${supervisor_log}, ${mux_log}"
-

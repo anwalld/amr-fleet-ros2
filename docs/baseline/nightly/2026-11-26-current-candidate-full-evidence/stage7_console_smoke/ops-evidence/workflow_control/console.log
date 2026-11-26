@@ -1,0 +1,30 @@
+QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-ubuntu'
+********* Start testing of ConsoleOpsAcceptance *********
+Config: Using QtTest library 6.4.2, Qt 6.4.2 (arm64-little_endian-lp64 shared (dynamic) release build; by GCC 13.2.0), ubuntu 24.04
+PASS   : ConsoleOpsAcceptance::initTestCase()
+QWARN  : ConsoleOpsAcceptance::workflow_control() This plugin does not support propagateSizeHints()
+[INFO] [1795685557.510537166] [robot_console]: robot_console 已连接 ROS，话题覆盖 0 项
+[INFO] [1795685557.912792232] [robot_console]: console_service_request service=/v2/list_scenario_workflows operation_id=1 target= include_active=false
+QINFO  : ConsoleOpsAcceptance::workflow_control() OPS_EVIDENCE {"message":"loaded 14 scenario workflow(s)","outcome":0,"request_id":1,"step":"console_reply"}
+[INFO] [1795685557.961538865] [robot_console]: console_service_request service=/v2/submit_order operation_id=2 target=ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 include_active=false
+QINFO  : ConsoleOpsAcceptance::workflow_control() OPS_EVIDENCE {"message":"queued scenario workflow warehouse/inbound_crossdock with 2 task(s)","outcome":0,"request_id":2,"step":"console_reply"}
+[INFO] [1795685558.111814377] [robot_console]: console_service_request service=/v2/get_workflow_status operation_id=3 target=ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 include_active=false
+[INFO] [1795685558.161916047] [robot_console]: console_service_request service=/v2/pause_workflow operation_id=4 target=ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 include_active=true
+[INFO] [1795685558.211442386] [robot_console]: console_service_request service=/v2/get_workflow_status operation_id=5 target=ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 include_active=false
+QINFO  : ConsoleOpsAcceptance::workflow_control() OPS_EVIDENCE {"service":"/v2/get_workflow_status","step":"fixture_call"}
+[INFO] [1795685558.261115266] [robot_console]: console_service_request service=/v2/resume_workflow operation_id=6 target=ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 include_active=true
+[INFO] [1795685558.311392769] [robot_console]: console_service_request service=/v2/get_workflow_status operation_id=7 target=ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 include_active=false
+[INFO] [1795685558.517214725] [robot_console]: 订阅 robot_1 的位置：/robot_1/odom
+[INFO] [1795685558.518160180] [robot_console]: 订阅 robot_2 的位置：/robot_2/odom
+QINFO  : ConsoleOpsAcceptance::workflow_control() OPS_EVIDENCE {"service":"/v2/get_workflow_status","step":"fixture_call"}
+QWARN  : ConsoleOpsAcceptance::workflow_control() This plugin does not support propagateSizeHints()
+[INFO] [1795685558.661245923] [robot_console]: console_service_request service=/v2/cancel_workflow operation_id=8 target=ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 include_active=true
+QINFO  : ConsoleOpsAcceptance::workflow_control() OPS_EVIDENCE {"message":"canceled workflow ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 mission_count=2","outcome":0,"request_id":8,"step":"console_reply"}
+[INFO] [1795685558.711959258] [robot_console]: console_service_request service=/v2/get_workflow_status operation_id=9 target=ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3 include_active=false
+QINFO  : ConsoleOpsAcceptance::workflow_control() OPS_EVIDENCE {"service":"/v2/get_workflow_status","step":"fixture_call"}
+QINFO  : ConsoleOpsAcceptance::workflow_control() OPS_EVIDENCE {"active":"station_order_fleet_ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3_step_1","active_terminal":"CANCELED","canceled":["station_order_fleet_ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3_step_2","station_order_fleet_ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3_step_1"],"final_state":"UNKNOWN","paused_after_resume":false,"paused_first":true,"step":"workflow_control_observed","target":"ops_workflow_375b73abf4fe4d29a8c2a467ae2c03f3"}
+[INFO] [1795685559.535065623] [robot_console]: console_publisher_audit_complete
+PASS   : ConsoleOpsAcceptance::workflow_control()
+PASS   : ConsoleOpsAcceptance::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 2067ms
+********* Finished testing of ConsoleOpsAcceptance *********

@@ -17,10 +17,14 @@ import pathlib
 import re
 import sys
 
+from m4_ops_evidence import REQUESTS as OPS_REQUESTS
+from m4_ops_preflight import rows
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
 TABLE = ROOT / "docs/baseline/interface_coverage.tsv"
 CASES = SCRIPTS / "acceptance_cases.tsv"
+OPS_CASES = SCRIPTS / "console_ops_cases.tsv"
 HELPERS = [SCRIPTS / "robot_wait.sh", SCRIPTS / "_traffic_self_common.sh"]
 
 PATTERNS = {
@@ -55,6 +59,9 @@ def case_table():
         cols = line.split("\t")
         if cols[0] != "suite" and len(cols) >= 3:
             cases[f"{cols[0]}:{cols[1]}"] = SCRIPTS / cols[2]
+    for row in rows(OPS_CASES):
+        cases[f"{row['suite']}:{row['case']}"] = SCRIPTS / "run_console_ops.sh"
+    cases["alarm-ui:alarm_sim_stop"] = SCRIPTS / "run_console_alarm.sh"
     return cases
 
 
@@ -64,13 +71,21 @@ def references(name, path):
     return re.search(re.escape(name) + r"(?![a-z_0-9])", path.read_text(errors="ignore")) is not None
 
 
+def covers(name, case, path):
+    if case.startswith("ops-ui:"):
+        service = name.removeprefix("/v2/")
+        return (name.startswith("/v2/") and
+                service in OPS_REQUESTS.get(case.split(":", 1)[1], {}))
+    return references(name, path)
+
+
 def draft():
     cases = case_table()
     print("# 接口覆盖表（acceptance-suite-rework design D8）。lint:interface_coverage 检查它与 src/ 一致。")
     print("# cases：覆盖该接口的用例键（逗号分隔）；note：断言要点，或 via:/v2/submit_order（旧入口经统一入口转发）。")
     print("kind\tname\towner\tcases\tnote")
     for (kind, name), owners in sorted(extract().items()):
-        hits = [k for k, p in sorted(cases.items()) if references(name, p)]
+        hits = [k for k, p in sorted(cases.items()) if covers(name, k, p)]
         if not hits and any(references(name, h) for h in HELPERS):
             hits = ["(helper)"]
         print(f"{kind}\t{name}\t{','.join(sorted(owners))}\t{','.join(hits)}\t")
@@ -103,7 +118,7 @@ def check():
             continue
         if note.startswith("via:"):
             continue
-        if not any(references(key[1], cases[k]) for k in keys):
+        if not any(covers(key[1], k, cases[k]) for k in keys):
             problems.append(f"{TABLE.name}:{no}: {key[1]} 列出的用例脚本都没有引用它：{','.join(keys)}")
     for p in problems:
         print(p)

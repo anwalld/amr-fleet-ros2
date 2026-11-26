@@ -1,0 +1,8 @@
+[INFO] [launch]: All log files can be found below /home/ubuntu/.ros/log/2026-11-26-17-34-11-532782-lm-worker-1-801776
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [mission_runner_node-1]: process started with pid [801798]
+[mission_runner_node-1] [INFO] [1795685651.592290969] [mission_runner_node]: traffic deadlock: resolution=on starvation=20.0s whole_route_wait_ttl=6.0s yield_hold=5.0s yield_timeout=10.0s
+[mission_runner_node-1] [INFO] [1795685651.592351344] [mission_runner_node]: traffic_reservation_mode=rolling
+[INFO] [1795685661.796537754] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[mission_runner_node-1] [INFO] [1795685661.796509088] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [mission_runner_node-1]: process has finished cleanly [pid 801798]

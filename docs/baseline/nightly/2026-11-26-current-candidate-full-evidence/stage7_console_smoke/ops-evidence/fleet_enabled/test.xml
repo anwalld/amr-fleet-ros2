@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuite name="ConsoleOpsAcceptance" timestamp="2026&#x002D;11&#x002D;26T17:34:23" hostname="lm&#x002D;worker&#x002D;1" tests="3" failures="0" errors="0" skipped="0" time="3.074">
+  <properties>
+    <property name="QTestVersion" value="6.4.2"/>
+    <property name="QtVersion" value="6.4.2"/>
+    <property name="QtBuild" value="Qt 6.4.2 (arm64&#x002D;little_endian&#x002D;lp64 shared (dynamic) release build; by GCC 13.2.0)"/>
+  </properties>
+  <testcase name="initTestCase" classname="ConsoleOpsAcceptance" time="0.000"/>
+  <testcase name="fleet_enabled" classname="ConsoleOpsAcceptance" time="3.074">
+    <system-out>
+      <![CDATA[OPS_EVIDENCE {"message":"updated runtime fleet state for robot_2","outcome":0,"request_id":1,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"message":"updated runtime fleet state for robot_2","outcome":0,"request_id":2,"step":"console_reply"}]]>
+      <![CDATA[OPS_EVIDENCE {"sequence":[false,true],"state":"charging","step":"fleet_flags_observed","target":"robot_2","voltage":23}]]>
+    </system-out>
+    <system-err>
+      <![CDATA[This plugin does not support propagateSizeHints()]]>
+    </system-err>
+  </testcase>
+  <testcase name="cleanupTestCase" classname="ConsoleOpsAcceptance" time="0.000"/>
+</testsuite>

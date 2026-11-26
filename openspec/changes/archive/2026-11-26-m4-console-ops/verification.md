@@ -54,7 +54,7 @@ r2 Ops 10/10，外部封路后地图刷新 64 毫秒。五分钟服务边界为�
 
 ## 11 月 26 日完整共同夜跑核验
 
-修订 `58b9000-merged-59a37fbf`。首份完整共同验收通过。用例 10/10，外部封路后地图刷新 169 ms，无人操作 300 秒仅三个读取服务，业务发布为零。规格场景沿用本文件的实现映射，并核对冻结版阶段 7 的逐例 QtTest、ROS 请求/回执、占用冲突和超时证据。阶段 2 调度台测试和回放通过，正式后验无缺项。已保存 [Ops 基线](../../../docs/baseline/M4-ops.md)、[逐例原始证据](../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/stage7_console_smoke/ops-evidence/) 和[服务边界](../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/stage7_console_smoke/console_service_boundary.tsv)。 [完整后验](../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/postcheck.json)
+修订 `58b9000-merged-59a37fbf`。首份完整共同验收通过。用例 10/10，外部封路后地图刷新 169 ms，无人操作 300 秒仅三个读取服务，业务发布为零。规格场景沿用本文件的实现映射，并核对冻结版阶段 7 的逐例 QtTest、ROS 请求/回执、占用冲突和超时证据。阶段 2 调度台测试和回放通过，正式后验无缺项。已保存 [Ops 基线](../../../../docs/baseline/M4-ops.md)、[逐例原始证据](../../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/stage7_console_smoke/ops-evidence/) 和[服务边界](../../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/stage7_console_smoke/console_service_boundary.tsv)。 [完整后验](../../../../docs/baseline/nightly/2026-11-26-current-candidate-full-evidence/postcheck.json)
 
 ## 交付分支实施核验
 
@@ -63,3 +63,5 @@ r2 Ops 10/10，外部封路后地图刷新 64 毫秒。五分钟服务边界为�
 - 一致性：原 ROS 执行器与请求关联机制、路权回调内检查和修改、固定参考与证据检查均保留。接口覆盖审计 158/158，固定参考预检 110/110，OpenSpec 严格校验通过。
 
 全栈夜跑结果对应共同冻结快照 `58b9000-merged-59a37fbf`。交付从冻结清单和原控制台工作树提取 Ops、Alarm 以及阶段 3 回归脚本修正，共享文件沿用主线的任务控制和 rolling 行为。交付提交另由 GitHub CI 核对构建与单测。
+
+交付提交 `701e8182457c8b020dbae43ae13771b5918029b0` 的 GitHub CI 通过，日志汇总为 679 项、零错误、失败和跳过。PR 合并到 `main` 的提交为 `a4303041c36dfb561131180ad5c1fd53b6bd718f`。 [PR #9](https://github.com/anwalld/amr-fleet-ros2/pull/9) · [GitHub CI](https://github.com/anwalld/amr-fleet-ros2/actions/runs/45827907215)

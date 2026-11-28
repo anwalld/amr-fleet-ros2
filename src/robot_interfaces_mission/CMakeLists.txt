@@ -16,6 +16,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ReprioritizeQueuedMission.srv"
   "srv/ReprioritizeBatch.srv"
   "srv/GetMissionRecoveryState.srv"
+  "srv/SetSequencePause.srv"
+  "srv/ReleaseMissionDispatchHold.srv"
   "srv/ListMissionEvents.srv"
   "srv/EstimateMissionCost.srv"
   "srv/EstimateStationTransport.srv"

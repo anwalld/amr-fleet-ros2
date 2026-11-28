@@ -1,0 +1,281 @@
+{
+  "profile": "shared-rework",
+  "checks": {
+    "source_manifest": {
+      "manifest": "/home/ubuntu/robot-dagu-workspaces/8766f99-main-merge-u19-r2/control/source.manifest",
+      "checked_files": 1016,
+      "missing_count": 0,
+      "missing_files": [],
+      "mismatched_count": 0,
+      "mismatched_files": [],
+      "invalid_line_count": 0,
+      "ok": true
+    },
+    "traffic_samples": {
+      "stress_2_rolling": {
+        "samples": 1800,
+        "first_sample_seconds": 0.99,
+        "last_sample_seconds": 1799.99,
+        "largest_gap_seconds": 1.01,
+        "duration_seconds": 1800.1
+      },
+      "stress_2_whole_route": {
+        "samples": 1800,
+        "first_sample_seconds": 1.0,
+        "last_sample_seconds": 1800.0,
+        "largest_gap_seconds": 1.01,
+        "duration_seconds": 1800.0
+      },
+      "stress_4_rolling": {
+        "samples": 1800,
+        "first_sample_seconds": 0.87,
+        "last_sample_seconds": 1799.87,
+        "largest_gap_seconds": 1.04,
+        "duration_seconds": 1800.0
+      },
+      "stress_4_whole_route": {
+        "samples": 1800,
+        "first_sample_seconds": 0.99,
+        "last_sample_seconds": 1800.0,
+        "largest_gap_seconds": 1.03,
+        "duration_seconds": 1800.0
+      },
+      "stress_6_rolling": {
+        "samples": 1800,
+        "first_sample_seconds": 1.0,
+        "last_sample_seconds": 1800.0,
+        "largest_gap_seconds": 1.01,
+        "duration_seconds": 1800.0
+      },
+      "stress_6_whole_route": {
+        "samples": 1800,
+        "first_sample_seconds": 0.99,
+        "last_sample_seconds": 1799.99,
+        "largest_gap_seconds": 1.02,
+        "duration_seconds": 1800.0
+      }
+    },
+    "shared_acceptance": {
+      "cases": 110,
+      "mock_cases": 6,
+      "templates": 12,
+      "scenarios": 9,
+      "recordings": 10,
+      "smoke": {
+        "duration_s": "300.5",
+        "snapshots": "300",
+        "snapshot_hz": "1.00",
+        "traffic_msgs": "301",
+        "traffic_hz": "1.00",
+        "events": "10",
+        "event_hz": "0.033",
+        "robots": "6",
+        "robots_with_pose": "6",
+        "pose_updates": "13998",
+        "pose_hz_min": "7.70",
+        "pose_hz.robot_1": "7.80",
+        "pose_hz.robot_2": "7.70",
+        "pose_hz.robot_3": "7.71",
+        "pose_hz.robot_4": "7.82",
+        "pose_hz.robot_5": "7.80",
+        "pose_hz.robot_6": "7.74",
+        "service_timeouts": "0",
+        "latency_samples": "13998",
+        "latency_p50_ms": "18.61",
+        "latency_p95_ms": "32.57",
+        "latency_max_ms": "35.33",
+        "latency_skipped": "0",
+        "frames": "8300",
+        "fps": "27.62",
+        "paint_p95_ms": "1.960",
+        "console_rc": "0",
+        "network": "workshop_2way",
+        "qt_platform": "offscreen",
+        "service_boundary": "console_service_boundary.tsv",
+        "replay_check": "OK event=10，graph=1，meta=1，pose=14194，snapshot=305，traffic=305；时长 305.6s；回放通过",
+        "verdict": "PASS"
+      }
+    },
+    "m4_ops_stage7": {
+      "expected": 10,
+      "verified": 10,
+      "read_services": {
+        "/v2/get_operator_snapshot": 305,
+        "/v2/list_stations": 61,
+        "/v2/list_station_routes": 61
+      },
+      "business_publishers": []
+    },
+    "m4_alarm_stage7": {
+      "cases": {
+        "alarm_events_and_recovery": "PASS",
+        "alarm_sim_stop": "PASS",
+        "alarm_installation": "PASS"
+      }
+    },
+    "task_control_restart": {
+      "results": [
+        {
+          "case": "d16",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet",
+          "status": "PASS"
+        },
+        {
+          "case": "dispatcher-state",
+          "status": "PASS"
+        },
+        {
+          "case": "d16-state",
+          "status": "PASS"
+        }
+      ]
+    },
+    "task_control_scenarios": {
+      "results": [
+        {
+          "case": "d16-delayed-reply",
+          "status": "PASS"
+        },
+        {
+          "case": "d16-route-hazard",
+          "status": "PASS"
+        },
+        {
+          "case": "d16-motion-cutover",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-rolling",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-whole-route",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-cancel-paused",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-restart-held",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-restart-missing-route",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-restart-paused-rolling",
+          "status": "PASS"
+        },
+        {
+          "case": "fleet-restart-paused-whole-route",
+          "status": "PASS"
+        }
+      ],
+      "traces": {
+        "d16-delayed-reply": {
+          "mission_state": 6,
+          "operator_request": 4,
+          "operator_reply": 4,
+          "navigation_pause_sent": 6,
+          "navigation_pause_ack": 6,
+          "forwarded_pause_ack": 6
+        },
+        "d16-route-hazard": {
+          "state": 6,
+          "localized": 4,
+          "service_request": 3,
+          "service_reply": 3,
+          "goals": 1
+        },
+        "d16-motion-cutover": {
+          "odometry": 39,
+          "mission_state": 8,
+          "localization": 10,
+          "service_request": 7,
+          "service_reply": 7,
+          "velocity_command": 19,
+          "navigation_goals": 4,
+          "stationary_window_start": 1,
+          "stationary_window_end": 1
+        },
+        "fleet-rolling": {
+          "service_request": 607,
+          "fleet_stop": 83,
+          "service_reply": 607,
+          "odometry": 125,
+          "traffic": 16,
+          "stationary_window_start": 5,
+          "stationary_window_end": 5
+        },
+        "fleet-whole-route": {
+          "service_request": 268,
+          "fleet_stop": 82,
+          "service_reply": 268,
+          "odometry": 120,
+          "traffic": 16,
+          "stationary_window_start": 5,
+          "stationary_window_end": 5
+        },
+        "fleet-cancel-paused": {
+          "service_request": 558,
+          "fleet_stop": 88,
+          "service_reply": 558,
+          "odometry": 133,
+          "traffic": 17,
+          "stationary_window_start": 5,
+          "stationary_window_end": 5
+        },
+        "fleet-restart-held": {
+          "agent_started": 2,
+          "service_request": 668,
+          "fleet_stop": 102,
+          "service_reply": 668,
+          "odometry": 131,
+          "traffic": 20,
+          "stationary_window_start": 6,
+          "stationary_window_end": 6,
+          "agent_stopped": 2
+        },
+        "fleet-restart-missing-route": {
+          "agent_started": 2,
+          "service_request": 299,
+          "fleet_stop": 67,
+          "service_reply": 299,
+          "traffic": 13,
+          "odometry": 55,
+          "stationary_window_start": 4,
+          "stationary_window_end": 4,
+          "agent_stopped": 2
+        },
+        "fleet-restart-paused-rolling": {
+          "agent_started": 2,
+          "service_request": 339,
+          "fleet_stop": 97,
+          "service_reply": 339,
+          "odometry": 135,
+          "traffic": 19,
+          "stationary_window_start": 6,
+          "stationary_window_end": 6,
+          "agent_stopped": 2
+        },
+        "fleet-restart-paused-whole-route": {
+          "agent_started": 2,
+          "service_request": 496,
+          "fleet_stop": 92,
+          "service_reply": 496,
+          "odometry": 133,
+          "traffic": 18,
+          "stationary_window_start": 6,
+          "stationary_window_end": 6,
+          "agent_stopped": 2
+        }
+      }
+    }
+  },
+  "issues": []
+}

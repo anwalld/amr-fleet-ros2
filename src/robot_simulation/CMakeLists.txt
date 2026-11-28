@@ -51,6 +51,7 @@ ament_target_dependencies(amr_sim_demo_director_node
   std_msgs)
 
 add_executable(amr_sim_gazebo_entity_bridge_node src/amr_sim_gazebo_entity_bridge_node.cpp)
+target_include_directories(amr_sim_gazebo_entity_bridge_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 ament_target_dependencies(amr_sim_gazebo_entity_bridge_node
   geometry_msgs
   nav_msgs
@@ -120,8 +121,17 @@ if(BUILD_TESTING)
   ament_add_gtest(fleet_sim_stop_test test/fleet_sim_stop_test.cpp)
   target_include_directories(fleet_sim_stop_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+  ament_add_gtest(parked_task_checkpoint_test test/parked_task_checkpoint_test.cpp)
+  target_include_directories(parked_task_checkpoint_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+  ament_add_gtest(task_stop_observation_test test/task_stop_observation_test.cpp)
+  target_include_directories(task_stop_observation_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
   ament_add_gtest(agent_idle_test test/agent_idle_test.cpp)
   target_include_directories(agent_idle_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+  ament_add_gtest(agent_lease_test test/agent_lease_test.cpp)
+  target_include_directories(agent_lease_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
   ament_add_gtest(agent_request_test test/agent_request_test.cpp)
   target_include_directories(agent_request_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -153,7 +163,15 @@ if(BUILD_TESTING)
   find_file(RUN_TEST_ISOLATED run_test_isolated.py
     PATHS ${ament_prefixes} PATH_SUFFIXES share/ament_cmake_ros/cmake
     NO_DEFAULT_PATH REQUIRED)
-  add_launch_test(test/test_sim_model_runtime.launch.py TIMEOUT 180 RUNNER "${RUN_TEST_ISOLATED}")
+  # The headless sensor test needs software rendering on VMs without GPU acceleration.
+  add_launch_test(test/test_sim_model_runtime.launch.py
+    TIMEOUT 180
+    RUNNER "${RUN_TEST_ISOLATED}"
+    ENV
+      "LIBGL_ALWAYS_SOFTWARE=1"
+      "MESA_LOADER_DRIVER_OVERRIDE=kms_swrast"
+      "GALLIUM_DRIVER=llvmpipe"
+      "MESA_GL_VERSION_OVERRIDE=4.5")
 endif()
 
 ament_export_include_directories(include)

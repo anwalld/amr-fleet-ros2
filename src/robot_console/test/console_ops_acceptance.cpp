@@ -24,9 +24,11 @@
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTest>
+#include <QTimer>
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 
 #include "robot_console_core/main_window.hpp"
 #include "robot_console_core/map_scene.hpp"
@@ -132,11 +134,7 @@ class ConsoleOpsAcceptance : public QObject {
     QVERIFY(!resumed->queued_mission_ids.empty());
     QVERIFY(until([&] { return field<QPushButton>("cancelWorkflow")->isEnabled(); }));
     const int result_index = results_.size();
-    QTimer::singleShot(0, window_.get(), [] {
-      if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
-        box->button(QMessageBox::Yes)->click();
-      }
-    });
+    scheduleModalConfirmation(QMessageBox::Yes);
     QVERIFY(trigger("cancelWorkflow"));
     const auto canceled = reply(result_index);
     QVERIFY(canceled);
@@ -318,20 +316,8 @@ class ConsoleOpsAcceptance : public QObject {
   void alarm_sim_stop() {
     auto* status = field<QLabel>("fleetStopStatus");
     QVERIFY(until([&] { return status->text() == QStringLiteral("仿真停止已设置"); }, 15000));
-    auto confirm = [this] {
-      QTimer::singleShot(0, window_.get(), [] {
-        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
-          box->button(QMessageBox::Yes)->click();
-        }
-      });
-    };
-    const auto confirm_no = [this] {
-      QTimer::singleShot(0, window_.get(), [] {
-        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
-          box->button(QMessageBox::No)->click();
-        }
-      });
-    };
+    auto confirm = [this] { scheduleModalConfirmation(QMessageBox::Yes); };
+    const auto confirm_no = [this] { scheduleModalConfirmation(QMessageBox::No); };
     confirm_no();
     QVERIFY(trigger("releaseFleetSim"));
     QCOMPARE(results_.size(), 0);
@@ -525,6 +511,29 @@ class ConsoleOpsAcceptance : public QObject {
     if (!button || !until([&] { return button->isEnabled(); })) return false;
     button->click();
     return true;
+  }
+
+  void scheduleModalConfirmation(const QMessageBox::StandardButton button,
+                                 const int timeout_ms = 15000) {
+    auto* timer = new QTimer(window_.get());
+    auto elapsed = std::make_shared<QElapsedTimer>();
+    elapsed->start();
+    timer->setInterval(20);
+    QObject::connect(timer, &QTimer::timeout, window_.get(), [timer, elapsed, button, timeout_ms]() {
+      if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+        if (auto* target = box->button(button)) {
+          timer->stop();
+          timer->deleteLater();
+          target->click();
+          return;
+        }
+      }
+      if (elapsed->elapsed() >= timeout_ms) {
+        timer->stop();
+        timer->deleteLater();
+      }
+    });
+    timer->start();
   }
 
   void select(const char* name, const QString& value) {

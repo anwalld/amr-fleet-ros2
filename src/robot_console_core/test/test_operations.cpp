@@ -97,6 +97,53 @@ class TestOperations : public QObject {
     QVERIFY(window.mapScene()->edge("a", "b"));
   }
 
+  void remoteControlReconcilesOriginalTaskAfterReconnect() {
+    ReplaySource source;
+    FakeOperations operations;
+    MainWindow window(&source, {}, nullptr, &operations);
+    OperatorSnapshotData data;
+    data.success = true;
+    data.remote_task_ids = {QStringLiteral("task_a"), QStringLiteral("task_b")};
+    emit source.snapshotReceived(data);
+    auto* task = field<QComboBox>(window, "remoteTaskId");
+    task->setCurrentText(QStringLiteral("task_a"));
+    click(window, "remoteTaskAction0");
+    QCOMPARE(operations.requests.size(), 1);
+    auto running = accepted();
+    running.remote_task_id = QStringLiteral("task_a");
+    running.remote_state = QStringLiteral("RUNNING");
+    running.execution_id = 91;
+    running.latest_revision = 3;
+    operations.answer(0, running);
+    click(window, "remoteTaskAction1");
+    QCOMPARE(operations.requests.size(), 2);
+    QCOMPARE(operations.requests[1].execution_id, quint64{91});
+    QCOMPARE(operations.requests[1].revision, quint64{4});
+    auto pausing = running;
+    pausing.revision = 4;
+    pausing.remote_state = QStringLiteral("PAUSING");
+    operations.answer(1, pausing);
+    QCOMPARE(cell(window, 1, 3), QStringLiteral("PAUSING"));
+    QVERIFY(!field<QPushButton>(window, "remoteTaskAction2")->isEnabled());
+    operations.unavailable.insert(Operation::RemoteTaskControl);
+    emit operations.availabilityChanged();
+    QCoreApplication::processEvents();
+    task->setCurrentText(QStringLiteral("task_b"));
+    operations.unavailable.remove(Operation::RemoteTaskControl);
+    emit operations.availabilityChanged();
+    QTRY_COMPARE(operations.requests.size(), 3);
+    const auto query = operations.requests[2];
+    QCOMPARE(query.target, QStringLiteral("task_a"));
+    QCOMPARE(query.execution_id, quint64{91});
+    QCOMPARE(query.revision, quint64{4});
+    QCOMPARE(query.remote_action, RemoteTaskAction::Query);
+    auto paused = pausing;
+    paused.remote_state = QStringLiteral("PAUSED");
+    operations.answer(2, paused);
+    QCOMPARE(cell(window, 1, 3), QStringLiteral("PAUSED"));
+    QVERIFY(!field<QPushButton>(window, "remoteTaskAction2")->isEnabled());
+  }
+
   void workflowAndCancelKeepSeparateReceipts() {
     ReplaySource source;
     FakeOperations operations;

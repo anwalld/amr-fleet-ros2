@@ -1,14 +1,110 @@
 """Check the evidence produced by a successful robot nightly runner."""
 
 import csv
+import hashlib
 import json
 import math
+import os
+import re
+from pathlib import Path
+
+
+from m4_ops_evidence import verify_terminal
+from m4_alarm_evidence import verify as verify_alarm
 
 
 MATRIX = {(str(robots), mode) for robots in (2, 4, 6) for mode in ("whole_route", "rolling")}
 SCENARIOS = ("head_on", "ring3", "outside_wait")
 RECORD_KINDS = {"graph", "pose", "snapshot", "traffic"}
 SAMPLING_TOLERANCE = 5
+MANIFEST_LINE = re.compile(r"^([0-9a-fA-F]{64})[ \t]+\*?(.+)$")
+
+
+def find_source_manifest(output, workspace):
+    candidates = []
+    override = os.environ.get("ROBOT_SOURCE_MANIFEST", "").strip()
+    if override:
+        candidates.append(Path(override).expanduser())
+    output_path = Path(output)
+    workspace_path = Path(workspace)
+    candidates.extend([
+        output_path / "source.manifest",
+        workspace_path / "source.manifest",
+        workspace_path.parent / "control" / "source.manifest",
+        workspace_path.parent / "source.manifest",
+    ])
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(65536)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_source_manifest(manifest_path, workspace):
+    workspace_root = Path(workspace).resolve()
+    manifest_file = Path(manifest_path)
+    checked = 0
+    missing = []
+    mismatched = []
+    invalid_lines = []
+    issues = []
+
+    for lineno, raw_line in enumerate(manifest_file.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = MANIFEST_LINE.fullmatch(line)
+        if not match:
+            invalid_lines.append(f"line {lineno}")
+            continue
+        expected_hash = match.group(1).lower()
+        rel_path = match.group(2).strip()
+        if rel_path.startswith("./"):
+            rel_path = rel_path[2:]
+        checked += 1
+        target = (workspace_root / rel_path).resolve()
+        try:
+            target.relative_to(workspace_root)
+        except ValueError:
+            mismatched.append(f"{rel_path} (escapes workspace)")
+            continue
+        if not target.is_file():
+            missing.append(rel_path)
+            continue
+        actual_hash = sha256_file(target)
+        if actual_hash != expected_hash:
+            mismatched.append(rel_path)
+
+    if invalid_lines:
+        issues.append(f"source.manifest 存在 {len(invalid_lines)} 行格式错误（示例：{', '.join(invalid_lines[:5])}）")
+    if checked == 0 and not invalid_lines:
+        issues.append("source.manifest 为空")
+    if missing:
+        issues.append(f"source.manifest 缺失 {len(missing)} 个文件（示例：{', '.join(missing[:5])}）")
+    if mismatched:
+        issues.append(f"source.manifest 有 {len(mismatched)} 个文件 SHA-256 失配（示例：{', '.join(mismatched[:5])}）")
+
+    details = {
+        "manifest": str(manifest_file),
+        "checked_files": checked,
+        "missing_count": len(missing),
+        "missing_files": missing[:20],
+        "mismatched_count": len(mismatched),
+        "mismatched_files": mismatched[:20],
+        "invalid_line_count": len(invalid_lines),
+        "ok": not issues,
+    }
+    return details, issues
 
 
 def rows(path, delimiter="\t"):
@@ -96,13 +192,73 @@ def shared_acceptance(output, workspace, rounds):
             "scenarios": len(scenarios), "recordings": len(recordings), "smoke": smoke}, issues
 
 
+def verify_task_control_restart(directory):
+    scenarios = {
+        "d16": "d16 first start and repeated checkpoint verified",
+        "fleet": "fleet first start and repeated checkpoint verified",
+        "dispatcher-state": "dispatcher: original assignment, persisted and live receipts recovered; motion writes blocked",
+        "d16-state": "D16: original live UUID and pause rechecked, pending queue recovered, dispatch held",
+    }
+    directory /= "task-control-restart"
+    actual = rows(directory / "results.tsv")
+    expected = [{"case": name, "status": "PASS"} for name in scenarios]
+    issues = []
+    if actual != expected:
+        issues.append("任务控制重启结果缺项、重复或失败")
+    for name, assertion in scenarios.items():
+        if assertion not in (directory / f"result-{name}.log").read_text().splitlines():
+            issues.append(f"{name} 缺重启断言")
+    return {"results": actual}, issues
+
+
+def verify_task_control_scenarios(directory):
+    from verify_task_control_trace import verify_trace
+
+    directory /= "task-control-scenarios"
+    scenarios = {
+        "d16-delayed-reply": "同目标同修订重试；旧暂停回执迟到未覆盖恢复",
+        "d16-route-hazard": "定位丢失期间路权已授予但没有发导航目标；定位恢复后继续",
+        "d16-motion-cutover": "暂停位移与采样连续性通过；取消后下一单仅在明确放行后运动",
+        **dict.fromkeys(
+            ("fleet-rolling", "fleet-whole-route", "fleet-cancel-paused"),
+            "pause, fleet-stop rejection, replay, cancellation, route retention, explicit move and stale target passed",
+        ),
+        "fleet-restart-held": "restarted canceled hold: original receipt, pose and live route verified",
+        "fleet-restart-missing-route": "missing route: same checkpoint kept motion inhibited",
+        "fleet-restart-paused-rolling": "restarted paused task: same execution, pose and route retained",
+        "fleet-restart-paused-whole-route": "restarted paused task: same execution, pose and route retained",
+    }
+    actual = rows(directory / "results.tsv")
+    expected = [{"case": name, "status": "PASS"} for name in scenarios]
+    issues = []
+    if actual != expected:
+        issues.append("任务控制仿真结果缺项、重复或失败")
+    for name, assertion in scenarios.items():
+        if assertion not in (directory / f"{name}.log").read_text().splitlines():
+            issues.append(f"{name} 缺少仿真断言")
+    traces = {}
+    for name in scenarios:
+        try:
+            traces[name] = verify_trace(name, directory / f"{name}-trace.jsonl")
+        except (OSError, ValueError, KeyError) as error:
+            issues.append(str(error))
+    return {"results": actual, "traces": traces}, issues
+
+
 def verify_evidence(output, workspace, stages, minutes, rounds, profile):
     result = {"profile": profile or "nightly", "checks": {}, "issues": []}
     steps = []
+    manifest_path = find_source_manifest(output, workspace)
+    if manifest_path is not None:
+        steps.append(("source_manifest", verify_source_manifest, (manifest_path, workspace)))
     if 5 in stages:
         steps.append(("traffic_samples", traffic_samples, (output, minutes)))
     if profile == "shared-rework":
         steps.append(("shared_acceptance", shared_acceptance, (output, workspace, rounds)))
+        steps.append(("m4_ops_stage7", verify_terminal, (output / "stage7_console_smoke", workspace)))
+        steps.append(("m4_alarm_stage7", verify_alarm, (output / "stage7_console_smoke",)))
+        steps.append(("task_control_restart", verify_task_control_restart, (output / "stage7_console_smoke",)))
+        steps.append(("task_control_scenarios", verify_task_control_scenarios, (output / "stage7_console_smoke",)))
     for name, check, args in steps:
         try:
             details, issues = check(*args)

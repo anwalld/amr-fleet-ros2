@@ -20,7 +20,7 @@ class FleetSimStopNode final : public rclcpp::Node {
           response->success = true;
           response->message = stopped_ ? "simulation fleet stop set" : "simulation fleet stop released";
         });
-    timer_ = create_wall_timer(std::chrono::milliseconds(500), [this] { publish(); });
+    timer_ = create_wall_timer(std::chrono::milliseconds(200), [this] { publish(); });
     publish();
   }
 

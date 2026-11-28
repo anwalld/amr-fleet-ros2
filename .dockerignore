@@ -1,0 +1,17 @@
+.git
+.gitignore
+build
+install
+log
+.codex
+.agents
+docs/baseline/nightly/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp

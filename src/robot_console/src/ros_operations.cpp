@@ -6,6 +6,7 @@
 #include <robot_interfaces_business/srv/pause_workflow.hpp>
 #include <robot_interfaces_business/srv/resume_workflow.hpp>
 #include <robot_interfaces_business/srv/submit_order.hpp>
+#include <robot_interfaces_fleet/srv/control_remote_fleet_task.hpp>
 #include <robot_interfaces_fleet/srv/submit_fleet_station_task.hpp>
 #include <robot_interfaces_fleet/srv/update_fleet_robot_state.hpp>
 #include <robot_interfaces_mission/srv/block_station_route.hpp>
@@ -115,6 +116,33 @@ void RosOperations::add(const rclcpp::Node::SharedPtr& node, Operation operation
 }
 
 void RosOperations::start(const rclcpp::Node::SharedPtr& node) {
+  using Remote = fleet::ControlRemoteFleetTask;
+  add<Remote>(node, Operation::RemoteTaskControl, "/v2/control_remote_fleet_task",
+      [](const auto& input, auto& request) {
+        switch (input.remote_action) {
+          case RemoteTaskAction::Query: request.operation = Remote::Request::QUERY; break;
+          case RemoteTaskAction::Pause: request.operation = Remote::Request::PAUSE; break;
+          case RemoteTaskAction::Resume: request.operation = Remote::Request::RESUME; break;
+          case RemoteTaskAction::Cancel: request.operation = Remote::Request::CANCEL; break;
+          case RemoteTaskAction::Move: request.operation = Remote::Request::MOVE; break;
+        }
+        request.task_id = input.target.toStdString();
+        request.execution_id = input.execution_id;
+        request.revision = input.revision;
+        request.destination_station = input.to_station.toStdString();
+      },
+      [](const auto& response) {
+        auto result = standardResult(response);
+        result.remote_task_id = QString::fromStdString(response.task_id);
+        result.remote_state = QString::fromStdString(response.result);
+        result.execution_id = response.execution_id;
+        result.revision = response.revision;
+        result.latest_revision = response.latest_revision;
+        if (result.remote_state == QStringLiteral("UNKNOWN")) {
+          result.outcome = OperationOutcome::Unknown;
+        }
+        return result;
+      });
   add<std_srvs::srv::SetBool>(node, Operation::SetFleetSimStop, "/v2/set_fleet_sim_stop",
       [](const auto& input, auto& request) { request.data = input.enabled; },
       standardResult<std_srvs::srv::SetBool::Response>);

@@ -16,6 +16,13 @@ LOG_DIR="$(mktemp -d /tmp/robot_amr_sim_gazebo_entities.XXXXXX)"
 PIDS=()
 
 cleanup() {
+  local rc=$?
+  if ((rc != 0)) && [[ -f "${LOG_DIR}/amr_demo.log" ]]; then
+    echo "Gazebo demo log at failure:" >&2
+    tail -n 100 "${LOG_DIR}/amr_demo.log" >&2
+    echo "Payload at failure:" >&2
+    timeout 4s ros2 topic echo /payload/state --once >&2 || true
+  fi
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "$pid" >/dev/null 2>&1; then
       kill "$pid" >/dev/null 2>&1 || true
@@ -128,6 +135,19 @@ wait_label_models() {
   done
 }
 
+wait_demo_load_confirmation() {
+  local deadline=$((SECONDS + 150))
+  local confirmation="AMR sim demo action succeeded: confirm payload load at receiving"
+  until rg -qF "${confirmation}" "${LOG_DIR}/amr_demo.log"; do
+    if ((SECONDS >= deadline)); then
+      echo "demo did not confirm payload load at receiving within 150s" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  rg -m 1 -F "${confirmation}" "${LOG_DIR}/amr_demo.log"
+}
+
 wait_station_finished() {
   local timeout_sec="${1:-180}"
   local deadline=$((SECONDS + timeout_sec))
@@ -177,6 +197,8 @@ wait_models_exist 60 \
   showcase_dock_guidance
 wait_model_pose "manual_takeover_indicator" "z > 0.5" 60
 wait_model_pose "label_manual_takeover_status" "z > 1.0" 60
+# The director completes docking, undocking and pickup before Gazebo can raise the box.
+wait_demo_load_confirmation
 wait_model_pose "payload_box_waiting" "(z > 0.55) || (x < -1.0 && y > 1.0 && z > 0.1 && z < 0.4)" 60
 wait_model_pose "operator_confirmation_panel" "x < -3.0 && y > 0.8 && z > 0.35" 60
 wait_model_pose "label_operator_confirmation_status" "x < -3.0 && y > 0.8 && z > 0.8" 60

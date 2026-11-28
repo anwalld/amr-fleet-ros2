@@ -195,8 +195,14 @@ def handle(args, path, run):
 def show_status(run_id):
     matches = []
     for path in STATE.glob("*.json"):
-        run = json.loads(path.read_text())
-        output_name = Path(run["output"]).name
+        try:
+            run = json.loads(path.read_text())
+            if not isinstance(run, dict) or not isinstance(run.get("output"), str):
+                continue
+            output_name = Path(run["output"]).name
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+            print(f"warning: skipping corrupted state {path.name}: {error}", file=sys.stderr)
+            continue
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}-" + re.escape(run_id), output_name):
             matches.append(run)
     if len(matches) != 1:
@@ -223,7 +229,7 @@ def main():
     if args.command == "status":
         try:
             show_status(args.run_id)
-        except (OSError, ValueError, subprocess.SubprocessError) as error:
+        except (OSError, ValueError, subprocess.SubprocessError, KeyError, TypeError, AttributeError) as error:
             parser.exit(1, (getattr(error, "stderr", None) or str(error)).strip() + "\n")
         return
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -236,7 +242,7 @@ def main():
         for path in STATE.glob("*.json"):
             try:
                 handle(args, path, json.loads(path.read_text()))
-            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, KeyError, TypeError, AttributeError) as error:
                 print(path.name, getattr(error, "stderr", None) or str(error), file=sys.stderr)
                 failed = True
         sys.exit(int(failed))

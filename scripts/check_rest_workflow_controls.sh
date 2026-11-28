@@ -8,6 +8,7 @@ source "${SCRIPT_DIR}/robot_wait.sh"
 set +u
 source "${ROOT_DIR}/install/setup.bash"
 set -u
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((RANDOM % 150 + 50))}"
 
 PORT="${1:-18082}"
 POLICY="${ROOT_DIR}/src/robot_tasks/config/operators/rest_role_policy.json"
@@ -16,12 +17,20 @@ AUDIT_LOG="$(mktemp /tmp/robot_rest_workflow_controls.XXXXXX.jsonl)"
 PIDS=()
 
 cleanup() {
+  local status=$?
   for pid in "${PIDS[@]:-}"; do
     if kill -0 "$pid" >/dev/null 2>&1; then
       kill "$pid" >/dev/null 2>&1 || true
     fi
   done
   wait "${PIDS[@]:-}" >/dev/null 2>&1 || true
+  if ((status != 0)); then
+    for log in "${LOG_DIR}"/*.log; do
+      [[ -f "${log}" ]] || continue
+      printf '\n--- %s ---\n' "${log##*/}" >&2
+      tail -n 40 "${log}" >&2
+    done
+  fi
   rm -rf "${LOG_DIR}" "${AUDIT_LOG}"
 }
 trap cleanup EXIT
@@ -91,6 +100,7 @@ def wait_health():
     raise SystemExit("REST gateway did not become healthy")
 
 def request(method, path, payload=None, query=None, operator_id="bob"):
+    print(f"REST request {method} {path}", flush=True)
     url = base + path
     if query:
         url += "?" + urllib.parse.urlencode(query)
@@ -102,6 +112,7 @@ def request(method, path, payload=None, query=None, operator_id="bob"):
         method=method,
     )
     with urllib.request.urlopen(req, timeout=20) as response:
+        print(f"REST response {response.status} {method} {path}", flush=True)
         return json.loads(response.read().decode("utf-8"))
 
 wait_health()

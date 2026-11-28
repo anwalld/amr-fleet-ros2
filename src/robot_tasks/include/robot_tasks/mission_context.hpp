@@ -14,7 +14,10 @@ struct MissionContext {
   std::string station_file;
   bool traffic_intersection_locks_enabled = true;
   RouteLockMap route_locks;
+  RouteLockRevisionMap route_lock_revisions;
   RouteLockReservationMap route_locks_by_mission;
+  std::uint64_t traffic_service_epoch = 0;
+  std::uint64_t next_route_lock_revision = 0;
   // M2：路权模式。whole_route = 入队时锁整条路径、拿不到就拒绝（旧行为，对照组）；
   // rolling = 边走边申请前方路段、拿不到排队（默认）。
   std::string traffic_reservation_mode = "rolling";

@@ -41,6 +41,7 @@ QString operationName(Operation operation) {
     case Operation::PreviewClear: return QStringLiteral("预览清占用");
     case Operation::ClearReservation: return QStringLiteral("清占用");
     case Operation::SetFleetSimStop: return QStringLiteral("仿真车队急停");
+    case Operation::RemoteTaskControl: return QStringLiteral("远程任务控制");
   }
   return {};
 }
@@ -217,6 +218,33 @@ OperationPanel::OperationPanel(OperationSource* source, QWidget* parent)
   fleet_stop_ttl_.setTimerType(Qt::PreciseTimer);
   connect(&fleet_stop_ttl_, &QTimer::timeout, this, &OperationPanel::refreshAvailability);
 
+  auto* remote = addForm(QStringLiteral("远程任务"));
+  remote_task_ = new QComboBox;
+  remote_task_->setObjectName(QStringLiteral("remoteTaskId"));
+  remote_destination_ = new QComboBox;
+  remote_destination_->setObjectName(QStringLiteral("remoteMoveDestination"));
+  remote_status_ = new QLabel;
+  remote_status_->setObjectName(QStringLiteral("remoteTaskStatus"));
+  remote_status_->setWordWrap(true);
+  remote->addRow(QStringLiteral("任务号"), remote_task_);
+  remote->addRow(QStringLiteral("移车目的站"), remote_destination_);
+  const std::pair<RemoteTaskAction, const char*> actions[] = {
+      {RemoteTaskAction::Query, "查询"}, {RemoteTaskAction::Pause, "暂停"},
+      {RemoteTaskAction::Resume, "恢复"}, {RemoteTaskAction::Cancel, "取消"},
+      {RemoteTaskAction::Move, "移车"}};
+  for (const auto& [action, label] : actions) {
+    auto* control = new QPushButton(QString::fromUtf8(label));
+    control->setObjectName(QStringLiteral("remoteTaskAction%1").arg(static_cast<int>(action)));
+    remote_buttons_.insert(action, control);
+    remote->addRow(control);
+    connect(control, &QPushButton::clicked, this, [this, action] { sendRemoteTask(action); });
+  }
+  remote->addRow(remote_status_);
+  connect(remote_task_, &QComboBox::currentTextChanged, this, &OperationPanel::refreshRemoteTask);
+  connect(remote_destination_, &QComboBox::currentTextChanged, this, &OperationPanel::refreshRemoteTask);
+  connect(&remote_reconcile_timer_, &QTimer::timeout, this, &OperationPanel::reconcileRemoteTasks);
+  remote_reconcile_timer_.setInterval(1000);
+
   availability_ = new QLabel;
   availability_->setObjectName(QStringLiteral("operationAvailability"));
   availability_->setWordWrap(true);
@@ -335,6 +363,7 @@ bool OperationPanel::busy(Operation operation, const QString& target) const {
 }
 
 void OperationPanel::refreshAvailability() {
+  refreshRemoteTask();
   const bool can_stop = source_->available(Operation::SetFleetSimStop);
   const bool stop_busy = busy(Operation::SetFleetSimStop, QStringLiteral("仿真车队"));
   const bool fresh = fleet_stop_ttl_.isActive();
@@ -387,7 +416,7 @@ void OperationPanel::send(OperationRequest request, quint64 related_operation) {
     workflow_status_request_ = request.id;
   }
   entries_.insert(request.id, Entry{
-      request, {}, true, row, snapshot_revision_, traffic_revision_, fleet_stop_revision_, related_operation, {}});
+      request, {}, true, row, snapshot_revision_, traffic_revision_, fleet_stop_revision_, related_operation, {}, {}});
   render(entries_[request.id]);
   history_->scrollToBottom();
   if (!source_->submit(request)) {
@@ -407,6 +436,11 @@ void OperationPanel::finish(const OperationResult& result) {
   const auto request = it->request;
   const auto related_operation = it->related_operation;
   render(*it);
+  if (request.operation == Operation::RemoteTaskControl) {
+    finishRemoteTask(request, result, related_operation);
+    refreshAvailability();
+    return;
+  }
 
   if (related_operation && result.outcome == OperationOutcome::Accepted &&
       !result.workflow_state.isEmpty() && result.workflow_state != QStringLiteral("UNKNOWN")) {
@@ -543,6 +577,7 @@ QString OperationPanel::observation(const Entry& entry) const {
       if (!status.isEmpty()) return status;
     }
   }
+  if (!entry.remote_observation.isEmpty()) return entry.remote_observation;
   if (!entry.workflow_observation.isEmpty()) return entry.workflow_observation;
   if (request.operation == Operation::SetRobotEnabled && new_snapshot) {
     const int i = snapshot_.fleet_robot_ids.indexOf(request.target);
@@ -572,7 +607,98 @@ QString OperationPanel::observation(const Entry& entry) const {
   return {};
 }
 
+void OperationPanel::sendRemoteTask(RemoteTaskAction action) {
+  const auto task = remote_task_->currentText();
+  if (task.isEmpty()) return;
+  OperationRequest request;
+  request.operation = Operation::RemoteTaskControl;
+  request.remote_action = action;
+  request.target = task;
+  const auto original = remote_unresolved_.value(task);
+  if (original) {
+    if (action != RemoteTaskAction::Query) return;
+    const auto& pending = entries_.constFind(original)->request;
+    request.execution_id = pending.execution_id;
+    request.revision = pending.revision;
+  } else if (action != RemoteTaskAction::Query) {
+    const auto known = remote_tasks_.value(task);
+    if (!known.execution_id) return;
+    request.execution_id = known.execution_id;
+    request.revision = std::max(known.revision, known.latest_revision) + 1;
+    if (action == RemoteTaskAction::Move) request.to_station = remote_destination_->currentText();
+  }
+  send(std::move(request), original);
+}
+
+void OperationPanel::finishRemoteTask(
+    const OperationRequest& request, const OperationResult& result, quint64 original) {
+  const bool exact = result.remote_task_id == request.target &&
+      (!request.execution_id || request.execution_id == result.execution_id) &&
+      (!request.revision || request.revision == result.revision);
+  const bool unresolved = result.outcome == OperationOutcome::Unknown ||
+      result.remote_state == QStringLiteral("PAUSING") ||
+      result.remote_state == QStringLiteral("CANCELING");
+  if (request.remote_action != RemoteTaskAction::Query && (unresolved || !exact)) {
+    remote_unresolved_.insert(request.target, request.id);
+  }
+  const auto status = exact && !result.remote_state.isEmpty()
+      ? result.remote_state : QStringLiteral("UNKNOWN");
+  auto display = entries_.find(original ? original : request.id);
+  if (display != entries_.end()) {
+    display->remote_observation = status;
+    render(*display);
+  }
+  if (exact && result.outcome == OperationOutcome::Accepted && !unresolved) {
+    remote_tasks_.insert(request.target, result);
+    if (original) remote_unresolved_.remove(request.target);
+  } else if (!unresolved && exact && original && status == QStringLiteral("REJECTED")) {
+    remote_unresolved_.remove(request.target);
+    remote_tasks_.remove(request.target);
+  } else if (!remote_unresolved_.contains(request.target)) {
+    remote_tasks_.remove(request.target);
+  }
+  if (remote_unresolved_.isEmpty()) remote_reconcile_timer_.stop();
+  else if (!remote_reconcile_timer_.isActive()) remote_reconcile_timer_.start();
+  if (request.target == remote_task_->currentText()) remote_status_->setText(status);
+}
+
+void OperationPanel::refreshRemoteTask() {
+  const bool ready = source_->available(Operation::RemoteTaskControl);
+  if (!ready) remote_tasks_.clear();
+  const auto task = remote_task_->currentText();
+  const bool available = ready && !task.isEmpty() && !busy(Operation::RemoteTaskControl, task);
+  const bool writable = available && !remote_unresolved_.contains(task) &&
+      remote_tasks_.value(task).execution_id != 0;
+  for (auto it = remote_buttons_.cbegin(); it != remote_buttons_.cend(); ++it) {
+    it.value()->setEnabled(it.key() == RemoteTaskAction::Query ? available :
+        writable && (it.key() != RemoteTaskAction::Move || !remote_destination_->currentText().isEmpty()));
+  }
+  if (!ready || task.isEmpty()) remote_status_->setText(QStringLiteral("结果未知"));
+  else if (remote_unresolved_.contains(task)) {
+    const auto original = entries_.constFind(remote_unresolved_.value(task));
+    remote_status_->setText(original->remote_observation);
+  } else if (const auto known = remote_tasks_.constFind(task); known != remote_tasks_.cend()) {
+    remote_status_->setText(known->remote_state);
+  } else {
+    remote_status_->setText(QStringLiteral("结果未知"));
+  }
+}
+
+void OperationPanel::reconcileRemoteTasks() {
+  if (!source_->available(Operation::RemoteTaskControl)) return;
+  for (auto it = remote_unresolved_.cbegin(); it != remote_unresolved_.cend(); ++it) {
+    const auto& original = entries_.constFind(it.value())->request;
+    OperationRequest query;
+    query.operation = Operation::RemoteTaskControl;
+    query.target = original.target;
+    query.execution_id = original.execution_id;
+    query.revision = original.revision;
+    send(std::move(query), it.value());
+  }
+}
+
 void OperationPanel::setGraph(const StationGraph& graph) {
+  updateChoices(remote_destination_, graph.station_ids);
   updateChoices(pickup_, graph.station_ids);
   updateChoices(dropoff_, graph.station_ids);
   route_endpoints_.clear();
@@ -606,6 +732,11 @@ void OperationPanel::setSnapshot(const OperatorSnapshotData& snapshot) {
     workflow_status_->setText(QStringLiteral("目标已不在活动任务或队列中，请重新查询"));
   }
   updateChoices(robot_, snapshot.fleet_robot_ids);
+  auto tasks = snapshot.remote_task_ids;
+  for (auto it = remote_unresolved_.cbegin(); it != remote_unresolved_.cend(); ++it) {
+    if (!tasks.contains(it.key())) tasks.append(it.key());
+  }
+  updateChoices(remote_task_, tasks);
   for (const auto& entry : entries_) render(entry);
   refreshAvailability();
 }

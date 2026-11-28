@@ -312,8 +312,11 @@ std::optional<std::vector<std::string>> FindRoutePathAvoiding(
   return path;
 }
 
-std::vector<std::string> RankYieldRobots(
-    const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
+namespace {
+
+std::vector<std::string> RankRobotCandidates(
+    const std::vector<std::string>& robot_ids,
+    const std::unordered_map<std::string, TrafficWaitInfo>& info,
     const StationCatalog& catalog) {
   struct Candidate {
     std::string robot_id;
@@ -321,7 +324,7 @@ std::vector<std::string> RankYieldRobots(
     double remaining_m = 0.0;
   };
   std::vector<Candidate> candidates;
-  for (const auto& robot_id : cycle.robot_ids) {
+  for (const auto& robot_id : robot_ids) {
     Candidate candidate{robot_id, 0, 0.0};
     const auto it = info.find(robot_id);
     if (it != info.end()) {
@@ -351,6 +354,14 @@ std::vector<std::string> RankYieldRobots(
     ranked.push_back(candidate.robot_id);
   }
   return ranked;
+}
+
+}  // namespace
+
+std::vector<std::string> RankYieldRobots(
+    const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
+    const StationCatalog& catalog) {
+  return RankRobotCandidates(cycle.robot_ids, info, catalog);
 }
 
 std::string SelectYieldRobot(
@@ -387,10 +398,13 @@ std::vector<std::string> UpstreamWaitingRobots(
   return upstream;
 }
 
-DeadlockYieldPlan PlanDeadlockYield(
+namespace {
+
+DeadlockYieldPlan PlanYieldWithAvailability(
     const WaitCycle& cycle, const TrafficWaitInfo& yielder, const StationCatalog& catalog,
     const RouteLockMap& route_locks, const RouteHoldMap& holds, const double hold_s,
-    const std::vector<WaitGraphEdge>* edges) {
+    const std::vector<WaitGraphEdge>* edges, const bool require_clear_path,
+    const std::unordered_map<std::string, std::string>& home_owners = {}) {
   DeadlockYieldPlan plan;
   plan.robot_id = yielder.robot_id;
   plan.cycle_robot_ids = cycle.robot_ids;
@@ -415,10 +429,25 @@ DeadlockYieldPlan PlanDeadlockYield(
   }
   SortUnique(plan.avoid_resource_ids);
 
+  // 当前占用用于筛选可立即执行的方案。指令仍只携带原有的避让约束。
+  auto unavailable = plan.avoid_resource_ids;
+  if (require_clear_path) {
+    for (const auto& [resource_id, owner_id] : route_locks) {
+      if (owner_id != yielder.robot_id) {
+        unavailable.push_back(resource_id);
+      }
+    }
+    for (const auto& [resource_id, hold] : holds) {
+      if (hold.robot_id != yielder.robot_id) {
+        unavailable.push_back(resource_id);
+      }
+    }
+  }
+
   // 1. 改道。
   if (!yielder.goal_station.empty() && yielder.goal_station != yielder.current_station) {
     if (auto path = FindRoutePathAvoiding(
-            catalog, yielder.current_station, yielder.goal_station, plan.avoid_resource_ids)) {
+            catalog, yielder.current_station, yielder.goal_station, unavailable)) {
       plan.action = "reroute";
       plan.station_path = std::move(*path);
       plan.message = "reroute " + yielder.robot_id + " to " + yielder.goal_station + " via " +
@@ -433,6 +462,10 @@ DeadlockYieldPlan PlanDeadlockYield(
     if (!IsYieldPoint(station) || station.id == yielder.current_station) {
       continue;
     }
+    const auto home = home_owners.find(station.id);
+    if (home != home_owners.end() && !home->second.empty() && home->second != yielder.robot_id) {
+      continue;
+    }
     const auto node = RouteNodeLockId(station.id);
     const auto lock = route_locks.find(node);
     if (lock != route_locks.end() && lock->second != yielder.robot_id) {
@@ -444,7 +477,7 @@ DeadlockYieldPlan PlanDeadlockYield(
     }
     double distance = 0.0;
     auto path = FindRoutePathAvoiding(
-        catalog, yielder.current_station, station.id, plan.avoid_resource_ids, &distance);
+        catalog, yielder.current_station, station.id, unavailable, &distance);
     if (!path.has_value()) {
       continue;
     }
@@ -469,23 +502,122 @@ DeadlockYieldPlan PlanDeadlockYield(
   return plan;
 }
 
+}  // namespace
+
+DeadlockYieldPlan PlanDeadlockYield(
+    const WaitCycle& cycle, const TrafficWaitInfo& yielder, const StationCatalog& catalog,
+    const RouteLockMap& route_locks, const RouteHoldMap& holds, const double hold_s,
+    const std::vector<WaitGraphEdge>* edges) {
+  return PlanYieldWithAvailability(cycle, yielder, catalog, route_locks, holds, hold_s,
+                                  edges, false);
+}
+
 DeadlockYieldPlan PlanDeadlockResolution(
     const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
     const StationCatalog& catalog, const RouteLockMap& route_locks, const RouteHoldMap& holds,
-    const std::vector<WaitGraphEdge>& edges, const double hold_s) {
+    const std::vector<WaitGraphEdge>& edges, const double hold_s, const bool rolling,
+    const std::unordered_map<std::string, std::string>& home_owners) {
   const auto ranked = RankYieldRobots(cycle, info, catalog);
   std::optional<DeadlockYieldPlan> first_pause;
+  std::optional<DeadlockYieldPlan> blocked_backoff;
+  std::optional<DeadlockYieldPlan> clear_backoff;
   for (const auto& robot_id : ranked) {
     const auto it = info.find(robot_id);
     if (it == info.end()) {
       continue;
     }
     auto plan = PlanDeadlockYield(cycle, it->second, catalog, route_locks, holds, hold_s, &edges);
-    if (plan.action != "pause") {
+    if (plan.action == "pause") {
+      if (!first_pause.has_value()) {
+        first_pause = std::move(plan);
+      }
+      continue;
+    }
+    if (!rolling || (plan.action == "reroute" && !blocked_backoff.has_value())) {
       return plan;
     }
-    if (!first_pause.has_value()) {
-      first_pause = std::move(plan);
+    auto clear_plan = PlanYieldWithAvailability(
+        cycle, it->second, catalog, route_locks, holds, hold_s, &edges, true, home_owners);
+    if (clear_plan.action != "pause") {
+      return clear_plan;
+    }
+    if (!home_owners.empty() && !clear_backoff.has_value()) {
+      auto fallback = PlanYieldWithAvailability(
+          cycle, it->second, catalog, route_locks, holds, hold_s, &edges, true);
+      if (fallback.action != "pause") clear_backoff = std::move(fallback);
+    }
+    if (!blocked_backoff.has_value()) {
+      blocked_backoff = std::move(plan);
+    }
+  }
+  if (clear_backoff.has_value()) return *clear_backoff;
+  if (blocked_backoff.has_value()) {
+    return *blocked_backoff;
+  }
+  if (rolling) {
+    std::unordered_map<std::string, std::vector<std::string>> waiters_of;
+    for (const auto& edge : edges) {
+      waiters_of[edge.to_robot_id].push_back(edge.from_robot_id);
+    }
+    WaitCycle component_cycle;
+    component_cycle.robot_ids = cycle.robot_ids;
+    std::unordered_set<std::string> seen(cycle.robot_ids.begin(), cycle.robot_ids.end());
+    std::vector<std::vector<std::string>> layers;
+    auto frontier = cycle.robot_ids;
+    while (!frontier.empty()) {
+      std::vector<std::string> next_layer;
+      for (const auto& robot_id : frontier) {
+        const auto waiters = waiters_of.find(robot_id);
+        if (waiters == waiters_of.end()) {
+          continue;
+        }
+        for (const auto& waiter : waiters->second) {
+          if (seen.insert(waiter).second) {
+            next_layer.push_back(waiter);
+          }
+        }
+      }
+      if (next_layer.empty()) {
+        break;
+      }
+      component_cycle.robot_ids.insert(
+          component_cycle.robot_ids.end(), next_layer.begin(), next_layer.end());
+      frontier = next_layer;
+      layers.push_back(std::move(next_layer));
+    }
+
+    const auto mark_peeling = [&cycle](DeadlockYieldPlan& plan) {
+      plan.cycle_robot_ids = cycle.robot_ids;
+      plan.peeling = true;
+      plan.message = "peel " + plan.message;
+    };
+    std::optional<DeadlockYieldPlan> fallback_peel;
+    for (const auto& layer : layers) {
+      for (const auto& robot_id : RankRobotCandidates(layer, info, catalog)) {
+        const auto it = info.find(robot_id);
+        if (it == info.end()) {
+          continue;
+        }
+        auto plan = PlanYieldWithAvailability(
+            component_cycle, it->second, catalog, route_locks, holds, hold_s, &edges,
+            /*require_clear_path=*/true, home_owners);
+        if (plan.action != "pause") {
+          mark_peeling(plan);
+          return plan;
+        }
+        if (!home_owners.empty() && !fallback_peel.has_value()) {
+          auto fallback = PlanYieldWithAvailability(
+              component_cycle, it->second, catalog, route_locks, holds, hold_s, &edges,
+              /*require_clear_path=*/true);
+          if (fallback.action != "pause") {
+            mark_peeling(fallback);
+            fallback_peel = std::move(fallback);
+          }
+        }
+      }
+    }
+    if (fallback_peel.has_value()) {
+      return *fallback_peel;
     }
   }
   if (first_pause.has_value()) {
@@ -525,7 +657,9 @@ DeadlockTrackUpdate TrackDeadlocks(
       continue;
     }
     const bool yielded = it->second.action == "reroute" || it->second.action == "backoff";
-    if (yielded && yield_timeout_s > 0.0 && now_s - it->second.detected_s > yield_timeout_s) {
+    const bool peeling = !it->second.peeling_robot_id.empty() && it->second.peeling_started_s > 0.0;
+    const double started_s = peeling ? it->second.peeling_started_s : it->second.detected_s;
+    if (yielded && yield_timeout_s > 0.0 && now_s - started_s > yield_timeout_s) {
       // 让路车没按指令动（或又绕回来了）：当作新的一次成环重新处理。
       active.erase(it);
       update.new_cycles.push_back(cycle);

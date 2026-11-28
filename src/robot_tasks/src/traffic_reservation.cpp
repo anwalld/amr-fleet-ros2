@@ -1,13 +1,50 @@
 #include "robot_tasks/traffic_reservation.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
+#include <random>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace robot_tasks {
+
+std::uint64_t GenerateTrafficServiceEpoch() {
+  std::random_device entropy;
+  const auto system_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  const auto steady_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count();
+  std::uint64_t epoch = (static_cast<std::uint64_t>(entropy()) << 32) ^
+                        static_cast<std::uint64_t>(system_ns) ^
+                        static_cast<std::uint64_t>(steady_ns);
+  epoch += 0x9e3779b97f4a7c15ULL;
+  epoch = (epoch ^ (epoch >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  epoch = (epoch ^ (epoch >> 27)) * 0x94d049bb133111ebULL;
+  epoch ^= epoch >> 31;
+  return epoch == 0U ? 1U : epoch;
+}
+
 namespace {
+
+std::uint64_t AssignOrKeepRevision(
+    const std::string& resource_id, const std::string& owner_id,
+    const RouteLockMap& route_locks, RouteLockRevisionMap* revisions,
+    std::uint64_t* next_revision) {
+  if (revisions == nullptr || next_revision == nullptr) {
+    return 0U;
+  }
+  const auto existing_lock = route_locks.find(resource_id);
+  const auto existing_rev = revisions->find(resource_id);
+  if (existing_lock != route_locks.end() && existing_lock->second == owner_id &&
+      existing_rev != revisions->end() && existing_rev->second != 0U) {
+    return existing_rev->second;
+  }
+  const std::uint64_t rev = ++(*next_revision);
+  (*revisions)[resource_id] = rev;
+  return rev;
+}
 
 bool StartsWith(const std::string& value, const std::string& prefix) {
   return value.rfind(prefix, 0) == 0;
@@ -172,9 +209,13 @@ bool TrafficClearImpact::Matches(
 
 void ApplyTrafficClearImpact(
     const TrafficClearImpact& impact, RouteLockMap& route_locks,
-    RouteLockReservationMap& route_locks_by_mission) {
+    RouteLockReservationMap& route_locks_by_mission,
+    RouteLockRevisionMap* route_lock_revisions) {
   for (const auto& id : impact.resource_ids) {
     route_locks.erase(id);
+    if (route_lock_revisions != nullptr) {
+      route_lock_revisions->erase(id);
+    }
   }
   if (impact.decision.release_mission_id.empty()) {
     return;
@@ -214,7 +255,8 @@ bool ReserveRouteLocksForMission(
 bool ReserveRouteLocksForMission(
     RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
     const std::string& mission_id, const std::string& owner_id,
-    const std::vector<std::string>& route_lock_ids, std::string* message) {
+    const std::vector<std::string>& route_lock_ids, std::string* message,
+    RouteLockRevisionMap* route_lock_revisions, std::uint64_t* next_revision) {
   const std::string owner = owner_id.empty() ? mission_id : owner_id;
   for (const auto& lock_id : route_lock_ids) {
     const auto existing = route_locks.find(lock_id);
@@ -226,6 +268,7 @@ bool ReserveRouteLocksForMission(
     }
   }
   for (const auto& lock_id : route_lock_ids) {
+    AssignOrKeepRevision(lock_id, owner, route_locks, route_lock_revisions, next_revision);
     route_locks[lock_id] = owner;
   }
   route_locks_by_mission[mission_id] = RouteLockReservation{mission_id, route_lock_ids, owner};
@@ -237,7 +280,7 @@ bool ReserveRouteLocksForMission(
 
 bool ReleaseRouteLocksForMission(
     RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
-    const std::string& mission_id) {
+    const std::string& mission_id, RouteLockRevisionMap* route_lock_revisions) {
   bool released = false;
   std::string owner = mission_id;
   const auto reservation = route_locks_by_mission.find(mission_id);
@@ -259,6 +302,9 @@ bool ReleaseRouteLocksForMission(
       const auto lock = route_locks.find(lock_id);
       if (lock != route_locks.end() && lock->second == owner && still_needed.count(lock_id) == 0U) {
         route_locks.erase(lock);
+        if (route_lock_revisions != nullptr) {
+          route_lock_revisions->erase(lock_id);
+        }
         released = true;
       }
     }
@@ -267,6 +313,9 @@ bool ReleaseRouteLocksForMission(
     // 占用者就是任务号（旧调用或残留）：清掉它占着的全部资源。
     for (auto lock = route_locks.begin(); lock != route_locks.end();) {
       if (lock->second == mission_id) {
+        if (route_lock_revisions != nullptr) {
+          route_lock_revisions->erase(lock->first);
+        }
         lock = route_locks.erase(lock);
         released = true;
       } else {
@@ -371,7 +420,8 @@ std::vector<std::string> BuildRoutePathResourceIds(
 
 RouteSegmentDecision PlanRouteSegmentRequest(
     const RouteSegmentRequest& request, RouteLockMap& route_locks,
-    RouteWaitQueueMap& wait_queues, std::uint64_t* next_sequence, const RouteHoldMap* holds) {
+    RouteWaitQueueMap& wait_queues, std::uint64_t* next_sequence, const RouteHoldMap* holds,
+    RouteLockRevisionMap* route_lock_revisions, std::uint64_t* next_revision) {
   RouteSegmentDecision decision;
   decision.resource_ids = request.resource_ids;
   if (request.robot_id.empty()) {
@@ -404,8 +454,14 @@ RouteSegmentDecision PlanRouteSegmentRequest(
   }
 
   if (decision.blocking_resource_ids.empty()) {
+    decision.resource_revisions.reserve(request.resource_ids.size());
     for (const auto& resource_id : request.resource_ids) {
+      const std::uint64_t rev = AssignOrKeepRevision(
+          resource_id, request.robot_id, route_locks, route_lock_revisions, next_revision);
       route_locks[resource_id] = request.robot_id;
+      if (route_lock_revisions != nullptr && next_revision != nullptr) {
+        decision.resource_revisions.push_back(rev);
+      }
     }
     EraseWaiter(request.robot_id, wait_queues);
     decision.granted = true;
@@ -456,22 +512,76 @@ RouteSegmentDecision PlanRouteSegmentRequest(
 
 RouteSegmentReleaseDecision PlanRouteSegmentRelease(
     const std::string& robot_id, const std::vector<std::string>& resource_ids,
-    RouteLockMap& route_locks, RouteWaitQueueMap& wait_queues) {
+    RouteLockMap& route_locks, RouteWaitQueueMap& wait_queues,
+    const RouteWaitGrantOptions& grant_options, RouteHoldMap* holds) {
+  return PlanRouteSegmentRelease(
+      robot_id, resource_ids, 0U, {}, 0U, route_locks, wait_queues, nullptr, nullptr,
+      grant_options, holds);
+}
+
+RouteSegmentReleaseDecision PlanRouteSegmentRelease(
+    const std::string& robot_id, const std::vector<std::string>& resource_ids,
+    const std::uint64_t expected_service_epoch,
+    const std::vector<std::uint64_t>& expected_revisions,
+    const std::uint64_t current_service_epoch, RouteLockMap& route_locks,
+    RouteWaitQueueMap& wait_queues, RouteLockRevisionMap* route_lock_revisions,
+    std::uint64_t* next_revision, const RouteWaitGrantOptions& grant_options,
+    RouteHoldMap* holds) {
   RouteSegmentReleaseDecision decision;
-  std::vector<std::string> candidates = resource_ids;
-  if (candidates.empty()) {
-    candidates = RouteResourcesOwnedBy(robot_id, route_locks);
+  const bool has_epoch = expected_service_epoch != 0U;
+  const bool has_revisions = !expected_revisions.empty();
+  const bool guarded = has_epoch && has_revisions;
+  if (has_epoch != has_revisions) {
+    decision.invalid_expected = true;
+    decision.message = "expected_service_epoch and expected_revisions must both be set or both be empty";
+    return decision;
   }
-  for (const auto& resource_id : candidates) {
-    const auto lock = route_locks.find(resource_id);
-    if (lock != route_locks.end() && lock->second == robot_id) {
-      route_locks.erase(lock);
-      decision.released_resource_ids.push_back(resource_id);
-    }
+  if (guarded && (expected_revisions.size() != resource_ids.size() || resource_ids.empty() ||
+                  std::any_of(expected_revisions.begin(), expected_revisions.end(),
+                              [](const std::uint64_t rev) { return rev == 0U; }))) {
+    decision.invalid_expected = true;
+    decision.message = "invalid expected_revisions (length mismatch or zero revision)";
+    return decision;
+  }
+  if (guarded && expected_service_epoch != current_service_epoch) {
+    decision.message = "stale service_epoch release ignored for " + robot_id;
+    return decision;
   }
 
-  decision.granted =
-      PlanRouteWaitGrants(decision.released_resource_ids, route_locks, wait_queues);
+  std::vector<std::string> candidates = resource_ids;
+  if (candidates.empty() && !guarded) {
+    candidates = RouteResourcesOwnedBy(robot_id, route_locks);
+  }
+  for (std::size_t i = 0; i < candidates.size(); ++i) {
+    const auto& resource_id = candidates[i];
+    const auto lock = route_locks.find(resource_id);
+    if (lock == route_locks.end() || lock->second != robot_id) {
+      continue;
+    }
+    if (!expected_revisions.empty()) {
+      const auto rev_it = route_lock_revisions != nullptr
+                                ? route_lock_revisions->find(resource_id)
+                                : std::unordered_map<std::string, std::uint64_t>::const_iterator{};
+      const std::uint64_t actual_rev =
+          (route_lock_revisions != nullptr && rev_it != route_lock_revisions->end())
+              ? rev_it->second
+              : 0U;
+      if (actual_rev != expected_revisions[i]) {
+        continue;
+      }
+    }
+    route_locks.erase(lock);
+    if (route_lock_revisions != nullptr) {
+      route_lock_revisions->erase(resource_id);
+    }
+    decision.released_resource_ids.push_back(resource_id);
+  }
+
+  if (!decision.released_resource_ids.empty()) {
+    decision.granted = PlanRouteWaitGrants(
+        decision.released_resource_ids, route_locks, wait_queues, grant_options, holds,
+        route_lock_revisions, next_revision, current_service_epoch);
+  }
 
   decision.message = "released " + std::to_string(decision.released_resource_ids.size()) +
                      " resource(s) of " + robot_id + ", granted " +
@@ -483,12 +593,15 @@ std::vector<RouteGrant> PlanRouteWaitGrants(
     const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
     RouteWaitQueueMap& wait_queues) {
   return PlanRouteWaitGrants(
-      candidate_resource_ids, route_locks, wait_queues, RouteWaitGrantOptions{}, nullptr);
+      candidate_resource_ids, route_locks, wait_queues, RouteWaitGrantOptions{}, nullptr,
+      nullptr, nullptr, 0U);
 }
 
 std::vector<RouteGrant> PlanRouteWaitGrants(
     const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
-    RouteWaitQueueMap& wait_queues, const RouteWaitGrantOptions& options, RouteHoldMap* holds) {
+    RouteWaitQueueMap& wait_queues, const RouteWaitGrantOptions& options, RouteHoldMap* holds,
+    RouteLockRevisionMap* route_lock_revisions, std::uint64_t* next_revision,
+    const std::uint64_t service_epoch) {
   // 全部等待者按优先级、到达顺序统一排序后依次过一遍，保证先到的车不会因为资源遍历
   // 顺序被后到的车插队；整组资源拿不齐的跳过。只有候选等待者会被授予，
   // 但所有等待者都参与防饿死的暂扣（暂扣是全局的）。
@@ -535,12 +648,20 @@ std::vector<RouteGrant> PlanRouteWaitGrants(
       }
     }
     if (available && (all_candidates || candidates.count(waiter.robot_id) != 0U)) {
+      std::vector<std::uint64_t> granted_revisions;
+      granted_revisions.reserve(waiter.resource_ids.size());
       for (const auto& granted_id : waiter.resource_ids) {
+        const std::uint64_t rev = AssignOrKeepRevision(
+            granted_id, waiter.robot_id, route_locks, route_lock_revisions, next_revision);
         route_locks[granted_id] = waiter.robot_id;
+        if (route_lock_revisions != nullptr && next_revision != nullptr) {
+          granted_revisions.push_back(rev);
+        }
       }
       EraseWaiter(waiter.robot_id, wait_queues);
       granted.push_back(RouteGrant{
-          waiter.robot_id, waiter.from_station, waiter.to_station, waiter.resource_ids});
+          waiter.robot_id, waiter.from_station, waiter.to_station, waiter.resource_ids,
+          service_epoch, std::move(granted_revisions)});
       continue;
     }
     const bool starving =

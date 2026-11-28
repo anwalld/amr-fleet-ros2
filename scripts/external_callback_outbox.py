@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 import argparse
 import ast
+from contextlib import contextmanager
+import fcntl
 import json
+import os
 import re
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib import request as urllib_request
@@ -11,9 +15,13 @@ from urllib.error import URLError, HTTPError
 
 
 def run_ros2(args, timeout_sec=30):
-    return subprocess.run(
-        args, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=timeout_sec)
+    try:
+        return subprocess.run(
+            args, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=timeout_sec)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return subprocess.CompletedProcess(args, 124, stdout=stdout, stderr="timeout")
 
 
 def response_list(text, name):
@@ -51,6 +59,19 @@ def event_id(event):
     return f"{event.get('stamp', '')}:{event.get('mission_id', '')}:{event.get('state', '')}"
 
 
+@contextmanager
+def outbox_lock(path):
+    file_path = Path(path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = file_path.with_name(file_path.name + ".lock")
+    with lock_path.open("a+", encoding="utf-8") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
 def load_outbox(path):
     file_path = Path(path)
     if not file_path.exists():
@@ -61,17 +82,27 @@ def load_outbox(path):
 def save_outbox(path, outbox):
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(json.dumps(outbox, indent=2, sort_keys=True), encoding="utf-8")
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{file_path.name}.", suffix=".tmp", dir=str(file_path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(outbox, indent=2, sort_keys=True))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, file_path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def list_events(limit, state_filter, mission_id_filter):
-    request = (
-        "{"
-        f"limit: {limit}, "
-        f"state_filter: {state_filter}, "
-        f"mission_id_filter: {mission_id_filter}"
-        "}"
-    )
+    request = json.dumps({
+        "limit": int(limit),
+        "state_filter": str(state_filter),
+        "mission_id_filter": str(mission_id_filter),
+    })
     result = run_ros2([
         "ros2",
         "service",
@@ -90,7 +121,10 @@ def post_callback(endpoint, record, timeout_sec):
     req = urllib_request.Request(
         endpoint,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Idempotency-Key": str(record.get("event_id", "")),
+        },
         method="POST",
     )
     try:
@@ -120,7 +154,7 @@ def enqueue_events(outbox, endpoint, events):
         }
 
 
-def send_pending(outbox, endpoint, timeout_sec, replay_failed=False):
+def send_pending(outbox, endpoint, timeout_sec, replay_failed=False, outbox_path=None):
     for record in outbox.values():
         if record.get("endpoint") != endpoint:
             continue
@@ -131,6 +165,9 @@ def send_pending(outbox, endpoint, timeout_sec, replay_failed=False):
             continue
         record["status"] = "RETRYING" if record.get("attempts", 0) > 0 else "PENDING"
         record["attempts"] = int(record.get("attempts", 0)) + 1
+        record["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if outbox_path:
+            save_outbox(outbox_path, outbox)
         ok, status_code, body = post_callback(endpoint, record, timeout_sec)
         record["last_status_code"] = status_code
         record["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -140,6 +177,8 @@ def send_pending(outbox, endpoint, timeout_sec, replay_failed=False):
         else:
             record["status"] = "FAILED"
             record["last_error"] = body
+        if outbox_path:
+            save_outbox(outbox_path, outbox)
 
 
 def main():
@@ -154,12 +193,14 @@ def main():
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args()
 
-    outbox = load_outbox(args.outbox)
-    if not args.list:
-        events = list_events(args.limit, args.state_filter, args.mission_id_filter)
-        enqueue_events(outbox, args.endpoint, events)
-        send_pending(outbox, args.endpoint, args.timeout_sec, args.replay_failed)
-        save_outbox(args.outbox, outbox)
+    with outbox_lock(args.outbox):
+        outbox = load_outbox(args.outbox)
+        if not args.list:
+            events = list_events(args.limit, args.state_filter, args.mission_id_filter)
+            enqueue_events(outbox, args.endpoint, events)
+            save_outbox(args.outbox, outbox)
+            send_pending(outbox, args.endpoint, args.timeout_sec, args.replay_failed, outbox_path=args.outbox)
+            save_outbox(args.outbox, outbox)
     print(json.dumps({"callbacks": list(outbox.values())}, indent=2, sort_keys=True))
 
 

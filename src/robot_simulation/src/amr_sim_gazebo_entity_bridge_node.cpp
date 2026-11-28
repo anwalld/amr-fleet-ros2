@@ -21,6 +21,7 @@
 #include "robot_interfaces_fleet/srv/list_fleet_robots.hpp"
 #include "robot_interfaces_mission/srv/list_mission_events.hpp"
 #include "robot_interfaces_mission/srv/list_traffic_reservations.hpp"
+#include "robot_simulation/agent_request.hpp"
 #include "ros_gz_interfaces/msg/entity.hpp"
 #include "ros_gz_interfaces/srv/set_entity_pose.hpp"
 #include "std_msgs/msg/bool.hpp"
@@ -231,16 +232,10 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
   }
 
   void PollDoor() {
-    if (door_request_pending_ || !door_client_->service_is_ready()) {
-      return;
-    }
     auto request = std::make_shared<robot_interfaces_facility::srv::GetDoorState::Request>();
     request->door_id = "receiving_door";
-    door_request_pending_ = true;
-    door_client_->async_send_request(
-        request, [this](rclcpp::Client<robot_interfaces_facility::srv::GetDoorState>::SharedFuture future) {
-          door_request_pending_ = false;
-          const auto response = future.get();
+    door_call_.Poll(
+        door_client_, request, [this](const auto& response) {
           if (response->success) {
             door_status_ = response->status;
             door_available_ = response->available;
@@ -249,16 +244,10 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
   }
 
   void PollDock() {
-    if (dock_request_pending_ || !dock_client_->service_is_ready()) {
-      return;
-    }
     auto request = std::make_shared<robot_interfaces_mission::srv::GetDockState::Request>();
     request->dock_id = "main_dock";
-    dock_request_pending_ = true;
-    dock_client_->async_send_request(
-        request, [this](rclcpp::Client<robot_interfaces_mission::srv::GetDockState>::SharedFuture future) {
-          dock_request_pending_ = false;
-          const auto response = future.get();
+    dock_call_.Poll(
+        dock_client_, request, [this](const auto& response) {
           if (response->success) {
             dock_state_ = response->state;
           }
@@ -266,16 +255,10 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
   }
 
   void PollLift() {
-    if (lift_request_pending_ || !lift_client_->service_is_ready()) {
-      return;
-    }
     auto request = std::make_shared<robot_interfaces_facility::srv::GetLiftState::Request>();
     request->lift_id = "freight_elevator";
-    lift_request_pending_ = true;
-    lift_client_->async_send_request(
-        request, [this](rclcpp::Client<robot_interfaces_facility::srv::GetLiftState>::SharedFuture future) {
-          lift_request_pending_ = false;
-          const auto response = future.get();
+    lift_call_.Poll(
+        lift_client_, request, [this](const auto& response) {
           if (response->success) {
             lift_status_ = response->status;
             lift_available_ = response->available;
@@ -284,17 +267,10 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
   }
 
   void PollFleet() {
-    if (fleet_request_pending_ || !fleet_client_->service_is_ready()) {
-      return;
-    }
     auto request = std::make_shared<robot_interfaces_fleet::srv::ListFleetRobots::Request>();
     request->include_disabled = true;
-    fleet_request_pending_ = true;
-    fleet_client_->async_send_request(
-        request,
-        [this](rclcpp::Client<robot_interfaces_fleet::srv::ListFleetRobots>::SharedFuture future) {
-          fleet_request_pending_ = false;
-          const auto response = future.get();
+    fleet_call_.Poll(
+        fleet_client_, request, [this](const auto& response) {
           if (!response->success) {
             return;
           }
@@ -312,16 +288,9 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
   }
 
   void PollPendingConfirmation() {
-    if (pending_request_pending_ || !pending_client_->service_is_ready()) {
-      return;
-    }
     auto request = std::make_shared<robot_interfaces_facility::srv::GetPendingConfirmations::Request>();
-    pending_request_pending_ = true;
-    pending_client_->async_send_request(
-        request,
-        [this](rclcpp::Client<robot_interfaces_facility::srv::GetPendingConfirmations>::SharedFuture future) {
-          pending_request_pending_ = false;
-          const auto response = future.get();
+    pending_call_.Poll(
+        pending_client_, request, [this](const auto& response) {
           pending_confirmation_active_ = false;
           if (!response->success) {
             return;
@@ -340,16 +309,9 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
   }
 
   void PollTraffic() {
-    if (traffic_request_pending_ || !traffic_client_->service_is_ready()) {
-      return;
-    }
     auto request = std::make_shared<robot_interfaces_mission::srv::ListTrafficReservations::Request>();
-    traffic_request_pending_ = true;
-    traffic_client_->async_send_request(
-        request,
-        [this](rclcpp::Client<robot_interfaces_mission::srv::ListTrafficReservations>::SharedFuture future) {
-          traffic_request_pending_ = false;
-          const auto response = future.get();
+    traffic_call_.Poll(
+        traffic_client_, request, [this](const auto& response) {
           if (!response->success) {
             return;
           }
@@ -419,17 +381,10 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
   }
 
   void PollMissionEvents() {
-    if (events_request_pending_ || !events_client_->service_is_ready()) {
-      return;
-    }
     auto request = std::make_shared<robot_interfaces_mission::srv::ListMissionEvents::Request>();
     request->limit = 30;
-    events_request_pending_ = true;
-    events_client_->async_send_request(
-        request,
-        [this](rclcpp::Client<robot_interfaces_mission::srv::ListMissionEvents>::SharedFuture future) {
-          events_request_pending_ = false;
-          const auto response = future.get();
+    events_call_.Poll(
+        events_client_, request, [this](const auto& response) {
           if (!response->success) {
             return;
           }
@@ -463,16 +418,9 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
 
 
   void PollDeadlock() {
-    if (deadlock_request_pending_ || !deadlock_client_->service_is_ready()) {
-      return;
-    }
     auto request = std::make_shared<robot_interfaces_mission::srv::DetectTrafficDeadlock::Request>();
-    deadlock_request_pending_ = true;
-    deadlock_client_->async_send_request(
-        request,
-        [this](rclcpp::Client<robot_interfaces_mission::srv::DetectTrafficDeadlock>::SharedFuture future) {
-          deadlock_request_pending_ = false;
-          const auto response = future.get();
+    deadlock_call_.Poll(
+        deadlock_client_, request, [this](const auto& response) {
           deadlock_active_ = response->success && response->deadlocked;
         });
   }
@@ -941,14 +889,14 @@ class AmrSimGazeboEntityBridgeNode final : public rclcpp::Node {
   bool payload_delivered_visible_ = false;
   bool door_available_ = true;
   bool lift_available_ = true;
-  bool door_request_pending_ = false;
-  bool dock_request_pending_ = false;
-  bool lift_request_pending_ = false;
-  bool pending_request_pending_ = false;
-  bool fleet_request_pending_ = false;
-  bool traffic_request_pending_ = false;
-  bool events_request_pending_ = false;
-  bool deadlock_request_pending_ = false;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_facility::srv::GetDoorState>> door_call_;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_mission::srv::GetDockState>> dock_call_;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_facility::srv::GetLiftState>> lift_call_;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_facility::srv::GetPendingConfirmations>> pending_call_;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_fleet::srv::ListFleetRobots>> fleet_call_;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_mission::srv::ListTrafficReservations>> traffic_call_;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_mission::srv::ListMissionEvents>> events_call_;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_mission::srv::DetectTrafficDeadlock>> deadlock_call_;
   bool traffic_block_active_ = false;
   bool deadlock_active_ = false;
   bool pending_confirmation_active_ = false;

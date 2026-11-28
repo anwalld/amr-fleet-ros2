@@ -15,6 +15,26 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+NIGHTLY_LOCK_FILE="${HOME}/.robot-nightly.lock"
+check_nightly_lock() {
+  command -v flock >/dev/null 2>&1 || return 0
+  if [[ "${ROBOT_NIGHTLY_LOCK_HELD:-0}" == "1" ]]; then
+    if [[ ! "${ROBOT_NIGHTLY_LOCK_OWNER:-}" =~ ^[0-9]+$ ]] || ! kill -0 "${ROBOT_NIGHTLY_LOCK_OWNER}" 2>/dev/null; then
+      echo "拒绝运行：ROBOT_NIGHTLY_LOCK_HELD=1 但 ROBOT_NIGHTLY_LOCK_OWNER 无效或进程未存活" >&2
+      exit 1
+    fi
+    if flock -n "${NIGHTLY_LOCK_FILE}" true 2>/dev/null; then
+      echo "拒绝运行：ROBOT_NIGHTLY_LOCK_HELD=1 但未检测到有效夜跑锁 ${NIGHTLY_LOCK_FILE}" >&2
+      exit 1
+    fi
+    return 0
+  fi
+  if [[ -e "${NIGHTLY_LOCK_FILE}" ]] && ! flock -n "${NIGHTLY_LOCK_FILE}" true 2>/dev/null; then
+    echo "拒绝运行：检测到正式夜跑正在持有锁 ${NIGHTLY_LOCK_FILE}" >&2
+    exit 1
+  fi
+}
+check_nightly_lock
 OUT_DIR="${1:?output dir}"
 ROUNDS="${2:-3}"
 SCENARIO_LIST="${SCENARIOS:-head_on ring3 outside_wait}"
@@ -27,9 +47,16 @@ set +u
 source "${ROOT_DIR}/install/setup.bash"
 set -u
 
+escape_regex() {
+  printf '%s' "$1" | sed -e 's/[.[\\*^$+?(){}|]/\\&/g'
+}
+
 # 清掉残留的 ROS 进程（方括号写法避免匹配到发起 ssh 的 shell 自己）。
 sweep() {
-  pkill -KILL -f "[r]obot_ws/install/" 2>/dev/null
+  local root_re root_pat
+  root_re="$(escape_regex "${ROOT_DIR}")"
+  root_pat="[/]${root_re#/}"
+  pkill -KILL -f "${root_pat}/install/" 2>/dev/null
   pkill -KILL -f "[r]os2 launch" 2>/dev/null
   pkill -KILL -f "[d]eadlock_scenarios.py" 2>/dev/null
   pkill -KILL -f "[c]onsole_capture.py" 2>/dev/null

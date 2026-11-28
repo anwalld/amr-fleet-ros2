@@ -81,6 +81,7 @@ publish_amcl_covariance() {
 import os
 import time
 import rclpy
+from rclpy.duration import Duration
 from geometry_msgs.msg import PoseWithCovarianceStamped
 
 covariance = float(os.environ["COVARIANCE"])
@@ -92,12 +93,18 @@ msg.header.frame_id = "map"
 msg.pose.pose.orientation.w = 1.0
 msg.pose.covariance[0] = covariance
 msg.pose.covariance[7] = covariance
-for _ in range(8):
+try:
+    deadline = time.monotonic() + 5.0
+    while pub.get_subscription_count() == 0 and time.monotonic() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    if pub.get_subscription_count() == 0:
+        raise SystemExit(f"no matched /amcl_pose subscriber for covariance {covariance}")
     pub.publish(msg)
-    rclpy.spin_once(node, timeout_sec=0.1)
-    time.sleep(0.1)
-node.destroy_node()
-rclpy.shutdown()
+    if not pub.wait_for_all_acked(Duration(seconds=2)):
+        raise SystemExit(f"no /amcl_pose acknowledgment for covariance {covariance}")
+finally:
+    node.destroy_node()
+    rclpy.shutdown()
 PY
 }
 

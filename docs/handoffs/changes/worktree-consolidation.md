@@ -29,8 +29,4 @@
 - **共同夜跑队列与终态 SSOT**：主检出 [共同夜跑登记与当前专项判据](../nightly/shared-nightly.md) + 跑次原始 `source.manifest` / `postcheck.json` / `report.md`。
 - **未立项历史缺陷 SSOT**：主检出 [缺陷调查与证据](../defects/unconfirmed-bugs-diagnosis.md)。
 
-- [正式夜跑与 GitHub 交付终态](../nightly/current-full-closeout.md)
-- [共同夜跑登记与当前专项判据](../nightly/shared-nightly.md)
-- [任务控制交接](task-control-restart-and-merged-nightly.md)
-- [缺陷修复的集成补丁、原始证据与验收范围](../../../../robot-worktrees/verified-defect-fixes/docs/handoffs/nightly/repair-verified-defects.md)
-- [缺陷调查与证据](../defects/unconfirmed-bugs-diagnosis.md)
+其余交接入口统一见 [交接索引](../README.md)。

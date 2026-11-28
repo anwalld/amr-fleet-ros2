@@ -3,6 +3,7 @@ project(robot_tasks)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+find_package(action_msgs REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -86,14 +87,14 @@ target_link_libraries(
 add_executable(navigate_sequence_server_node src/navigate_sequence_server_node.cpp)
 target_include_directories(navigate_sequence_server_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 ament_target_dependencies(navigate_sequence_server_node
-  rclcpp rclcpp_action geometry_msgs nav_msgs nav2_msgs std_msgs std_srvs robot_interfaces robot_interfaces_core)
+  rclcpp rclcpp_action geometry_msgs nav_msgs nav2_msgs std_msgs std_srvs robot_interfaces robot_interfaces_core robot_interfaces_mission)
 
 add_executable(mission_runner_node
   src/mission_runner_node.cpp
   src/traffic_service.cpp)
 target_link_libraries(mission_runner_node robot_tasks_mission_profile robot_tasks_behavior_trees)
 ament_target_dependencies(mission_runner_node
-  ament_index_cpp rclcpp rclcpp_action geometry_msgs nav_msgs nav2_msgs std_srvs robot_interfaces robot_interfaces_business robot_interfaces_facility robot_interfaces_fleet robot_interfaces_mission robot_interfaces_navigation robot_navigation)
+  action_msgs ament_index_cpp rclcpp rclcpp_action geometry_msgs nav_msgs nav2_msgs std_srvs robot_interfaces robot_interfaces_business robot_interfaces_facility robot_interfaces_fleet robot_interfaces_mission robot_interfaces_navigation robot_navigation)
 
 add_executable(site_config_manager_node src/site_config_manager_node.cpp)
 target_link_libraries(site_config_manager_node robot_tasks_mission_profile)
@@ -180,6 +181,9 @@ if(BUILD_TESTING)
   target_link_libraries(station_confirmation_workflow_test robot_tasks_mission_profile)
   ament_add_gtest(facility_reservation_test test/facility_reservation_test.cpp)
   target_link_libraries(facility_reservation_test robot_tasks_mission_profile)
+  ament_add_gtest(mission_restart_store_test test/mission_restart_store_test.cpp)
+  target_include_directories(mission_restart_store_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
   ament_add_gtest(fleet_runtime_state_test test/fleet_runtime_state_test.cpp)
   target_link_libraries(fleet_runtime_state_test robot_tasks_mission_profile)
   ament_add_gtest(fulfillment_workflow_test test/fulfillment_workflow_test.cpp)

@@ -43,7 +43,7 @@ class TrafficService {
   // event 为 "granted" 或 "replan"。
   using GrantCallback = std::function<void(const std::string& event, const RouteGrant& grant)>;
 
-  TrafficService(rclcpp::Node* node, MissionContext& context);
+  TrafficService(rclcpp::Node* node, MissionContext& context, bool recovery_required = false);
 
   bool Rolling() const { return context_.traffic_reservation_mode == "rolling"; }
   const std::string& Mode() const { return context_.traffic_reservation_mode; }
@@ -102,6 +102,8 @@ class TrafficService {
   void PublishTrafficState();
   // M3：检测一次等待环，按需解除并更新统计。
   void RunDeadlockCheck();
+  void HandlePeelingRelease(
+      const std::string& robot_id, const std::vector<std::string>& released_resource_ids);
   void PauseDeadlockedRobots(const WaitCycle& cycle, const std::string& reason);
   void PublishYield(const DeadlockYieldPlan& plan);
   // 运维清除了某车的占用：解除它所在暂停组。
@@ -110,18 +112,21 @@ class TrafficService {
 
   rclcpp::Node* node_;
   MissionContext& context_;
+  const bool recovery_required_;
   GrantCallback grant_callback_;
   std::uint64_t grant_count_ = 0;
   std::uint64_t queue_count_ = 0;
   // M3 参数。
   double wait_starvation_s_ = 20.0;
   double whole_route_wait_ttl_s_ = 6.0;
+  std::unordered_map<std::string, std::string> yield_home_owners_;
   double yield_hold_s_ = 5.0;
   double yield_timeout_s_ = 10.0;
   bool deadlock_resolution_enabled_ = true;
   // M3 状态。
   DeadlockHistory deadlock_history_;
   ActiveDeadlockMap active_deadlocks_;
+  std::unordered_set<std::string> peeling_recheck_keys_;
   std::unordered_set<std::string> frozen_robot_ids_;
   std::unordered_map<std::string, std::string> paused_group_of_;
   std::vector<std::string> deadlock_robot_ids_;

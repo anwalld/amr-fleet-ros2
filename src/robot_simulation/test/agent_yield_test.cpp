@@ -56,5 +56,22 @@ TEST(AgentYieldTest, NextStationPastEndThrows) {
   EXPECT_THROW(NextStation(empty, 1), std::out_of_range);
 }
 
+TEST(AgentYieldTest, RouteEntryPauseTakesPrecedence) {
+  EXPECT_EQ(DecideRouteEntryAction(true, false, false), RouteEntryAction::kWaitPaused);
+  EXPECT_EQ(DecideRouteEntryAction(true, false, true), RouteEntryAction::kWaitPaused);
+  EXPECT_EQ(DecideRouteEntryAction(true, true, false), RouteEntryAction::kWaitPaused);
+  EXPECT_EQ(DecideRouteEntryAction(true, true, true), RouteEntryAction::kWaitPaused);
+}
+
+TEST(AgentYieldTest, RouteEntryYieldWaitsForInFlightCall) {
+  EXPECT_EQ(DecideRouteEntryAction(false, true, true), RouteEntryAction::kWaitInFlight);
+  EXPECT_EQ(DecideRouteEntryAction(false, true, false), RouteEntryAction::kApplyYield);
+}
+
+TEST(AgentYieldTest, RouteEntryContinuesWithoutYield) {
+  EXPECT_EQ(DecideRouteEntryAction(false, false, false), RouteEntryAction::kContinue);
+  EXPECT_EQ(DecideRouteEntryAction(false, false, true), RouteEntryAction::kContinue);
+}
+
 }  // namespace
 }  // namespace robot_simulation

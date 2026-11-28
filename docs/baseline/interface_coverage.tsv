@@ -58,6 +58,7 @@ service	/v2/confirm_load	robot_tasks/mission_runner_node	mission:payload
 service	/v2/confirm_pick	robot_tasks/mission_runner_node	business:picking_wave,business:replenishment,business:warehouse_fulfillment	
 service	/v2/confirm_station_action	robot_tasks/mission_runner_node	mission:station_confirmation	
 service	/v2/confirm_unload	robot_tasks/mission_runner_node	mission:payload	
+service	/v2/control_remote_fleet_task	robot_tasks/mission_runner_node	task-control:fleet-motion	定向请求、暂停与停稳回执
 service	/v2/detect_traffic_deadlock	robot_tasks/traffic_service	safety:traffic_deadlock	
 service	/v2/enqueue_mission_profile	robot_tasks/mission_runner_node	mission:action_result,mission:controls,mission:queue,mission:queue_control,mission:reprioritize,mission:runner,ops:navigate_sequence_controls	
 service	/v2/estimate_mission_cost	robot_tasks/mission_runner_node	mission:estimates	
@@ -70,6 +71,7 @@ service	/v2/get_dock_state	robot_tasks/mission_runner_node	amr_sim:visualization
 service	/v2/get_door_state	robot_tasks/mission_runner_node	facility:door_passage,facility:lift_state,facility:showcase	
 service	/v2/get_lift_state	robot_tasks/mission_runner_node	facility:lift_state,facility:multi_floor,facility:showcase	
 service	/v2/get_mission_recovery_state	robot_tasks/mission_runner_node	mission:action_result,mission:docking_retry,mission:recovery	
+service	/v2/get_mission_restart_state	robot_tasks/mission_runner_node	task-control:d16-state	重启恢复状态、实况UUID与暂停掩码对账
 service	/v2/get_operator_snapshot	robot_tasks/mission_runner_node	amr_sim:task_dashboard,business:remote_fleet,ops:operator_snapshot,ops:rest_workflow	
 service	/v2/get_order_fulfillment_status	robot_tasks/mission_runner_node	business:picking_wave,business:replenishment,business:warehouse_fulfillment	
 service	/v2/get_pending_confirmations	robot_tasks/mission_runner_node	business:picking_wave,business:replenishment,business:warehouse_fulfillment,mission:station_confirmation,mission:station_confirmation_timeout	
@@ -95,7 +97,9 @@ service	/v2/preview_traffic_reservation_clear	robot_tasks/traffic_service	ops-ui
 service	/v2/reject_station_action	robot_tasks/mission_runner_node	mission:station_confirmation	
 service	/v2/release_facility_resource	robot_tasks/mission_runner_node	facility:actions,facility:charging,facility:door_passage,facility:lift_state,facility:showcase,safety:opportunity_charging	
 service	/v2/release_lift_session	robot_tasks/mission_runner_node	facility:lift_state,facility:multi_floor,facility:showcase	
+service	/v2/release_mission_dispatch_hold	robot_tasks/mission_runner_node	task-control:d16-restart	重启冻结时拒绝放行
 service	/v2/release_route_segment	robot_tasks/traffic_service	amr_sim:traffic_wait,traffic:block_replan	
+service	/v2/remote_task_control/	robot_simulation/fleet_robot_agent_node	task-control:fleet-restart	按车辆路由的重启确认
 service	/v2/report_obstacle_blockage	robot_tasks/mission_runner_node	amr_sim:visualization,safety:obstacle_recovery,safety:obstacle_stop	
 service	/v2/report_short_pick	robot_tasks/mission_runner_node	business:picking_wave,business:warehouse_fulfillment	
 service	/v2/reprioritize_batch	robot_tasks/mission_runner_node	ops:rest_workflow	
@@ -118,6 +122,7 @@ service	/v2/set_dynamic_speed_limit	robot_tasks/mission_runner_node	amr_sim:visu
 service	/v2/set_fleet_sim_stop	robot_simulation/fleet_sim_stop_node	alarm-ui:alarm_sim_stop	仿真停止与解除
 service	/v2/set_initial_pose_from_station	robot_tasks/mission_runner_node	safety:localization,safety:relocalization	
 service	/v2/set_payload_loaded	robot_tasks/mission_runner_node	amr_sim:visualization,mission:payload,mission:top_module	
+service	/v2/set_sequence_pause	robot_tasks/navigate_sequence_server_node	task-control:d16-delayed-reply	原目标和修订的迟到回执
 service	/v2/submit_fleet_station_task	robot_tasks/mission_runner_node	ops:legacy_entries	
 service	/v2/submit_order	robot_tasks/mission_runner_node	amr_sim:station_motion,business:business_benchmark,business:callbacks,business:vda5050_adapter,business:vda5050_mqtt,business:vda5050_state,fleet:agent_station_task,lint:interface_coverage,mission:resource_cleanup,ops:legacy_entries,ops:rest_gateway	
 service	/v2/submit_station_order_batch	robot_tasks/mission_runner_node	ops:legacy_entries	

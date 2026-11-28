@@ -14,8 +14,10 @@ home_stations:=x,y,z 另给停车位（空闲时回去的站点），不给则�
 停车位放到停车区，免得办完单的车回到横穿段上的起点，挡住别的车的终点。
 """
 
+from pathlib import Path
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.conditions import IfCondition
@@ -37,6 +39,7 @@ def _agents(context):
     mode = LaunchConfiguration("traffic_reservation_mode").perform(context)
     max_linear = float(LaunchConfiguration("agent_max_linear_mps").perform(context))
     dwell = float(LaunchConfiguration("agent_dwell_s").perform(context))
+    checkpoint_dir = LaunchConfiguration("agent_restart_checkpoint_dir").perform(context)
     homes = NETWORK_HOMES.get(network, NETWORK_HOMES["workshop"])
     start_stations = LaunchConfiguration("start_stations").perform(context).strip()
     if start_stations:
@@ -49,7 +52,7 @@ def _agents(context):
         parking = [station.strip() for station in home_stations.split(",") if station.strip()]
         if fleet_size > len(parking):
             raise RuntimeError(f"home_stations lists only {len(parking)} stations")
-    nodes = []
+    nodes = [SetLaunchConfiguration("traffic_yield_home_stations", ",".join(parking[:fleet_size]))]
     for index in range(fleet_size):
         robot_id = f"robot_{index + 1}"
         nodes.append(
@@ -67,6 +70,10 @@ def _agents(context):
                         "kinematic_sim": True,
                         "fleet_sim_stop_enabled": ParameterValue(
                             LaunchConfiguration("fleet_sim_stop_enabled"), value_type=bool),
+                        "remote_task_control_enabled": ParameterValue(
+                            LaunchConfiguration("remote_task_control_enabled"), value_type=bool),
+                        "restart_checkpoint_path": ParameterValue(
+                            str(Path(checkpoint_dir) / robot_id) if checkpoint_dir else "", value_type=str),
                         "traffic_reservation_mode": mode,
                         "max_linear_mps": max_linear,
                         "dwell_s": dwell,
@@ -90,7 +97,13 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("fleet_size", default_value="6"),
-            DeclareLaunchArgument("fleet_sim_stop_enabled", default_value="false"),
+            DeclareLaunchArgument("remote_task_control_enabled", default_value="false"),
+            DeclareLaunchArgument("fleet_sim_stop_enabled",
+                                  default_value=LaunchConfiguration("remote_task_control_enabled")),
+            DeclareLaunchArgument("dispatcher_restart_checkpoint_path", default_value="",
+                                  description="用于调度中枢重启对账的独立持久目录"),
+            DeclareLaunchArgument("agent_restart_checkpoint_dir", default_value="",
+                                  description="已存在的持久目录，代理使用独立子目录做重启对账"),
             DeclareLaunchArgument("network", default_value="workshop",
                                   description="workshop、workshop_2way 或 warehouse"),
             DeclareLaunchArgument("traffic_reservation_mode", default_value="rolling"),
@@ -101,6 +114,7 @@ def generate_launch_description():
                                   description="逗号分隔的各车停车位，空 = 与起点相同"),
             DeclareLaunchArgument("agent_max_linear_mps", default_value="0.8"),
             DeclareLaunchArgument("agent_dwell_s", default_value="3.0"),
+            OpaqueFunction(function=_agents),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(mission_runner_launch),
                 launch_arguments={
@@ -108,9 +122,11 @@ def generate_launch_description():
                     "station_file": station_file,
                     "fleet_size": LaunchConfiguration("fleet_size"),
                     "traffic_reservation_mode": LaunchConfiguration("traffic_reservation_mode"),
+                    "traffic_yield_home_stations": LaunchConfiguration("traffic_yield_home_stations"),
                     "traffic_deadlock_resolution_enabled":
                         LaunchConfiguration("traffic_deadlock_resolution_enabled"),
                     "autostart": "false",
+                    "restart_checkpoint_path": LaunchConfiguration("dispatcher_restart_checkpoint_path"),
                     "server_timeout_ms": "3000",
                     "return_to_dock_on_low_battery": "false",
                     "estimate_use_nav2_path": "false",
@@ -128,6 +144,5 @@ def generate_launch_description():
                 condition=IfCondition(LaunchConfiguration("fleet_sim_stop_enabled")),
                 output="screen",
             ),
-            OpaqueFunction(function=_agents),
         ]
     )

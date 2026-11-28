@@ -42,6 +42,10 @@ std::string JoinCapabilities(const std::vector<std::string>& capabilities) {
   return result;
 }
 
+bool IsRemoteTaskTerminalState(const std::string& state) {
+  return state == "FINISHED" || state == "CANCELED";
+}
+
 }  // namespace
 
 void ApplyRuntimeFleetState(
@@ -167,6 +171,25 @@ RemoteFleetTaskUpdateDecision PlanRemoteFleetTaskStateUpdate(
   const auto task = remote_tasks.find(request.task_id);
   if (task == remote_tasks.end()) {
     return RejectRemoteTask(request.task_id, "unknown remote task: " + request.task_id);
+  }
+  if (IsRemoteTaskTerminalState(task->second.state)) {
+    if (request.state == task->second.state) {
+      RemoteFleetTaskUpdateDecision decision;
+      decision.success = true;
+      decision.mutate_state = false;
+      decision.task = task->second;
+      decision.previous_state = task->second.state;
+      decision.response_message =
+          "remote task " + request.task_id + " already in terminal state " + task->second.state;
+      return decision;
+    }
+    auto decision = RejectRemoteTask(
+        request.task_id,
+        "cannot transition remote task " + request.task_id + " from terminal state " +
+            task->second.state + " to " + request.state);
+    decision.task = task->second;
+    decision.previous_state = task->second.state;
+    return decision;
   }
 
   RemoteFleetTaskUpdateDecision decision;

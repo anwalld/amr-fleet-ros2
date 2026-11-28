@@ -791,4 +791,197 @@ TEST(RouteStarvationTest, FrozenRobotIsNeitherGrantedNorHolding) {
   EXPECT_TRUE(FindRouteWaiter("robot_2", queues).has_value());
 }
 
+TEST(TrafficLeaseRevisionTest, StaleRevisionAndStaleEpochDoNotReleaseNewLock) {
+  RouteLockMap locks;
+  RouteLockRevisionMap revisions;
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  std::uint64_t next_rev = 0;
+  const std::uint64_t epoch1 = 101;
+  const std::uint64_t epoch2 = 202;
+
+  const auto first = PlanRouteSegmentRequest(
+      TimedRequest("robot_1", {"route_node:a"}, 0, 1.0), locks, queues, &seq, nullptr,
+      &revisions, &next_rev);
+  ASSERT_TRUE(first.granted);
+  ASSERT_EQ(first.resource_revisions.size(), 1U);
+  const std::uint64_t rev1 = first.resource_revisions[0];
+  EXPECT_EQ(rev1, 1U);
+
+  // 正常释放后同车再次占锁，拿到递增的新代次 rev2 > rev1。
+  const auto normal_release = PlanRouteSegmentRelease(
+      "robot_1", {"route_node:a"}, epoch1, {rev1}, epoch1, locks, queues, &revisions, &next_rev);
+  EXPECT_FALSE(normal_release.invalid_expected);
+  EXPECT_EQ(normal_release.released_resource_ids, (std::vector<std::string>{"route_node:a"}));
+
+  const auto second = PlanRouteSegmentRequest(
+      TimedRequest("robot_1", {"route_node:a"}, 0, 2.0), locks, queues, &seq, nullptr,
+      &revisions, &next_rev);
+  ASSERT_TRUE(second.granted);
+  ASSERT_EQ(second.resource_revisions.size(), 1U);
+  const std::uint64_t rev2 = second.resource_revisions[0];
+  EXPECT_GT(rev2, rev1);
+
+  // 同进程迟到的旧释放（携带 rev1）不得误释 rev2 的新锁。
+  const auto stale_rev = PlanRouteSegmentRelease(
+      "robot_1", {"route_node:a"}, epoch1, {rev1}, epoch1, locks, queues, &revisions, &next_rev);
+  EXPECT_FALSE(stale_rev.invalid_expected);
+  EXPECT_TRUE(stale_rev.released_resource_ids.empty());
+  EXPECT_EQ(locks.at("route_node:a"), "robot_1");
+  EXPECT_EQ(revisions.at("route_node:a"), rev2);
+
+  // 跨重启旧纪元（epoch1 != epoch2，即使 revision 碰巧相同）不得误释新锁。
+  const auto stale_epoch = PlanRouteSegmentRelease(
+      "robot_1", {"route_node:a"}, epoch1, {rev2}, epoch2, locks, queues, &revisions, &next_rev);
+  EXPECT_FALSE(stale_epoch.invalid_expected);
+  EXPECT_TRUE(stale_epoch.released_resource_ids.empty());
+  EXPECT_EQ(locks.at("route_node:a"), "robot_1");
+
+  // 长度不匹配、仅传其一或含零代次均拒绝。
+  const auto mismatch = PlanRouteSegmentRelease(
+      "robot_1", {"route_node:a"}, epoch2, {rev2, 99U}, epoch2, locks, queues, &revisions, &next_rev);
+  EXPECT_TRUE(mismatch.invalid_expected);
+  const auto only_epoch = PlanRouteSegmentRelease(
+      "robot_1", {"route_node:a"}, epoch2, {}, epoch2, locks, queues, &revisions, &next_rev);
+  EXPECT_TRUE(only_epoch.invalid_expected);
+  const auto only_revs = PlanRouteSegmentRelease(
+      "robot_1", {"route_node:a"}, 0U, {rev2}, epoch2, locks, queues, &revisions, &next_rev);
+  EXPECT_TRUE(only_revs.invalid_expected);
+  const auto zero_rev = PlanRouteSegmentRelease(
+      "robot_1", {"route_node:a"}, epoch2, {0U}, epoch2, locks, queues, &revisions, &next_rev);
+  EXPECT_TRUE(zero_rev.invalid_expected);
+  EXPECT_EQ(locks.at("route_node:a"), "robot_1");
+
+  // 空代次/零纪元保持 CLI 兼容。
+  const auto cli_compat = PlanRouteSegmentRelease(
+      "robot_1", {"route_node:a"}, 0U, {}, epoch2, locks, queues, &revisions, &next_rev);
+  EXPECT_FALSE(cli_compat.invalid_expected);
+  EXPECT_EQ(cli_compat.released_resource_ids, (std::vector<std::string>{"route_node:a"}));
+  EXPECT_TRUE(locks.empty());
+  EXPECT_TRUE(revisions.empty());
+}
+
+TEST(TrafficLeaseRevisionTest, RestartMayReuseRevisionOneWithoutReleasingNewLock) {
+  const std::string resource = "route_node:a";
+  const auto request = TimedRequest("robot_1", {resource}, 0, 1.0);
+  RouteLockMap old_locks;
+  RouteLockRevisionMap old_revisions;
+  RouteWaitQueueMap old_queues;
+  std::uint64_t old_counter = 0;
+  const auto old = PlanRouteSegmentRequest(
+      request, old_locks, old_queues, nullptr, nullptr, &old_revisions, &old_counter);
+  ASSERT_EQ(old.resource_revisions, (std::vector<std::uint64_t>{1}));
+
+  RouteLockMap new_locks;
+  RouteLockRevisionMap new_revisions;
+  RouteWaitQueueMap new_queues;
+  std::uint64_t new_counter = 0;
+  const auto fresh = PlanRouteSegmentRequest(
+      request, new_locks, new_queues, nullptr, nullptr, &new_revisions, &new_counter);
+  ASSERT_EQ(fresh.resource_revisions, old.resource_revisions);
+  const auto stale = PlanRouteSegmentRelease(
+      "robot_1", {resource}, 11, old.resource_revisions, 22, new_locks, new_queues,
+      &new_revisions, &new_counter);
+  EXPECT_FALSE(stale.invalid_expected);
+  EXPECT_TRUE(stale.released_resource_ids.empty());
+  EXPECT_TRUE(stale.granted.empty());
+  EXPECT_EQ(new_locks.at(resource), "robot_1");
+  EXPECT_EQ(new_revisions.at(resource), 1U);
+
+  const auto released = PlanRouteSegmentRelease(
+      "robot_1", {resource}, 22, fresh.resource_revisions, 22, new_locks, new_queues,
+      &new_revisions, &new_counter);
+  EXPECT_EQ(released.released_resource_ids, (std::vector<std::string>{resource}));
+  EXPECT_TRUE(new_locks.empty());
+  EXPECT_TRUE(new_revisions.empty());
+}
+
+TEST(RouteStarvationTest, Release_SkipsFrozenWaiterAndGrantsNextEligible) {
+  RouteLockMap locks{{"route_node:b", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  ASSERT_TRUE(
+      PlanRouteSegmentRequest(TimedRequest("robot_2", {"route_node:b"}, 50, 0.0), locks, queues, &seq)
+          .queued);
+  ASSERT_TRUE(
+      PlanRouteSegmentRequest(TimedRequest("robot_3", {"route_node:b"}, 10, 1.0), locks, queues, &seq)
+          .queued);
+
+  const std::unordered_set<std::string> frozen{"robot_2"};
+  RouteWaitGrantOptions options;
+  options.now_s = 100.0;
+  options.starvation_s = 20.0;
+  options.frozen_robot_ids = &frozen;
+  RouteHoldMap holds;
+
+  const auto release =
+      PlanRouteSegmentRelease("robot_1", {"route_node:b"}, locks, queues, options, &holds);
+
+  ASSERT_EQ(release.granted.size(), 1U);
+  EXPECT_EQ(release.granted[0].robot_id, "robot_3");
+  EXPECT_EQ(locks["route_node:b"], "robot_3");
+  EXPECT_TRUE(FindRouteWaiter("robot_2", queues).has_value());
+  EXPECT_TRUE(holds.empty());
+}
+
+TEST(RouteStarvationTest, Release_StarvingWaiterHoldsFreedResourceAndRefreshesHolds) {
+  RouteLockMap locks{{"route_edge:a__b", "robot_9"}, {"route_node:jn_s", "robot_1"}};
+  RouteWaitQueueMap queues;
+  std::uint64_t seq = 1;
+  ASSERT_TRUE(PlanRouteSegmentRequest(
+                  TimedRequest("robot_3", {"route_edge:a__b", "route_node:jn_s"}, 20, 0.0), locks,
+                  queues, &seq)
+                  .queued);
+  ASSERT_TRUE(
+      PlanRouteSegmentRequest(TimedRequest("robot_2", {"route_node:jn_s"}, 10, 1.0), locks, queues,
+                              &seq)
+          .queued);
+
+  RouteHoldMap holds{{"route_node:stale", RouteHold{"robot_old", 1}}};
+  RouteWaitGrantOptions options;
+  options.now_s = 25.0;
+  options.starvation_s = 20.0;
+
+  const auto release =
+      PlanRouteSegmentRelease("robot_1", {"route_node:jn_s"}, locks, queues, options, &holds);
+
+  EXPECT_TRUE(release.granted.empty());
+  EXPECT_EQ(locks.count("route_node:jn_s"), 0U);
+  EXPECT_EQ(holds.count("route_node:stale"), 0U);
+  ASSERT_EQ(holds.count("route_node:jn_s"), 1U);
+  EXPECT_EQ(holds["route_node:jn_s"].robot_id, "robot_3");
+  EXPECT_TRUE(FindRouteWaiter("robot_2", queues).has_value());
+}
+
+TEST(TrafficLeaseRevisionTest, GuardedReleaseHonorsFrozenWaitersAndVersionsNewGrant) {
+  const std::string resource = "route_node:b";
+  constexpr std::uint64_t epoch = 101;
+  RouteLockMap locks{{resource, "robot_1"}};
+  RouteLockRevisionMap revisions{{resource, 1}};
+  RouteWaitQueueMap queues;
+  std::uint64_t sequence = 1;
+  std::uint64_t next_revision = 1;
+  ASSERT_TRUE(PlanRouteSegmentRequest(
+      TimedRequest("robot_2", {resource}, 50, 0.0), locks, queues, &sequence).queued);
+  ASSERT_TRUE(PlanRouteSegmentRequest(
+      TimedRequest("robot_3", {resource}, 10, 1.0), locks, queues, &sequence).queued);
+  const std::unordered_set<std::string> frozen{"robot_2"};
+  const RouteWaitGrantOptions options{100.0, 20.0, &frozen};
+  RouteHoldMap holds;
+
+  const auto release = PlanRouteSegmentRelease(
+      "robot_1", {resource}, epoch, {1}, epoch, locks, queues, &revisions, &next_revision,
+      options, &holds);
+
+  EXPECT_EQ(release.released_resource_ids, (std::vector<std::string>{resource}));
+  ASSERT_EQ(release.granted.size(), 1U);
+  EXPECT_EQ(release.granted[0].robot_id, "robot_3");
+  EXPECT_EQ(release.granted[0].service_epoch, epoch);
+  EXPECT_EQ(release.granted[0].resource_revisions, (std::vector<std::uint64_t>{2}));
+  EXPECT_EQ(locks.at(resource), "robot_3");
+  EXPECT_EQ(revisions.at(resource), 2U);
+  EXPECT_TRUE(FindRouteWaiter("robot_2", queues).has_value());
+  EXPECT_TRUE(holds.empty());
+}
+
 }  // namespace robot_tasks

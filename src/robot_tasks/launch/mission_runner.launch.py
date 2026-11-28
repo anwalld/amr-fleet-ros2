@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -107,6 +108,8 @@ def generate_launch_description():
             DeclareLaunchArgument("preflight_zones_file", default_value=default_preflight_zones_file),
             DeclareLaunchArgument("preflight_map_name", default_value="indoor_room"),
             DeclareLaunchArgument("autostart", default_value="false"),
+            DeclareLaunchArgument("restart_checkpoint_path", default_value="",
+                                  description="用于任务中枢重启对账的独立持久目录"),
             DeclareLaunchArgument("server_timeout_ms", default_value="5000"),
             DeclareLaunchArgument("action_name", default_value="/navigate_sequence"),
             DeclareLaunchArgument("pause_service_name", default_value="/pause_mission"),
@@ -141,6 +144,7 @@ def generate_launch_description():
             DeclareLaunchArgument("traffic_intersection_locks_enabled", default_value="true"),
             # rolling（默认）= 边走边申请、拿不到排队；whole_route = 旧行为，入队锁整条路径。
             DeclareLaunchArgument("traffic_reservation_mode", default_value="rolling"),
+            DeclareLaunchArgument("traffic_yield_home_stations", default_value=""),
             DeclareLaunchArgument("traffic_deadlock_resolution_enabled", default_value="true"),
             DeclareLaunchArgument("traffic_wait_starvation_s", default_value="20.0"),
             DeclareLaunchArgument("traffic_whole_route_wait_ttl_s", default_value="6.0"),
@@ -171,6 +175,8 @@ def generate_launch_description():
                         "preflight_zones_file": preflight_zones_file,
                         "preflight_map_name": preflight_map_name,
                         "autostart": autostart,
+                        "restart_checkpoint_path": ParameterValue(
+                            LaunchConfiguration("restart_checkpoint_path"), value_type=str),
                         "server_timeout_ms": server_timeout_ms,
                         "action_name": action_name,
                         "pause_service_name": pause_service_name,
@@ -202,6 +208,8 @@ def generate_launch_description():
                         "preflight_default_speed_limit_mps": preflight_default_speed_limit_mps,
                         "traffic_intersection_locks_enabled": traffic_intersection_locks_enabled,
                         "traffic_reservation_mode": traffic_reservation_mode,
+                        "traffic_yield_home_stations": ParameterValue(
+                            LaunchConfiguration("traffic_yield_home_stations"), value_type=str),
                         "traffic_deadlock_resolution_enabled": traffic_deadlock_resolution_enabled,
                         "traffic_wait_starvation_s": traffic_wait_starvation_s,
                         "traffic_whole_route_wait_ttl_s": traffic_whole_route_wait_ttl_s,

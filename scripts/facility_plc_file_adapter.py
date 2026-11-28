@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+ROS2_CALL_TIMEOUT = float(os.environ.get("ROS2_CALL_TIMEOUT", "30"))
+
 
 def run_ros2(args):
-    return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        return subprocess.run(
+            args, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=ROS2_CALL_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return subprocess.CompletedProcess(args, 124, stdout=stdout, stderr="timeout")
 
 
 def response_bool(text, name):
@@ -24,18 +33,36 @@ def response_value(text, name, default=""):
 def wait_finished(mission_id, timeout_sec):
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
+        request = json.dumps({
+            "limit": 80,
+            "state_filter": "FINISHED",
+            "mission_id_filter": str(mission_id),
+        })
         result = run_ros2([
             "ros2",
             "service",
             "call",
             "/v2/list_mission_events",
             "robot_interfaces_mission/srv/ListMissionEvents",
-            f"{{limit: 80, state_filter: FINISHED, mission_id_filter: {mission_id}}}",
+            request,
         ])
         if "success=True" in result.stdout and "states=['FINISHED']" in result.stdout:
             return True
         time.sleep(1.0)
     return False
+
+
+def build_facility_request(request_id, resource_id, request):
+    return json.dumps({
+        "request_id": str(request_id),
+        "resource_id": str(resource_id),
+        "resource_type": str(request.get("resource_type", "")),
+        "action": str(request["action"]),
+        "priority": int(request.get("priority", 60)),
+        "start_if_idle": bool(request.get("start_if_idle", True)),
+        "preempt_current": bool(request.get("preempt_current", False)),
+        "hold_after_action": bool(request.get("hold_after_action", True)),
+    })
 
 
 def main():
@@ -57,18 +84,7 @@ def main():
     request_id = request.get("request_id", f"plc_{resource_id}_{action}")
 
     before = plc_state.get(resource_id, {}).get("state", "unknown")
-    service_request = (
-        "{"
-        f"request_id: {request_id}, "
-        f"resource_id: {resource_id}, "
-        f"resource_type: {request.get('resource_type', '')}, "
-        f"action: {action}, "
-        f"priority: {int(request.get('priority', 60))}, "
-        f"start_if_idle: {'true' if request.get('start_if_idle', True) else 'false'}, "
-        f"preempt_current: {'true' if request.get('preempt_current', False) else 'false'}, "
-        f"hold_after_action: {'true' if request.get('hold_after_action', True) else 'false'}"
-        "}"
-    )
+    service_request = build_facility_request(request_id, resource_id, request)
     submit = run_ros2([
         "ros2",
         "service",

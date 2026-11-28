@@ -10,16 +10,25 @@ source "${ROOT_DIR}/install/setup.bash"
 set -u
 
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-$((RANDOM % 200 + 1))}"
+: "${LIBGL_ALWAYS_SOFTWARE:=1}" "${MESA_LOADER_DRIVER_OVERRIDE:=kms_swrast}"
+: "${GALLIUM_DRIVER:=llvmpipe}" "${MESA_GL_VERSION_OVERRIDE:=4.5}"
+export LIBGL_ALWAYS_SOFTWARE MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER MESA_GL_VERSION_OVERRIDE
 
 LOG_DIR="$(mktemp -d /tmp/robot_amr_sim_default_demo.XXXXXX)"
 PIDS=()
 
 cleanup() {
   local rc=$?
-  for pid in "${PIDS[@]:-}"; do
-    if kill -0 "$pid" >/dev/null 2>&1; then
-      kill "$pid" >/dev/null 2>&1 || true
-    fi
+  for pgid in "${PIDS[@]:-}"; do
+    kill -INT -- "-${pgid}" >/dev/null 2>&1 || true
+  done
+  sleep 1
+  for pgid in "${PIDS[@]:-}"; do
+    kill -TERM -- "-${pgid}" >/dev/null 2>&1 || true
+  done
+  sleep 1
+  for pgid in "${PIDS[@]:-}"; do
+    kill -KILL -- "-${pgid}" >/dev/null 2>&1 || true
   done
   wait "${PIDS[@]:-}" >/dev/null 2>&1 || true
   if ((rc != 0)); then
@@ -35,7 +44,7 @@ trap cleanup EXIT
 start_bg() {
   local name="$1"
   shift
-  "$@" >"${LOG_DIR}/${name}.log" 2>&1 &
+  setsid "$@" >"${LOG_DIR}/${name}.log" 2>&1 < /dev/null &
   PIDS+=("$!")
 }
 
@@ -45,7 +54,7 @@ wait_marker_text() {
   local deadline=$((SECONDS + timeout_sec))
   local sample="${LOG_DIR}/markers.txt"
   while true; do
-    if timeout 10s ros2 topic echo --once /amr_simulation/markers \
+    if timeout 10s ros2 topic echo --once --full-length /amr_simulation/markers \
         visualization_msgs/msg/MarkerArray >"${sample}" 2>"${LOG_DIR}/markers.err" &&
       rg "${pattern}" "${sample}" >/dev/null; then
       return 0

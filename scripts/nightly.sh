@@ -100,15 +100,23 @@ kill_group() {
   kill -KILL -- "-${pgid}" 2>/dev/null
 }
 
+# 将路径转义为 ERE 安全模式并用 [/] 避免 pkill -f 误匹配自身命令行。
+escape_regex() {
+  printf '%s' "$1" | sed -e 's/[.[\\*^$+?(){}|]/\\&/g'
+}
+
 # 清掉所有 ROS / Gazebo 进程（与验收运行器一致；方括号写法避免误杀发起 ssh 的 shell）。
 ros_sweep() {
   dry && return 0
+  local root_re root_pat
+  root_re="$(escape_regex "${ROOT_DIR}")"
+  root_pat="[/]${root_re#/}"
   pkill -KILL -f "^([^[:space:]]*[p]ython[0-9.]*[[:space:]]+)?[/]opt/ros/jazzy/lib/[^[:space:]]+" 2>/dev/null
-  pkill -KILL -f "^([^[:space:]]*[p]ython[0-9.]*[[:space:]]+)?[^[:space:]]*[r]obot_ws/install/[^[:space:]]+" 2>/dev/null
+  pkill -KILL -f "^([^[:space:]]*[p]ython[0-9.]*[[:space:]]+)?${root_pat}/install/[^[:space:]]+" 2>/dev/null
   pkill -KILL -f "[g]z sim" 2>/dev/null
   pkill -KILL -f "[r]os2 (launch|run|topic|service|action|node|param)" 2>/dev/null
   pkill -KILL -f "[r]os2cli.daemon" 2>/dev/null
-  pkill -KILL -f "[r]obot_ws/scripts/.*\.py" 2>/dev/null
+  pkill -KILL -f "${root_pat}/scripts/.*\.py" 2>/dev/null
   sleep 2
 }
 
@@ -157,15 +165,26 @@ stage_2() {
     [[ -d "${ROOT_DIR}/build" ]] || skip "DRY_RUN：没有 build/ 目录"
     skip "DRY_RUN：全量 colcon test 留给夜跑（白天只跑改动包单测）"
   fi
-  colcon test --parallel-workers 2 > "${SDIR}/test.log" 2>&1
-  colcon test-result --all > "${SDIR}/test_result.txt" 2>&1
-  local rc=$?
+  rm -rf "${ROOT_DIR}"/build/*/test_results "${ROOT_DIR}"/build/*/Testing
+  local test_rc=0 result_rc=0 rc=0 total_tests=0
+  colcon test --parallel-workers 2 > "${SDIR}/test.log" 2>&1 || test_rc=$?
+  colcon test-result --all --verbose > "${SDIR}/test_result.txt" 2>&1 || result_rc=$?
   local line
-  line=$(grep -E '^Summary:' "${SDIR}/test_result.txt" | tail -1)
-  summary "colcon test-result rc=${rc}；${line:-无 Summary 行}"
+  line=$(grep -E '^Summary:' "${SDIR}/test_result.txt" | tail -1 || true)
+  if [[ "${line}" =~ Summary:[[:space:]]*([0-9]+)[[:space:]]+tests? ]]; then
+    total_tests="${BASH_REMATCH[1]}"
+  fi
+  if (( test_rc != 0 )); then
+    rc="${test_rc}"
+  elif (( result_rc != 0 )); then
+    rc="${result_rc}"
+  elif (( total_tests <= 0 )); then
+    rc=1
+  fi
+  summary "colcon test rc=${test_rc}，test-result rc=${result_rc}，total=${total_tests}；${line:-无 Summary 行}"
   if (( rc != 0 )); then
     summary '```'
-    grep -vE '^Summary:' "${SDIR}/test_result.txt" | grep -E '\.xml' | head -20 >> "${SDIR}/summary.md"
+    grep -vE '^Summary:' "${SDIR}/test_result.txt" | grep -E '\.xml' | head -20 >> "${SDIR}/summary.md" || true
     summary '```'
   fi
   exit "${rc}"
@@ -385,7 +404,11 @@ stage_6() {
 stage_7() {
   local smoke="${SCRIPT_DIR}/run_console_smoke.sh" ops="${SCRIPT_DIR}/run_console_ops.sh"
   [[ -x "${smoke}" && -x "${ops}" && -x "${SCRIPT_DIR}/run_console_alarm.sh" ]] || { summary "缺少调度台冒烟或操作专项入口"; exit 1; }
-  dry && skip "DRY_RUN：已找到严格冒烟、Ops 与 Alarm 专项和证据判定入口"
+  [[ -x "${SCRIPT_DIR}/run_task_control_restart.sh" && -f "${SCRIPT_DIR}/check_task_control_restart.py" ]] || {
+    summary "缺少任务控制重启专项"; exit 1;
+  }
+  [[ -x "${SCRIPT_DIR}/run_task_control_scenarios.sh" ]] || { summary "缺少任务控制仿真入口"; exit 1; }
+  dry && skip "DRY_RUN：已找到冒烟、Ops、Alarm 与任务控制重启专项入口"
   local smoke_rc=0 ops_rc=0 evidence_rc=0
   QT_QPA_PLATFORM=offscreen "${smoke}" "${SDIR}" > "${SDIR}/smoke.log" 2>&1 < /dev/null || smoke_rc=$?
   if [[ -f "${SDIR}/console_smoke.tsv" ]]; then
@@ -410,7 +433,17 @@ stage_7() {
   python3 "${SCRIPT_DIR}/m4_alarm_evidence.py" "${SDIR}" > "${SDIR}/alarm_evidence.json" || alarm_evidence_rc=$?
   summary "Alarm 运行器 rc=${alarm_rc}，证据 rc=${alarm_evidence_rc}，详情见 alarm_evidence.json 和 alarm-evidence/"
   [[ ! -f "${SDIR}/alarm-evidence/results.tsv" ]] || cat "${SDIR}/alarm-evidence/results.tsv" >> "${SDIR}/summary.md"
-  (( smoke_rc == 0 && ops_rc == 0 && evidence_rc == 0 && alarm_rc == 0 && alarm_evidence_rc == 0 ))
+  local restart_rc=0
+  "${SCRIPT_DIR}/run_task_control_restart.sh" "${SDIR}/task-control-restart" \
+    > "${SDIR}/task-control-restart.log" 2>&1 < /dev/null || restart_rc=$?
+  summary "任务控制重启检查 rc=${restart_rc}，详情见 task-control-restart/results.tsv"
+  [[ ! -f "${SDIR}/task-control-restart/results.tsv" ]] || cat "${SDIR}/task-control-restart/results.tsv" >> "${SDIR}/summary.md"
+  local scenarios_rc=0
+  "${SCRIPT_DIR}/run_task_control_scenarios.sh" "${SDIR}/task-control-scenarios" \
+    > "${SDIR}/task-control-scenarios.log" 2>&1 < /dev/null || scenarios_rc=$?
+  summary "任务控制仿真 rc=${scenarios_rc}，详情见 task-control-scenarios/results.tsv"
+  [[ ! -f "${SDIR}/task-control-scenarios/results.tsv" ]] || cat "${SDIR}/task-control-scenarios/results.tsv" >> "${SDIR}/summary.md"
+  (( smoke_rc == 0 && ops_rc == 0 && evidence_rc == 0 && alarm_rc == 0 && alarm_evidence_rc == 0 && restart_rc == 0 && scenarios_rc == 0 ))
 }
 
 stage_8() {
@@ -487,7 +520,9 @@ fi
 if ! dry; then
   exec 9>>"${HOME}/.robot-nightly.lock" || exit 1
   flock -n 9 || { log '无法取得夜跑锁，请检查当前用户下已有的夜跑进程'; exit 1; }
+  printf '%s\n' "$$" > "${HOME}/.robot-nightly.lock" 2>/dev/null || true
   export ROBOT_NIGHTLY_LOCK_HELD=1
+  export ROBOT_NIGHTLY_LOCK_OWNER="$$"
 fi
 
 OUT_DIR="${1:-${HOME}/nightly/$(date +%F)}"

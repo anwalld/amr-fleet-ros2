@@ -2,6 +2,7 @@
 """Unified governance guard for robot (Codex, Antigravity, and CLI)."""
 
 import argparse
+from collections import Counter
 import csv
 import json
 import re
@@ -178,6 +179,22 @@ def is_tracked_code_or_script(rel_path):
     return p.suffix in SOURCE_EXTENSIONS
 
 
+def _repo_basename_counts(wt, extra_paths=()):
+    ls_out = subprocess.check_output(
+        ["git", "-C", str(wt), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        text=True,
+    )
+    all_files = {p for p in ls_out.split("\0") if p}
+    all_files.update(extra_paths)
+    return Counter(Path(p).name for p in all_files)
+
+
+def _matches_path_boundary(text, target, allow_dot_slash=False):
+    prefix = r"(?<![A-Za-z0-9_./-])(?:\./)?" if allow_dot_slash else r"(?<![A-Za-z0-9_./-])"
+    pattern = prefix + re.escape(target) + r"(?![A-Za-z0-9_./-])"
+    return re.search(pattern, text) is not None
+
+
 def verify_change(worktree, change):
     wt = Path(worktree).resolve()
     change_dir = wt / "openspec/changes" / change
@@ -219,11 +236,17 @@ def verify_change(worktree, change):
             doc_texts.append(spec_file.read_text(errors="replace"))
     combined = "\n".join(doc_texts)
 
+    unique_changed = sorted(set(changed_files))
+    basename_counts = _repo_basename_counts(wt, unique_changed)
+
     covered = []
     uncovered = []
-    for rel in sorted(set(changed_files)):
+    for rel in unique_changed:
         basename = Path(rel).name
-        if rel in combined or basename in combined:
+        is_unique_basename = basename_counts.get(basename, 0) == 1
+        if _matches_path_boundary(combined, rel, allow_dot_slash=True):
+            covered.append(rel)
+        elif is_unique_basename and _matches_path_boundary(combined, basename):
             covered.append(rel)
         else:
             uncovered.append(rel)
@@ -231,7 +254,7 @@ def verify_change(worktree, change):
     return {
         "worktree": str(wt),
         "change": change,
-        "checked_files": sorted(set(changed_files)),
+        "checked_files": unique_changed,
         "covered": covered,
         "uncovered": uncovered,
         "passed": len(uncovered) == 0,

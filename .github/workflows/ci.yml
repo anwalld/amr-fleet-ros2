@@ -15,6 +15,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: 静态门禁（零依赖 lint 与语法检查）
+        shell: bash
+        run: |
+          python3 scripts/lint_assertion_alternation.py
+          python3 scripts/lint_case_map.py
+          python3 scripts/lint_interface_coverage.py
+          python3 scripts/lint_script_timeouts.py
+          python3 scripts/lint_service_response.py
+          bash scripts/check_robot_interfaces_split.sh
+          python3 -m py_compile scripts/*.py tools/*.py
+          bash -n scripts/*.sh
+
       - name: 安装依赖（rosdep）
         shell: bash
         run: |
@@ -35,6 +47,13 @@ jobs:
           source /opt/ros/jazzy/setup.bash
           # test_sim_model_runtime 是 Gazebo 实时集成测试：按墙钟发 1 秒速度指令，
           # 要求小车走过 0.12 米。CI 容器没有 GPU，Gazebo 实时率太低走不够距离；
-          # 虚拟机上它一直通过。CI 里只排除这一个，其余 532 个照跑。
+          # 虚拟机上它一直通过。CI 里只排除这一个，其余测试照跑。
+          set +e
           colcon test --parallel-workers 2 --ctest-args -E sim_model_runtime
+          test_rc=$?
           colcon test-result --all --verbose
+          result_rc=$?
+          set -e
+          if [ "$test_rc" -ne 0 ] || [ "$result_rc" -ne 0 ]; then
+            exit 1
+          fi

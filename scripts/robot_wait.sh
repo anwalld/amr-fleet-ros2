@@ -62,12 +62,20 @@ call_submit_order() {
 # 用法：expect_facility_resource <resource_type> <resource_id> <status> <holder_id> <available: True|False>
 expect_facility_resource() {
   local resource_type="$1" resource_id="$2" want_status="$3" want_holder="$4" want_available="$5" out
-  out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_facility_resources \
-    robot_interfaces_facility/srv/ListFacilityResources \
-    "{resource_type: ${resource_type}, include_disabled: false}")" || {
-    echo "list_facility_resources call failed for ${resource_type}" >&2
-    return 1
-  }
+  local attempt
+  for attempt in 1 2; do
+    if out="$(service_response "${ROS2_CALL_TIMEOUT:-30}" /v2/list_facility_resources \
+        robot_interfaces_facility/srv/ListFacilityResources \
+        "{resource_type: ${resource_type}, include_disabled: false}")"; then
+      break
+    else
+      local rc=$?
+      if [[ "${rc}" != 124 || "${attempt}" == 2 ]]; then
+        echo "list_facility_resources call failed for ${resource_type} (exit ${rc})" >&2
+        return "${rc}"
+      fi
+    fi
+  done
   FACILITY_OUT="$(response_only <<<"${out}")" python3 - "${resource_id}" "${want_status}" "${want_holder}" "${want_available}" <<'PY'
 import ast, os, re, sys
 rid, want_status, want_holder, want_available = sys.argv[1:5]

@@ -68,6 +68,13 @@ def stage_budgets(stages, stress_minutes, scenario_rounds):
         else:
             seconds, reason = FALLBACKS.get(stage, (None, "无适用历史样本"))
             budgets[stage] = {"seconds": seconds, "source": reason}
+    if 1 in budgets and not (ROOT / "build").is_dir():
+        # 隔离快照无编译缓存，历史增量构建耗时不适用。
+        budgets[1] = {"seconds": max(budgets[1]["seconds"] or 0, 600), "source": "全量冷构建预留"}
+    if 7 in budgets:
+        # 加入实际窗口 Ops 与 Alarm 的试跑和起栈开销。
+        budgets[7]["seconds"] += 480
+        budgets[7]["source"] = [budgets[7]["source"], "M4 Ops、Alarm 与任务控制仿真试跑预算"]
     return budgets
 
 
@@ -295,6 +302,32 @@ def check_defects(output, ledger):
     return not escalate
 
 
+def terminate_child_group(child, term_timeout=15, kill_timeout=5):
+    if child.poll() is not None:
+        return
+    try:
+        pgid = os.getpgid(child.pid)
+    except ProcessLookupError:
+        return
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        child.wait(timeout=term_timeout)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    try:
+        child.wait(timeout=kill_timeout)
+    except subprocess.TimeoutExpired:
+        pass
+
+
 def run():
     run_id = os.environ.get("DAG_RUN_ID", "")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", run_id):
@@ -344,16 +377,17 @@ def run():
 
     def forward_signal(signum, _frame):
         if child.poll() is None:
-            child.send_signal(signum)
+            try:
+                os.killpg(os.getpgid(child.pid), signum)
+            except ProcessLookupError:
+                pass
 
     signal.signal(signal.SIGINT, forward_signal)
     signal.signal(signal.SIGTERM, forward_signal)
     try:
         return watch(output, stages, budgets, dry, child, initial, stress_minutes, scenario_rounds, profile)
     finally:
-        if child.poll() is None:
-            child.terminate()
-            child.wait()
+        terminate_child_group(child)
 
 
 if __name__ == "__main__":

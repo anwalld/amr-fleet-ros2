@@ -9,7 +9,7 @@ namespace robot_console {
 
 enum class Operation {
   ListWorkflows, SubmitWorkflow, WorkflowStatus, PauseWorkflow, ResumeWorkflow, CancelWorkflow,
-  SubmitTransport, BlockRoute, UnblockRoute, SetRobotEnabled, PreviewClear, ClearReservation, SetFleetSimStop
+  SubmitTransport, BlockRoute, UnblockRoute, SetRobotEnabled, PreviewClear, ClearReservation, SetFleetSimStop, RemoteTaskControl
 };
 
 struct ClearPreview {
@@ -18,6 +18,8 @@ struct ClearPreview {
   QStringList resource_ids;
   QStringList resume_robot_ids;
 };
+
+enum class RemoteTaskAction : quint8 { Query, Pause, Resume, Cancel, Move };
 
 struct OperationRequest {
   quint64 id = 0;
@@ -34,6 +36,9 @@ struct OperationRequest {
   bool include_active = false;
   bool enabled = true;
   ClearPreview preview;
+  RemoteTaskAction remote_action = RemoteTaskAction::Query;
+  quint64 execution_id = 0;
+  quint64 revision = 0;
 };
 
 enum class OperationOutcome { Accepted, Rejected, Unknown, Conflict };
@@ -59,6 +64,11 @@ struct OperationResult {
   QString assigned_robot_id;
   QString mission_id;
   ClearPreview preview;
+  QString remote_task_id;
+  QString remote_state;
+  quint64 execution_id = 0;
+  quint64 revision = 0;
+  quint64 latest_revision = 0;
 };
 
 class OperationSource : public QObject {

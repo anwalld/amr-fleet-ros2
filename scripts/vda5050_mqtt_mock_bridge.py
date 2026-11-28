@@ -4,12 +4,48 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 
 ROS2_CALL_TIMEOUT = float(os.environ.get("ROS2_CALL_TIMEOUT", "30"))
+SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def validate_safe_id(value, field_name):
+    if not isinstance(value, str) or not SAFE_ID_RE.fullmatch(value) or ".." in value:
+        raise ValueError(f"invalid {field_name}: {value!r}")
+    return value
+
+
+def safe_output_path(base_dir, filename):
+    base_resolved = Path(base_dir).resolve()
+    target = Path(base_dir) / filename
+    if target.is_symlink():
+        raise ValueError(f"refusing symlink target: {target}")
+    target_resolved = target.resolve()
+    if target_resolved.parent != base_resolved:
+        raise ValueError(f"path escapes base directory: {target}")
+    return target_resolved
+
+
+def atomic_write_text(target, content):
+    target_path = Path(target)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target_path.name}.", suffix=".tmp", dir=str(target_path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, target_path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def run_ros2(args):
@@ -18,7 +54,8 @@ def run_ros2(args):
         return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, timeout=ROS2_CALL_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
-        return subprocess.CompletedProcess(args, 124, stdout=exc.stdout or "", stderr="timeout")
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return subprocess.CompletedProcess(args, 124, stdout=stdout, stderr="timeout")
 
 
 def response_value(text, name, default=""):
@@ -39,15 +76,13 @@ def submit_order(order):
         "start_if_idle": bool(order.get("start_if_idle", True)),
         "preempt_current": bool(order.get("preempt_current", False)),
     }, sort_keys=True)
-    request = (
-        "{"
-        f"order_id: {order['order_id']}, "
-        "order_type: vda5050, "
-        f"priority: {int(order.get('priority', 50))}, "
-        f"payload_json: {json.dumps(payload_json)}, "
-        "tags: [vda5050_mqtt_mock_bridge]"
-        "}"
-    )
+    request = json.dumps({
+        "order_id": str(order["order_id"]),
+        "order_type": "vda5050",
+        "priority": int(order.get("priority", 50)),
+        "payload_json": payload_json,
+        "tags": ["vda5050_mqtt_mock_bridge"],
+    })
     return run_ros2([
         "ros2",
         "service",
@@ -62,13 +97,18 @@ def wait_for_state(mission_id, desired_state, timeout_sec):
     deadline = time.time() + timeout_sec
     last_output = ""
     while time.time() < deadline:
+        request = json.dumps({
+            "limit": 80,
+            "state_filter": str(desired_state),
+            "mission_id_filter": str(mission_id),
+        })
         result = run_ros2([
             "ros2",
             "service",
             "call",
             "/v2/list_mission_events",
             "robot_interfaces_mission/srv/ListMissionEvents",
-            f"{{limit: 80, state_filter: {desired_state}, mission_id_filter: {mission_id}}}",
+            request,
         ])
         last_output = result.stdout
         if "success=True" in last_output and f"states=['{desired_state}']" in last_output:
@@ -127,6 +167,8 @@ def connection_payload(serial_number, state):
 
 def process_order_file(order_file, state_dir, connection_dir, timeout_sec):
     order = json.loads(order_file.read_text(encoding="utf-8"))
+    order_id = validate_safe_id(order.get("order_id"), "order_id")
+    serial_number = validate_safe_id(order.get("serial_number", "robot_1"), "serial_number")
     submit = submit_order(order)
     accepted = response_bool(submit.stdout, "accepted")
     mission_id = response_value(submit.stdout, "mission_id")
@@ -137,11 +179,13 @@ def process_order_file(order_file, state_dir, connection_dir, timeout_sec):
     state = state_payload(order, mission_id, accepted, finished, submit.stdout.strip(), event_response.strip())
     state_dir.mkdir(parents=True, exist_ok=True)
     connection_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / f"{order['order_id']}.state.json").write_text(
-        json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
-    (connection_dir / f"{order.get('serial_number', 'robot_1')}.connection.json").write_text(
-        json.dumps(connection_payload(order.get("serial_number", "robot_1"), "ONLINE"), indent=2, sort_keys=True),
-        encoding="utf-8")
+    state_target = safe_output_path(state_dir, f"{order_id}.state.json")
+    conn_target = safe_output_path(connection_dir, f"{serial_number}.connection.json")
+    atomic_write_text(state_target, json.dumps(state, indent=2, sort_keys=True))
+    atomic_write_text(
+        conn_target,
+        json.dumps(connection_payload(serial_number, "ONLINE"), indent=2, sort_keys=True),
+    )
     return accepted and finished
 
 

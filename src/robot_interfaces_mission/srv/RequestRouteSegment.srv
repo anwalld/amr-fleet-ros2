@@ -20,3 +20,5 @@ string[] blocking_resource_ids
 string[] blocking_owner_ids
 string mode
 string message
+uint64 service_epoch
+uint64[] resource_revisions

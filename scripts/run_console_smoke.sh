@@ -19,6 +19,26 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+NIGHTLY_LOCK_FILE="${HOME}/.robot-nightly.lock"
+check_nightly_lock() {
+  command -v flock >/dev/null 2>&1 || return 0
+  if [[ "${ROBOT_NIGHTLY_LOCK_HELD:-0}" == "1" ]]; then
+    if [[ ! "${ROBOT_NIGHTLY_LOCK_OWNER:-}" =~ ^[0-9]+$ ]] || ! kill -0 "${ROBOT_NIGHTLY_LOCK_OWNER}" 2>/dev/null; then
+      echo "拒绝运行：ROBOT_NIGHTLY_LOCK_HELD=1 但 ROBOT_NIGHTLY_LOCK_OWNER 无效或进程未存活" >&2
+      exit 1
+    fi
+    if flock -n "${NIGHTLY_LOCK_FILE}" true 2>/dev/null; then
+      echo "拒绝运行：ROBOT_NIGHTLY_LOCK_HELD=1 但未检测到有效夜跑锁 ${NIGHTLY_LOCK_FILE}" >&2
+      exit 1
+    fi
+    return 0
+  fi
+  if [[ -e "${NIGHTLY_LOCK_FILE}" ]] && ! flock -n "${NIGHTLY_LOCK_FILE}" true 2>/dev/null; then
+    echo "拒绝运行：检测到正式夜跑正在持有锁 ${NIGHTLY_LOCK_FILE}" >&2
+    exit 1
+  fi
+}
+check_nightly_lock
 OUT_DIR="${1:?output dir}"
 mkdir -p "${OUT_DIR}"
 OUT_DIR="$(cd "${OUT_DIR}" && pwd)"
@@ -45,6 +65,10 @@ CONSOLE_CAPTURE=1 NETWORK="${SMOKE_NETWORK}" setsid "${SCRIPT_DIR}/run_fleet_tra
   > "${OUT_DIR}/stack.out" 2>&1 < /dev/null &
 STACK_PID=$!
 
+escape_regex() {
+  printf '%s' "$1" | sed -e 's/[.[\\*^$+?(){}|]/\\&/g'
+}
+
 # shellcheck disable=SC2329  # 由 trap 调用
 cleanup() {
   [[ -n "${STACK_PID}" ]] || return 0
@@ -56,8 +80,11 @@ cleanup() {
   if kill -0 "${STACK_PID}" 2>/dev/null; then
     kill -KILL -- "-${STACK_PID}" 2>/dev/null
     # 压测脚本被强杀时来不及停 launch：按工作区路径兜底清理（方括号写法避免匹配到自己）。
+    local root_re root_pat
+    root_re="$(escape_regex "${ROOT_DIR}")"
+    root_pat="[/]${root_re#/}"
     pkill -INT -f "[r]obot_bringup fleet_sim.launch.py" 2>/dev/null; sleep 3
-    pkill -KILL -f "[r]obot_ws/install/" 2>/dev/null
+    pkill -KILL -f "${root_pat}/install/" 2>/dev/null
   fi
   STACK_PID=""
 }

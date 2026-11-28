@@ -42,6 +42,7 @@ class OperationPanel final : public QWidget {
     quint64 fleet_stop_before = 0;
     quint64 related_operation = 0;
     QString workflow_observation;
+    QString remote_observation;
   };
 
   QPushButton* button(const QString& text, const char* name, Operation operation);
@@ -53,6 +54,18 @@ class OperationPanel final : public QWidget {
   QString observation(const Entry& entry) const;
   QString missionObservation(const QString& mission) const;
   QString targetFor(Operation operation) const;
+
+  void sendRemoteTask(RemoteTaskAction action);
+  void finishRemoteTask(const OperationRequest& request, const OperationResult& result, quint64 original);
+  void refreshRemoteTask();
+  void reconcileRemoteTasks();
+  QHash<QString, OperationResult> remote_tasks_;
+  QHash<QString, quint64> remote_unresolved_;
+  QHash<RemoteTaskAction, QPushButton*> remote_buttons_;
+  QComboBox* remote_task_;
+  QComboBox* remote_destination_;
+  QLabel* remote_status_;
+  QTimer remote_reconcile_timer_;
 
   OperationSource* source_;
   QHash<quint64, Entry> entries_;

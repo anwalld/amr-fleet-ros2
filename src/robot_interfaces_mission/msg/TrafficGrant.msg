@@ -5,3 +5,5 @@ string robot_id
 string from_station
 string to_station
 string[] resource_ids
+uint64 service_epoch
+uint64[] resource_revisions

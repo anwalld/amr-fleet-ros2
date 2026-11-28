@@ -3,6 +3,7 @@
 
 #include <robot_interfaces_business/srv/get_operator_snapshot.hpp>
 #include <robot_interfaces_business/srv/submit_order.hpp>
+#include <robot_interfaces_fleet/srv/control_remote_fleet_task.hpp>
 #include <robot_interfaces_fleet/srv/update_fleet_robot_state.hpp>
 #include <robot_interfaces_mission/msg/traffic_state.hpp>
 
@@ -98,6 +99,45 @@ TEST_F(RosOperationsTest, IdleWindowOnlyCallsTheThreeCoreReadServices) {
            bridge_.operations()->available(Operation::SetRobotEnabled);
   }, 8000));
   EXPECT_EQ(writes, 0);
+}
+
+TEST_F(RosOperationsTest, RemoteControlPreservesRequestAndReceiptIdentity) {
+  using Remote = fleet::ControlRemoteFleetTask;
+  Remote::Request::SharedPtr captured;
+  auto service = server_->create_service<Remote>(
+      "/v2/control_remote_fleet_task", [&](Remote::Request::SharedPtr request, Remote::Response::SharedPtr response) {
+        captured = request;
+        response->success = true;
+        response->task_id = request->task_id;
+        response->execution_id = request->execution_id;
+        response->revision = request->revision;
+        response->latest_revision = request->revision;
+        response->result = "PAUSING";
+      });
+  OperationResult response;
+  QObject receiver;
+  QObject::connect(bridge_.operations(), &OperationSource::operationCompleted, &receiver,
+      [&](const OperationResult& result) { response = result; }, Qt::QueuedConnection);
+  bridge_.start();
+  ASSERT_TRUE(waitFor([&] { return bridge_.operations()->available(Operation::RemoteTaskControl); }));
+  OperationRequest request;
+  request.id = 72;
+  request.operation = Operation::RemoteTaskControl;
+  request.remote_action = RemoteTaskAction::Pause;
+  request.target = "remote_job";
+  request.execution_id = 234;
+  request.revision = 11;
+  ASSERT_TRUE(bridge_.operations()->submit(request));
+  ASSERT_TRUE(waitFor([&] { return response.id == request.id; }));
+  ASSERT_NE(captured, nullptr);
+  EXPECT_EQ(captured->operation, Remote::Request::PAUSE);
+  EXPECT_EQ(captured->task_id, "remote_job");
+  EXPECT_EQ(captured->execution_id, 234u);
+  EXPECT_EQ(captured->revision, 11u);
+  EXPECT_EQ(response.remote_state, QStringLiteral("PAUSING"));
+  EXPECT_EQ(response.remote_task_id, request.target);
+  EXPECT_EQ(response.execution_id, request.execution_id);
+  EXPECT_EQ(response.revision, request.revision);
 }
 
 TEST_F(RosOperationsTest, WorkflowRequestUsesTypedFieldsAndJson) {

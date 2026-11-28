@@ -6,6 +6,19 @@
 
 namespace robot_simulation {
 
+enum class RouteEntryAction { kContinue, kWaitPaused, kWaitInFlight, kApplyYield };
+
+inline RouteEntryAction DecideRouteEntryAction(
+    const bool paused, const bool has_pending_yield, const bool route_call_pending) {
+  if (paused) {
+    return RouteEntryAction::kWaitPaused;
+  }
+  if (has_pending_yield) {
+    return route_call_pending ? RouteEntryAction::kWaitInFlight : RouteEntryAction::kApplyYield;
+  }
+  return RouteEntryAction::kContinue;
+}
+
 // 当前要去的站点：退避中是避让点，否则是本程目的地。
 inline const std::string& RouteTarget(
     const std::string& goal_station, const std::string& backoff_station) {

@@ -26,11 +26,16 @@ def native_terminal(workspace, plan):
         with path.open() as stream:
             last_complete = None
             for line in stream:
-                if line.endswith("\n"):
+                if line.endswith("\n") and line.strip():
                     last_complete = line
         if last_complete is None:
             continue
-        native = json.loads(last_complete)
+        try:
+            native = json.loads(last_complete)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(native, dict):
+            continue
         params = native.get("paramsList", [])
         if (native.get("name") == "robot-nightly"
                 and native.get("dagRunId") == plan["run_id"]
@@ -40,8 +45,12 @@ def native_terminal(workspace, plan):
     if not records:
         return None
     # A later retry can still be active even though an earlier attempt failed.
-    latest = max(records, key=lambda native: native["createdAt"])
-    state = {2: "failed", 3: "aborted"}.get(latest.get("status"))
+    latest = max(records, key=lambda native: native.get("createdAt", 0))
+    state = {
+        2: "failed",
+        3: "aborted",
+        4: "dry_run_passed" if plan.get("dry_run") else "passed",
+    }.get(latest.get("status"))
     finished = latest.get("finishedAt")
     started = latest.get("startedAt")
     if state and started and finished:
@@ -55,16 +64,47 @@ def read_run(output, workspace, action, expected):
     path = output / "checks.jsonl"
     if output.resolve() != output or path.is_symlink():
         raise ValueError("unexpected run path")
-    with path.open() as stream:
-        entries = [json.loads(line) for line in stream if line.endswith("\n")]
-    plan = next(e for e in entries if e["state"] == "planned")
-    if plan["output_dir"] != str(output):
+    entries = []
+    with path.open(errors="replace") as stream:
+        for line in stream:
+            if not line.endswith("\n") or not line.strip():
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                entries.append(parsed)
+    if not entries:
+        raise ValueError("no valid entries in checks.jsonl")
+    plan = next((e for e in entries if e.get("state") == "planned"), None)
+    if plan is None:
+        last = entries[-1]
+        state = last.get("state", "unknown")
+        event = last.get("checked_at", "")
+        run_id = last.get("run_id") or re.sub(r"^\d{4}-\d{2}-\d{2}-", "", output.name)
+        identity = hashlib.sha256(json.dumps(entries[0], sort_keys=True).encode()).hexdigest()
+        if expected != "-" and expected != identity:
+            raise ValueError("run identity changed")
+        terminal = state == "blocked"
+        if action == "clean":
+            if not terminal or expected == "-":
+                raise ValueError("cleanup requires a bound terminal record")
+            path.unlink()
+            return {"removed": str(path)}
+        if state == "blocked":
+            reason = last.get("reason") or ("缺陷账本触发升级" if last.get("escalate") else "前置检查阻塞")
+            brief = f"{run_id} 已阻塞（{reason}），已结束。"
+        else:
+            brief = f"{run_id} 状态 {state}，缺少计划记录。"
+        return dict(run_id=run_id, identity=identity, event=event, terminal=terminal, brief=brief)
+    if plan.get("output_dir") != str(output):
         raise ValueError("output directory differs from plan")
     identity = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()
     if expected != "-" and expected != identity:
         raise ValueError("run identity changed")
     last = entries[-1]
-    state, event = last["state"], last["checked_at"]
+    state, event = last.get("state", "running"), last.get("checked_at", "")
     terminal = "exit_code" in last and state in {"failed", "passed", "dry_run_passed"}
     if not terminal:
         status = native_terminal(workspace, plan)

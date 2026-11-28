@@ -1,0 +1,11 @@
+# An empty mission_id queries the hold and current dispatch candidate.
+string mission_id
+uint64 hold_generation
+uint64 queue_sequence
+---
+bool success
+string message
+bool held
+string candidate_mission_id
+uint64 hold_generation
+uint64 queue_sequence

@@ -118,6 +118,7 @@ struct DeadlockYieldPlan {
   std::vector<std::string> station_path;
   double hold_s = 0.0;
   std::string message;
+  bool peeling = false;
 };
 
 // 为让路车规划解除动作：先试改道（绕开环上他车占用或暂扣的资源和封路，到原目的地），
@@ -129,11 +130,15 @@ DeadlockYieldPlan PlanDeadlockYield(
     const std::vector<WaitGraphEdge>* edges = nullptr);
 
 // 按 RankYieldRobots 的顺序逐辆试 PlanDeadlockYield（带 edges），取第一个改道或退避方案；
-// 全都不行才返回排第一的车的 pause 方案。info 里没有的车不能让路（不知道它在哪）。
+// info 里没有的车不能让路（不知道它在哪）。
+// rolling 的首个方案为退避时，优先选当前全程可用的方案。
+// rolling 为 true 且环内全部只能 pause 时，沿等待边逆向分层尝试剥离环外上游等待车。
+// 仍无解才返回 pause。
 DeadlockYieldPlan PlanDeadlockResolution(
     const WaitCycle& cycle, const std::unordered_map<std::string, TrafficWaitInfo>& info,
     const StationCatalog& catalog, const RouteLockMap& route_locks, const RouteHoldMap& holds,
-    const std::vector<WaitGraphEdge>& edges, double hold_s);
+    const std::vector<WaitGraphEdge>& edges, double hold_s, bool rolling = false,
+    const std::unordered_map<std::string, std::string>& home_owners = {});
 
 // 兜底计数：记下"这组车"又成环一次，返回窗口（默认 30 秒）内的成环次数（含本次）。
 struct DeadlockHistory {
@@ -149,6 +154,8 @@ struct ActiveDeadlock {
   // 已采取的动作：reroute / backoff / pause；空 = 只检测没解除（解除已关闭）。
   std::string action;
   std::string yield_robot_id;
+  std::string peeling_robot_id = {};
+  double peeling_started_s = 0.0;
 };
 using ActiveDeadlockMap = std::unordered_map<std::string, ActiveDeadlock>;
 

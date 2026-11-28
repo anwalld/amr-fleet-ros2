@@ -27,7 +27,9 @@ dagu start --dagu-home "$DAGU_HOME" "$ROBOT_WORKSPACE/dagu/robot-nightly.yaml" -
 
 ## Mac 跨工具派单工作流（`dagu/codex-apply.yaml`）
 
-Mac 宿主机通过 `~/.local/bin/dagu` 运行 `dagu/codex-apply.yaml`，依次执行 `preflight`（`robot_guard` 账本/Worktree/7 段式施工单校验）→ `apply`（`codex exec -m gpt-6.2-sol -c model_reasoning_effort="high"`）→ `collect`（白名单 diff 校验并产出 `return-bundle.json`）：
+Mac 宿主机通过 `~/.local/bin/dagu` 运行 `dagu/codex-apply.yaml`，依次执行 `preflight`（`robot_guard` 账本/Worktree/7 段式施工单校验）→ `apply`（`codex exec -m gpt-6.2-sol -c model_reasoning_effort="high"`）→ `collect`（白名单 diff 校验、从 `sol-events.jsonl` 回填 `session_id` 并产出 `return-bundle.json`）。
+
+> **安全边界定位**：`dagu/codex-apply.yaml` 与 `tools/codex_apply_helper.py` 定位为**受信任代理的范围防呆与 diff 审计门禁（非 OS 安全沙箱）**。白名单与 diff 核验会拒绝含 `..`、绝对路径、`.git/` 或解析后逃逸 worktree 根目录的符号链接，但不替代操作系统级隔离。
 
 施工单七个部分按顺序用 Markdown 标题标记。第一节用 `worktree`、`branch`、`HEAD`、`change` 四个字段逐行声明执行环境（例如 `` - branch: `codex/example` ``），值用反引号包裹，`HEAD` 使用完整哈希。白名单逐条列出用反引号包裹的仓库相对路径。运行目录设在目标工作树之外。
 

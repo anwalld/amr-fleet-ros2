@@ -193,6 +193,17 @@ TEST(FleetRuntimeStateTest, PlanRemoteFleetTaskStateUpdate_DefaultMessageUpdates
   EXPECT_TRUE(decision.event_recoverable);
 }
 
+TEST(FleetRuntimeStateTest, CanceledTaskRejectsLateRunningUpdate) {
+  robot_tasks::RemoteFleetTaskMap tasks;
+  tasks["task_a"].task_id = "task_a";
+  tasks["task_a"].state = "CANCELED";
+  const auto result = robot_tasks::PlanRemoteFleetTaskStateUpdate(
+      robot_tasks::RemoteFleetTaskUpdateRequest{"task_a", "RUNNING", "late progress"}, tasks);
+  EXPECT_FALSE(result.success);
+  EXPECT_FALSE(result.mutate_state);
+  EXPECT_EQ(result.task.state, "CANCELED");
+}
+
 TEST(FleetRuntimeStateTest, PlanRemoteFleetTaskStateUpdate_ExplicitMessageIsPreserved) {
   robot_tasks::RemoteFleetTaskMap remote_tasks;
   remote_tasks["task_a"] =
@@ -207,6 +218,66 @@ TEST(FleetRuntimeStateTest, PlanRemoteFleetTaskStateUpdate_ExplicitMessageIsPres
   EXPECT_EQ(decision.task.message, "blocked at aisle");
   EXPECT_EQ(decision.event_message, "blocked at aisle");
   EXPECT_EQ(decision.event_state, "FAILED");
+}
+
+TEST(FleetRuntimeStateTest, PlanRemoteFleetTaskStateUpdate_FinishedTerminalStateIsMonotonicAndIdempotent) {
+  robot_tasks::RemoteFleetTaskMap remote_tasks;
+  remote_tasks["task_a"] =
+      robot_tasks::RemoteFleetTaskState{"task_a", "robot_2", "receiving", "packing",
+                                        "FINISHED", "completed normally"};
+
+  const auto downgrade = robot_tasks::PlanRemoteFleetTaskStateUpdate(
+      robot_tasks::RemoteFleetTaskUpdateRequest{"task_a", "RUNNING", "late progress"},
+      remote_tasks);
+  EXPECT_FALSE(downgrade.success);
+  EXPECT_FALSE(downgrade.mutate_state);
+  EXPECT_EQ(downgrade.task.state, "FINISHED");
+  EXPECT_EQ(downgrade.previous_state, "FINISHED");
+
+  const auto flip_terminal = robot_tasks::PlanRemoteFleetTaskStateUpdate(
+      robot_tasks::RemoteFleetTaskUpdateRequest{"task_a", "CANCELED", "late cancel"},
+      remote_tasks);
+  EXPECT_FALSE(flip_terminal.success);
+  EXPECT_FALSE(flip_terminal.mutate_state);
+  EXPECT_EQ(flip_terminal.task.state, "FINISHED");
+
+  const auto duplicate = robot_tasks::PlanRemoteFleetTaskStateUpdate(
+      robot_tasks::RemoteFleetTaskUpdateRequest{"task_a", "FINISHED", "duplicate finish"},
+      remote_tasks);
+  EXPECT_TRUE(duplicate.success);
+  EXPECT_FALSE(duplicate.mutate_state);
+  EXPECT_EQ(duplicate.task.state, "FINISHED");
+  EXPECT_EQ(duplicate.task.message, "completed normally");
+  EXPECT_EQ(duplicate.previous_state, "FINISHED");
+}
+
+TEST(FleetRuntimeStateTest, PlanRemoteFleetTaskStateUpdate_CanceledTerminalStateIsMonotonicAndIdempotent) {
+  robot_tasks::RemoteFleetTaskMap remote_tasks;
+  remote_tasks["task_a"] =
+      robot_tasks::RemoteFleetTaskState{"task_a", "robot_2", "receiving", "packing",
+                                        "CANCELED", "operator canceled"};
+
+  const auto downgrade = robot_tasks::PlanRemoteFleetTaskStateUpdate(
+      robot_tasks::RemoteFleetTaskUpdateRequest{"task_a", "DISPATCHED_REMOTE", "retry"},
+      remote_tasks);
+  EXPECT_FALSE(downgrade.success);
+  EXPECT_FALSE(downgrade.mutate_state);
+  EXPECT_EQ(downgrade.task.state, "CANCELED");
+
+  const auto flip_terminal = robot_tasks::PlanRemoteFleetTaskStateUpdate(
+      robot_tasks::RemoteFleetTaskUpdateRequest{"task_a", "FINISHED", "late finish"},
+      remote_tasks);
+  EXPECT_FALSE(flip_terminal.success);
+  EXPECT_FALSE(flip_terminal.mutate_state);
+  EXPECT_EQ(flip_terminal.task.state, "CANCELED");
+
+  const auto duplicate = robot_tasks::PlanRemoteFleetTaskStateUpdate(
+      robot_tasks::RemoteFleetTaskUpdateRequest{"task_a", "CANCELED", "duplicate cancel"},
+      remote_tasks);
+  EXPECT_TRUE(duplicate.success);
+  EXPECT_FALSE(duplicate.mutate_state);
+  EXPECT_EQ(duplicate.task.state, "CANCELED");
+  EXPECT_EQ(duplicate.task.message, "operator canceled");
 }
 
 TEST(FleetRuntimeStateTest, PlanFleetStationTaskDispatch_LocalRobotUsesStationOrder) {

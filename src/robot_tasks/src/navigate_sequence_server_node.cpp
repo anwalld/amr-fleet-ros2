@@ -1,9 +1,12 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -21,12 +24,14 @@
 #include "robot_interfaces/msg/robot_state.hpp"
 #include "robot_interfaces/msg/task_status.hpp"
 #include "robot_interfaces_core/srv/get_statistics.hpp"
+#include "robot_interfaces_mission/srv/set_sequence_pause.hpp"
 #include "robot_tasks/nav2_goal_step.hpp"
 #include "robot_tasks/sequence_cancel.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 using namespace std::chrono_literals;
 
+using SetSequencePause = robot_interfaces_mission::srv::SetSequencePause;
 using NavigateSequence = robot_interfaces::action::NavigateSequence;
 using GoalHandleNavigateSequence = rclcpp_action::ServerGoalHandle<NavigateSequence>;
 using FollowWaypoints = nav2_msgs::action::FollowWaypoints;
@@ -37,6 +42,15 @@ using GoalHandleNavigateToPose = rclcpp_action::ClientGoalHandle<NavigateToPose>
 class NavigateSequenceServerNode final : public rclcpp::Node {
  public:
   NavigateSequenceServerNode() : Node("navigate_sequence_server_node") {
+    const auto checkpoint_path = declare_parameter<std::string>("restart_checkpoint_path", "");
+    if (!checkpoint_path.empty()) {
+      std::error_code error;
+      restart_recovery_required_ = !std::filesystem::create_directory(checkpoint_path, error);
+      if (restart_recovery_required_) {
+        RCLCPP_ERROR(get_logger(), "navigation inhibited pending restart reconciliation: %s (%s)",
+                     checkpoint_path.c_str(), error ? error.message().c_str() : "already used");
+      }
+    }
     use_nav2_action_ = declare_parameter<bool>("use_nav2_action", true);
     use_waypoint_follower_ = declare_parameter<bool>("use_waypoint_follower", true);
     simulate_without_nav2_ = declare_parameter<bool>("simulate_without_nav2", true);
@@ -104,29 +118,128 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
           response->success = true;
           response->message = "mission cancellation requested";
         });
+    sequence_pause_srv_ = create_service<SetSequencePause>(
+        "/v2/set_sequence_pause",
+        [this](const std::shared_ptr<SetSequencePause::Request> request,
+               std::shared_ptr<SetSequencePause::Response> response) {
+          SetManagedPause(*request, *response);
+        });
     action_server_ = rclcpp_action::create_server<NavigateSequence>(
         this, "/navigate_sequence",
-        [this](const auto&, const auto goal) { return HandleGoal(goal); },
+        [this](const auto& id, const auto goal) { return HandleGoal(id, goal); },
         [](const auto) {
           // 不在这里置 cancelled_：本回调返回之后目标才进入 CANCELING，各循环只看 is_canceling()。
           return rclcpp_action::CancelResponse::ACCEPT;
         },
         [this](const auto goal_handle) {
-          std::thread{[this, goal_handle]() { Execute(goal_handle); }}.detach();
+          if (worker_.joinable()) {
+            worker_.join();
+          }
+          cancelled_ = false;
+          worker_ = std::thread([this, goal_handle]() {
+            try {
+              Execute(goal_handle);
+            } catch (const std::exception&) {
+              CompleteGoal([] {});
+              // A shutdown can invalidate action handles between a context check and a ROS call.
+              if (rclcpp::ok()) {
+                throw;
+              }
+            }
+          });
         });
     timer_ = create_wall_timer(200ms, [this]() { PublishState(); });
   }
 
+  ~NavigateSequenceServerNode() override {
+    cancelled_ = true;
+    InvalidateActiveChildGoalToken();
+    if (worker_.joinable()) {
+      worker_.join();
+    }
+  }
+
  private:
+  class ScopedChildGoalToken {
+   public:
+    explicit ScopedChildGoalToken(std::atomic<std::uint64_t>& active_token)
+        : active_token_(active_token),
+          token_(active_token.fetch_add(1U, std::memory_order_acq_rel) + 1U) {}
+
+    ScopedChildGoalToken(const ScopedChildGoalToken&) = delete;
+    ScopedChildGoalToken& operator=(const ScopedChildGoalToken&) = delete;
+
+    ~ScopedChildGoalToken() { Invalidate(); }
+
+    std::uint64_t token() const { return token_; }
+
+    void Invalidate() {
+      if (!invalidated_) {
+        invalidated_ = true;
+        active_token_.fetch_add(1U, std::memory_order_acq_rel);
+      }
+    }
+
+   private:
+    std::atomic<std::uint64_t>& active_token_;
+    std::uint64_t token_ = 0;
+    bool invalidated_ = false;
+  };
+
+  void InvalidateActiveChildGoalToken() {
+    active_child_goal_token_.fetch_add(1U, std::memory_order_acq_rel);
+  }
+
   template <typename ResponseT>
   void SetPaused(const bool paused, const std::shared_ptr<ResponseT> response) {
-    paused_ = paused;
+    if (!paused && managed_pause_) {
+      response->success = false;
+      response->message = "mission remains paused by mission runner";
+      return;
+    }
+    legacy_pause_ = paused;
     response->success = true;
     response->message = paused ? "mission paused" : "mission resumed";
   }
 
+  bool IsPaused() const { return legacy_pause_ || managed_pause_; }
+
+  void SetManagedPause(
+      const SetSequencePause::Request& request, SetSequencePause::Response& response) {
+    const std::lock_guard<std::mutex> lock(goal_control_mutex_);
+    response.revision = pause_revision_;
+    response.paused = IsPaused();
+    response.legacy_paused = legacy_pause_;
+    if (!active_goal_id_ || *active_goal_id_ != request.goal_id) {
+      response.message = "navigation goal changed";
+      return;
+    }
+    if (request.revision == 0 || request.revision < pause_revision_ ||
+        (request.revision == pause_revision_ && request.paused != managed_pause_)) {
+      response.message = "stale navigation pause revision";
+      return;
+    }
+    pause_revision_ = request.revision;
+    managed_pause_ = request.paused;
+    response.revision = pause_revision_;
+    response.paused = IsPaused();
+    response.success = true;
+    response.message = response.paused ? "sequence motion gated" : "sequence gate released";
+  }
+
+  template <typename Complete>
+  void CompleteGoal(Complete complete) {
+    InvalidateActiveChildGoalToken();
+    complete();
+    const std::lock_guard<std::mutex> lock(goal_control_mutex_);
+    active_goal_id_.reset();
+    managed_pause_ = false;
+    active_ = false;
+  }
+
   template <typename ResponseT>
   void FillStatisticsResponse(const std::shared_ptr<ResponseT>& response) const {
+    std::lock_guard<std::mutex> lock(stats_mutex_);
     response->statistics.header = statistics_.header;
     response->statistics.total_goals = statistics_.total_goals;
     response->statistics.succeeded_goals = statistics_.succeeded_goals;
@@ -139,22 +252,31 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
   }
 
   rclcpp_action::GoalResponse HandleGoal(
+      const rclcpp_action::GoalUUID& id,
       const std::shared_ptr<const NavigateSequence::Goal> goal) {
+    const std::lock_guard<std::mutex> lock(goal_control_mutex_);
+    if (restart_recovery_required_) {
+      return rclcpp_action::GoalResponse::REJECT;
+    }
     if (goal->goals.empty()) {
       RCLCPP_WARN(get_logger(), "reject empty navigate sequence goal");
       return rclcpp_action::GoalResponse::REJECT;
     }
-    if (active_) {
+    if (active_.exchange(true)) {
       RCLCPP_WARN(get_logger(), "reject navigate sequence while another mission is active");
       return rclcpp_action::GoalResponse::REJECT;
     }
+    active_goal_id_ = id;
+    pause_revision_ = 0;
+    cancelled_ = false;
     RCLCPP_INFO(get_logger(), "accept navigate sequence goal: waypoints=%zu", goal->goals.size());
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
   }
 
   void Execute(const std::shared_ptr<GoalHandleNavigateSequence> goal_handle) {
     const auto goal = goal_handle->get_goal();
-    BeginMission(static_cast<int>(goal->goals.size()));
+    const int total_goals = static_cast<int>(goal->goals.size());
+    BeginMission(total_goals);
     PublishCurrentPath(goal->goals);
     const auto started = now();
     int succeeded = 0;
@@ -172,7 +294,8 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
     const bool nav2_available =
         !waypoint_follower_available && use_nav2_action_ &&
         nav2_client_->wait_for_action_server(std::chrono::milliseconds(nav2_server_timeout_ms_));
-    if (use_nav2_action_ && !nav2_available && !simulate_without_nav2_) {
+    if (!waypoint_follower_available && use_nav2_action_ &&
+        !nav2_available && !simulate_without_nav2_) {
       FinishFailure(goal_handle, "Nav2 action server is unavailable");
       return;
     }
@@ -186,8 +309,8 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
         return;
       }
     } else {
-      for (int i = 0; rclcpp::ok() && i < total_goals_; ++i) {
-        current_goal_index_ = i;
+      for (int i = 0; rclcpp::ok() && i < total_goals; ++i) {
+        current_goal_index_.store(i);
         PublishCurrentGoal(goal->goals[i]);
         WaitWhilePaused(goal_handle, "paused before goal");
         if (StopRequested(goal_handle)) {
@@ -202,31 +325,34 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
         }
         if (ok) {
           ++succeeded;
+          std::lock_guard<std::mutex> lock(stats_mutex_);
           ++statistics_.succeeded_goals;
         } else {
           ++failed;
+          std::lock_guard<std::mutex> lock(stats_mutex_);
           ++statistics_.failed_goals;
         }
       }
     }
 
-    active_ = false;
-    statistics_.last_navigation_time_s = (now() - started).seconds();
-    statistics_.total_goals += total_goals_;
-    UpdateStatistics();
+    const auto finished_stamp = now();
+    {
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      statistics_.last_navigation_time_s = (finished_stamp - started).seconds();
+      statistics_.total_goals += total_goals;
+      UpdateStatisticsLocked(finished_stamp);
+    }
     auto result = std::make_shared<NavigateSequence::Result>();
     result->success = failed == 0;
     result->message = failed == 0 ? "sequence finished" : "sequence finished with failures";
     result->succeeded_goals = succeeded;
     result->failed_goals = failed;
-    goal_handle->succeed(result);
+    CompleteGoal([&] { goal_handle->succeed(result); });
   }
 
   void BeginMission(const int total_goals) {
-    cancelled_ = false;
-    active_ = true;
-    current_goal_index_ = 0;
-    total_goals_ = total_goals;
+    current_goal_index_.store(0);
+    total_goals_.store(total_goals);
   }
 
   void PublishCurrentGoal(geometry_msgs::msg::PoseStamped pose) {
@@ -264,7 +390,7 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
           if (StopRequested(sequence_handle)) {
             return false;
           }
-          RCLCPP_INFO(get_logger(), "resumed: resending Nav2 goal %d", current_goal_index_);
+          RCLCPP_INFO(get_logger(), "resumed: resending Nav2 goal %d", current_goal_index_.load());
           break;
         default:
           return false;
@@ -281,22 +407,31 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
     NavigateToPose::Goal nav2_goal;
     nav2_goal.pose = pose;
 
+    ScopedChildGoalToken token_guard(active_child_goal_token_);
+    const auto goal_token = token_guard.token();
     auto goal_options = rclcpp_action::Client<NavigateToPose>::SendGoalOptions();
     goal_options.feedback_callback =
-        [this, sequence_handle](
+        [this, sequence_handle, goal_token](
             GoalHandleNavigateToPose::SharedPtr,
             const std::shared_ptr<const NavigateToPose::Feedback> feedback) {
+          if (active_child_goal_token_.load(std::memory_order_acquire) != goal_token) {
+            return;
+          }
           PublishNav2Progress(
               sequence_handle,
               "distance remaining: " + std::to_string(feedback->distance_remaining));
         };
+    const auto abandoned = AttachLateCancelGuard(*nav2_client_, goal_options);
 
     auto goal_future = nav2_client_->async_send_goal(nav2_goal, goal_options);
     if (!AwaitGoalResponse(goal_future, sequence_handle, "waiting for Nav2 goal acceptance")) {
+      token_guard.Invalidate();
+      AbandonGoalWait(*nav2_client_, goal_future, abandoned);
       return Nav2GoalStep::kStop;
     }
     auto nav2_goal_handle = goal_future.get();
     if (!nav2_goal_handle) {
+      token_guard.Invalidate();
       PublishSequenceFeedback(sequence_handle, "failed", "Nav2 rejected goal");
       return Nav2GoalStep::kFail;
     }
@@ -306,7 +441,7 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
     auto next_cancel = std::chrono::steady_clock::time_point::min();
     while (rclcpp::ok()) {
       status.stop_requested = StopRequested(sequence_handle);
-      status.paused = paused_;
+      status.paused = IsPaused();
       status.result_ready = result_future.wait_for(0s) == std::future_status::ready;
       status.succeeded =
           status.result_ready && result_future.get().code == rclcpp_action::ResultCode::SUCCEEDED;
@@ -315,11 +450,13 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
       const auto step = robot_tasks::PlanNav2GoalStep(status);
       switch (step) {
         case Nav2GoalStep::kStop:
+          token_guard.Invalidate();
           CancelGoal(*nav2_client_, nav2_goal_handle);
           return step;
         case Nav2GoalStep::kSucceed:
         case Nav2GoalStep::kFail:
         case Nav2GoalStep::kResend:
+          token_guard.Invalidate();
           return step;
         case Nav2GoalStep::kCancelForPause:
           CancelGoal(*nav2_client_, nav2_goal_handle);
@@ -339,6 +476,7 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
           break;
       }
     }
+    token_guard.Invalidate();
     return Nav2GoalStep::kStop;
   }
 
@@ -353,6 +491,35 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
     }
   }
 
+  template <typename ActionT>
+  std::shared_ptr<std::atomic_bool> AttachLateCancelGuard(
+      rclcpp_action::Client<ActionT>& client,
+      typename rclcpp_action::Client<ActionT>::SendGoalOptions& goal_options) {
+    auto abandoned = std::make_shared<std::atomic_bool>(false);
+    goal_options.goal_response_callback =
+        [this, &client, abandoned](
+            const typename rclcpp_action::ClientGoalHandle<ActionT>::SharedPtr& handle) {
+          if (abandoned->load() && handle && rclcpp::ok()) {
+            RCLCPP_WARN(get_logger(), "Cancelling late-accepted Nav2 goal after sequence cancel");
+            CancelGoal(client, handle);
+          }
+        };
+    return abandoned;
+  }
+
+  template <typename ActionT, typename FutureT>
+  void AbandonGoalWait(rclcpp_action::Client<ActionT>& client,
+                       const FutureT& goal_future,
+                       const std::shared_ptr<std::atomic_bool>& abandoned) {
+    abandoned->store(true);
+    if (goal_future.wait_for(0s) == std::future_status::ready) {
+      auto handle = goal_future.get();
+      if (handle && rclcpp::ok()) {
+        CancelGoal(client, handle);
+      }
+    }
+  }
+
   // 应答会丢：暂停期间目标没结束就每秒再取消一次；暂停中被取消时退出前也要补一次。
   template <typename ActionT, typename ResultFutureT>
   void CancelWhilePaused(
@@ -364,7 +531,7 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
     auto next_cancel = std::chrono::steady_clock::time_point::min();
     while (rclcpp::ok()) {
       status.stop_requested = StopRequested(sequence_handle);
-      status.paused = paused_;
+      status.paused = IsPaused();
       status.result_ready = result_future.wait_for(0s) == std::future_status::ready;
       status.cancel_due = std::chrono::steady_clock::now() >= next_cancel;
       const auto step = robot_tasks::PlanNav2GoalStep(status);
@@ -388,7 +555,7 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
   void PublishNav2Progress(const std::shared_ptr<GoalHandleNavigateSequence>& sequence_handle,
                            const std::string& message,
                            const std::string& running_state = "navigating") {
-    PublishSequenceFeedback(sequence_handle, paused_ ? "paused" : running_state, message);
+    PublishSequenceFeedback(sequence_handle, IsPaused() ? "paused" : running_state, message);
   }
 
   bool StopRequested(const std::shared_ptr<GoalHandleNavigateSequence>& sequence_handle) const {
@@ -413,30 +580,47 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
       follower_goal.number_of_loops = 1;
       follower_goal.goal_index = 0;
       follower_goal.poses.assign(goals.begin() + static_cast<long>(start_index), goals.end());
+      ScopedChildGoalToken token_guard(active_child_goal_token_);
+      const auto goal_token = token_guard.token();
       auto goal_options = rclcpp_action::Client<FollowWaypoints>::SendGoalOptions();
       goal_options.feedback_callback =
-          [this, sequence_handle, start_index, &goals](
+          [this, sequence_handle, start_index, goal_token](
               GoalHandleFollowWaypoints::SharedPtr,
               const std::shared_ptr<const FollowWaypoints::Feedback> feedback) {
+            if (active_child_goal_token_.load(std::memory_order_acquire) != goal_token) {
+              return;
+            }
+            const auto& seq_goals = sequence_handle->get_goal()->goals;
             const auto absolute_index =
                 std::min(start_index + static_cast<std::size_t>(feedback->current_waypoint),
-                         goals.empty() ? 0U : goals.size() - 1U);
-            current_goal_index_ = static_cast<int>(absolute_index);
-            PublishCurrentGoal(goals[absolute_index]);
+                         seq_goals.empty() ? 0U : seq_goals.size() - 1U);
+            current_goal_index_.store(static_cast<int>(absolute_index));
+            if (!seq_goals.empty()) {
+              PublishCurrentGoal(seq_goals[absolute_index]);
+            }
             PublishNav2Progress(
                 sequence_handle,
-                "Nav2 FollowWaypoints active at waypoint " + std::to_string(current_goal_index_),
+                "Nav2 FollowWaypoints active at waypoint " +
+                    std::to_string(static_cast<int>(absolute_index)),
                 "following_waypoints");
           };
+      const auto abandoned = AttachLateCancelGuard(*waypoint_follower_client_, goal_options);
 
       auto goal_future = waypoint_follower_client_->async_send_goal(follower_goal, goal_options);
       if (!AwaitGoalResponse(goal_future, sequence_handle, "waiting for Nav2 FollowWaypoints goal")) {
+        token_guard.Invalidate();
+        AbandonGoalWait(*waypoint_follower_client_, goal_future, abandoned);
         return false;
       }
       auto follower_handle = goal_future.get();
       if (!follower_handle) {
-        failed += static_cast<int>(goals.size() - start_index);
-        statistics_.failed_goals += static_cast<int>(goals.size() - start_index);
+        token_guard.Invalidate();
+        const int remaining = static_cast<int>(goals.size() - start_index);
+        failed += remaining;
+        {
+          std::lock_guard<std::mutex> lock(stats_mutex_);
+          statistics_.failed_goals += remaining;
+        }
         PublishSequenceFeedback(sequence_handle, "failed", "Nav2 FollowWaypoints rejected goal");
         return true;
       }
@@ -444,26 +628,38 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
       auto result_future = waypoint_follower_client_->async_get_result(follower_handle);
       while (rclcpp::ok()) {
         if (sequence_handle->is_canceling() || cancelled_) {
+          token_guard.Invalidate();
           CancelGoal(*waypoint_follower_client_, follower_handle);
           return false;
         }
-        if (paused_) {
+        if (IsPaused()) {
           if (result_future.wait_for(0s) == std::future_status::ready) {
             // 暂停之前已经结束：不取消、不重发，恢复后照常处理这个结果。
             WaitWhilePaused(sequence_handle, "paused after waypoint follower goal");
           } else {
             CancelWhilePaused(
                 *waypoint_follower_client_, follower_handle, result_future, sequence_handle);
-            start_index = static_cast<std::size_t>(std::max(0, current_goal_index_));
-            break;
+            if (!StopRequested(sequence_handle) && rclcpp::ok() &&
+                result_future.wait_for(0s) == std::future_status::ready &&
+                result_future.get().code == rclcpp_action::ResultCode::SUCCEEDED) {
+              // 暂停瞬间目标恰已成功：直接落入下方结果结算逻辑，不按 current_goal_index_ 重发。
+            } else {
+              token_guard.Invalidate();
+              start_index = static_cast<std::size_t>(std::max(0, current_goal_index_.load()));
+              break;
+            }
           }
         }
         if (result_future.wait_for(100ms) == std::future_status::ready) {
+          token_guard.Invalidate();
           const auto wrapped = result_future.get();
           const auto remaining = goals.size() - start_index;
           if (wrapped.code != rclcpp_action::ResultCode::SUCCEEDED || !wrapped.result) {
             failed += static_cast<int>(remaining);
-            statistics_.failed_goals += static_cast<int>(remaining);
+            {
+              std::lock_guard<std::mutex> lock(stats_mutex_);
+              statistics_.failed_goals += static_cast<int>(remaining);
+            }
             return true;
           }
           std::unordered_set<std::uint32_t> missed_indexes;
@@ -476,8 +672,11 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
                   : static_cast<int>(remaining);
           failed += missed_count;
           succeeded += static_cast<int>(remaining) - missed_count;
-          statistics_.failed_goals += missed_count;
-          statistics_.succeeded_goals += static_cast<int>(remaining) - missed_count;
+          {
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            statistics_.failed_goals += missed_count;
+            statistics_.succeeded_goals += static_cast<int>(remaining) - missed_count;
+          }
           return true;
         }
         PublishNav2Progress(
@@ -507,14 +706,21 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
   bool RunSimulatedMotionGoal(
       const geometry_msgs::msg::PoseStamped& pose,
       const std::shared_ptr<GoalHandleNavigateSequence>& goal_handle) {
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::duration<double>(simulated_goal_timeout_s_);
-    while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline) {
-      if (goal_handle->is_canceling() || cancelled_) {
+    using Clock = std::chrono::steady_clock;
+    auto deadline = Clock::now() + std::chrono::duration<double>(simulated_goal_timeout_s_);
+    while (rclcpp::ok()) {
+      const auto pause_check_started = Clock::now();
+      if (IsPaused()) {
+        WaitWhilePaused(goal_handle, "paused during simulated motion");
+        deadline += Clock::now() - pause_check_started;
+      }
+      if (!rclcpp::ok() || goal_handle->is_canceling() || cancelled_) {
         PublishZeroSimulatedCmd();
         return false;
       }
-      WaitWhilePaused(goal_handle, "paused during simulated motion");
+      if (Clock::now() >= deadline) {
+        break;
+      }
       const auto command = BuildSimulatedMotionCommand(pose);
       if (command.reached) {
         PublishZeroSimulatedCmd();
@@ -593,7 +799,7 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
 
   void WaitWhilePaused(const std::shared_ptr<GoalHandleNavigateSequence>& goal_handle,
                        const std::string& message) {
-    while (rclcpp::ok() && paused_ && !cancelled_ && !goal_handle->is_canceling()) {
+    while (rclcpp::ok() && IsPaused() && !cancelled_ && !goal_handle->is_canceling()) {
       PublishZeroSimulatedCmd();
       PublishSequenceFeedback(goal_handle, "paused", message);
       std::this_thread::sleep_for(100ms);
@@ -620,49 +826,67 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
   void PublishSequenceFeedback(const std::shared_ptr<GoalHandleNavigateSequence>& goal_handle,
                                const std::string& state, const std::string& message) {
     auto feedback = std::make_shared<NavigateSequence::Feedback>();
-    feedback->current_goal_index = current_goal_index_;
-    feedback->total_goals = total_goals_;
+    feedback->current_goal_index = current_goal_index_.load();
+    feedback->total_goals = total_goals_.load();
     feedback->state = state;
     feedback->message = message;
-    goal_handle->publish_feedback(feedback);
+    if (rclcpp::ok()) {
+      try {
+        goal_handle->publish_feedback(feedback);
+      } catch (const rclcpp::exceptions::RCLError&) {
+        if (rclcpp::ok()) {
+          throw;
+        }
+      }
+    }
   }
 
   void FinishFailure(const std::shared_ptr<GoalHandleNavigateSequence>& goal_handle,
                      const std::string& message) {
-    active_ = false;
-    statistics_.failed_goals += total_goals_;
-    statistics_.total_goals += total_goals_;
-    UpdateStatistics();
+    const int total_goals = total_goals_.load();
+    const auto stamp = now();
+    {
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      statistics_.failed_goals += total_goals;
+      statistics_.total_goals += total_goals;
+      UpdateStatisticsLocked(stamp);
+    }
     auto result = std::make_shared<NavigateSequence::Result>();
     result->success = false;
     result->message = message;
     result->succeeded_goals = 0;
-    result->failed_goals = total_goals_;
-    goal_handle->abort(result);
+    result->failed_goals = total_goals;
+    CompleteGoal([&] { goal_handle->abort(result); });
   }
 
   void FinishCancelled(const std::shared_ptr<GoalHandleNavigateSequence>& goal_handle,
                        const int succeeded, const int failed) {
-    active_ = false;
-    statistics_.failed_goals += 1;
-    statistics_.total_goals += total_goals_;
-    UpdateStatistics();
+    const int total_goals = total_goals_.load();
+    const auto stamp = now();
+    {
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      statistics_.failed_goals += 1;
+      statistics_.total_goals += total_goals;
+      UpdateStatisticsLocked(stamp);
+    }
     auto result = std::make_shared<NavigateSequence::Result>();
     result->success = false;
     result->message = robot_tasks::kSequenceCancelledMessage;
     result->succeeded_goals = succeeded;
     result->failed_goals = failed + 1;
-    if (goal_handle->is_canceling()) {
-      goal_handle->canceled(result);
-    } else {
-      // /cancel_mission 没有 action 取消请求，此时 canceled() 会抛异常，见 sequence_cancel.hpp。
-      goal_handle->abort(result);
-    }
+    CompleteGoal([&] {
+      if (goal_handle->is_canceling()) {
+        goal_handle->canceled(result);
+      } else {
+        // /cancel_mission 没有 action 取消请求，此时 canceled() 会抛异常，见 sequence_cancel.hpp。
+        goal_handle->abort(result);
+      }
+    });
   }
 
-  void UpdateStatistics() {
+  void UpdateStatisticsLocked(const rclcpp::Time& stamp) {
     const int finished = statistics_.succeeded_goals + statistics_.failed_goals;
-    statistics_.header.stamp = now();
+    statistics_.header.stamp = stamp;
     statistics_.success_rate =
         finished == 0 ? 0.0 : static_cast<double>(statistics_.succeeded_goals) / finished;
     statistics_.mean_navigation_time_s =
@@ -671,11 +895,21 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
   }
 
   void PublishState() {
+    const int current_index = current_goal_index_.load();
+    const int total_goals = total_goals_.load();
+    int succeeded_goals = 0;
+    int failed_goals = 0;
+    {
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      succeeded_goals = statistics_.succeeded_goals;
+      failed_goals = statistics_.failed_goals;
+    }
+
     robot_interfaces::msg::RobotState state;
     state.header.stamp = now();
-    state.state = paused_ ? "paused" : (active_ ? "navigating" : "idle");
+    state.state = IsPaused() ? "paused" : (active_ ? "navigating" : "idle");
     state.previous_state = previous_state_;
-    state.active_goal_id = std::to_string(current_goal_index_);
+    state.active_goal_id = std::to_string(current_index);
     state.message = active_ ? "mission active" : "waiting for mission";
     state.recoverable = true;
     state_pub_->publish(state);
@@ -684,12 +918,12 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
     robot_interfaces::msg::TaskStatus task;
     task.header = state.header;
     task.state = state.state;
-    task.current_goal_index = current_goal_index_;
-    task.total_goals = total_goals_;
-    task.succeeded_goals = statistics_.succeeded_goals;
-    task.failed_goals = statistics_.failed_goals;
+    task.current_goal_index = current_index;
+    task.total_goals = total_goals;
+    task.succeeded_goals = succeeded_goals;
+    task.failed_goals = failed_goals;
     task.message = state.message;
-    task.paused = paused_;
+    task.paused = IsPaused();
     task_pub_->publish(task);
   }
 
@@ -709,12 +943,20 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
   double simulated_goal_timeout_s_;
   double simulated_max_linear_mps_;
   double simulated_max_angular_radps_;
+  std::thread worker_;
+  bool restart_recovery_required_ = false;
   std::atomic_bool active_{false};
-  std::atomic_bool paused_{false};
+  std::atomic_bool legacy_pause_{false};
+  std::atomic_bool managed_pause_{false};
+  std::mutex goal_control_mutex_;
+  std::optional<rclcpp_action::GoalUUID> active_goal_id_;
+  std::uint64_t pause_revision_ = 0;
   std::atomic_bool cancelled_{false};
-  int current_goal_index_ = 0;
-  int total_goals_ = 0;
+  std::atomic<std::uint64_t> active_child_goal_token_{0};
+  std::atomic<int> current_goal_index_{0};
+  std::atomic<int> total_goals_{0};
   std::string previous_state_ = "initializing";
+  mutable std::mutex stats_mutex_;
   robot_interfaces::msg::NavigationStatistics statistics_;
   rclcpp_action::Client<FollowWaypoints>::SharedPtr waypoint_follower_client_;
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav2_client_;
@@ -729,6 +971,7 @@ class NavigateSequenceServerNode final : public rclcpp::Node {
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr pause_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr resume_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr cancel_srv_;
+  rclcpp::Service<SetSequencePause>::SharedPtr sequence_pause_srv_;
   rclcpp::TimerBase::SharedPtr timer_;
   mutable std::mutex simulated_pose_mutex_;
   double simulated_x_ = 0.0;

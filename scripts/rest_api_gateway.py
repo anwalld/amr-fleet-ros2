@@ -2,13 +2,26 @@
 import argparse
 import ast
 from datetime import datetime, timezone
+import hashlib
 import json
+import os
 import re
 import subprocess
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+
+MAX_BODY_BYTES = 1024 * 1024
+
+
+class PayloadTooLargeError(Exception):
+    pass
+
+
+class InvalidContentLengthError(Exception):
+    pass
 
 
 def yaml_bool(value):
@@ -29,27 +42,49 @@ def yaml_list(values):
 
 
 def submit_order_request(order_id, order_type, priority, payload, tags=None):
-    return (
-        "{"
-        f"order_id: {yaml_scalar(order_id)}, "
-        f"order_type: {yaml_scalar(order_type)}, "
-        f"priority: {int(priority)}, "
-        f"payload_json: {yaml_scalar(json.dumps(payload, sort_keys=True))}, "
-        f"tags: {yaml_list(tags or [])}"
-        "}"
-    )
+    return json.dumps({
+        "order_id": str(order_id),
+        "order_type": str(order_type),
+        "priority": int(priority),
+        "payload_json": json.dumps(payload, sort_keys=True),
+        "tags": [str(tag) for tag in (tags or [])],
+    })
+
+
+def request_body_hash(payload):
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def run_ros2(args, timeout_sec=30):
-    result = subprocess.run(
-        args, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        timeout=timeout_sec)
+    try:
+        result = subprocess.run(
+            args, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=timeout_sec)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return {
+            "returncode": 124,
+            "stdout": stdout,
+            "stderr": f"ros2 call timed out after {timeout_sec}s",
+            "ok": False,
+            "timed_out": True,
+        }
     return {
         "returncode": result.returncode,
         "stdout": result.stdout,
         "stderr": result.stderr,
         "ok": result.returncode == 0,
+        "timed_out": False,
     }
+
+
+def http_status_for_ros2(result):
+    if result.get("ok"):
+        return 200
+    if result.get("timed_out"):
+        return 504
+    return 502
 
 
 def response_bool(text, name, default=False):
@@ -112,7 +147,19 @@ def write_json_file(path, payload):
         return
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{file_path.name}.", suffix=".tmp", dir=str(file_path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, indent=2, sort_keys=True))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, file_path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def parse_events(stdout):
@@ -180,10 +227,21 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def read_json(self):
-        length = int(self.headers.get("Content-Length", "0"))
+        raw_length = self.headers.get("Content-Length", "0")
+        try:
+            length = int(raw_length)
+        except ValueError as exc:
+            raise InvalidContentLengthError("invalid Content-Length") from exc
+        if length < 0:
+            raise InvalidContentLengthError("negative Content-Length")
+        if length > MAX_BODY_BYTES:
+            raise PayloadTooLargeError(f"payload exceeds {MAX_BODY_BYTES} bytes")
         if length == 0:
             return {}
-        return json.loads(self.rfile.read(length).decode("utf-8"))
+        data = json.loads(self.rfile.read(length).decode("utf-8"))
+        if not isinstance(data, dict):
+            raise json.JSONDecodeError("JSON body must be an object", "", 0)
+        return data
 
     def idempotency_key_from(self, payload):
         return self.headers.get("Idempotency-Key", "") or payload.get("idempotency_key", "")
@@ -191,41 +249,71 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
     def idempotency_record_key(self, path, key):
         return f"{path}:{key}"
 
-    def replay_idempotent_response(self, path, payload, operator_id, role):
+    def begin_idempotent_request(self, path, payload, operator_id, role):
         key = self.idempotency_key_from(payload)
         if not key:
-            return False
+            return False, None
         record_key = self.idempotency_record_key(path, key)
-        with self.server.idempotency_lock:
+        req_hash = request_body_hash(payload)
+        with self.server.idempotency_cond:
+            while record_key in self.server.idempotency_inflight:
+                if self.server.idempotency_inflight[record_key] != req_hash:
+                    self.write_audit(
+                        operator_id, role, "POST", path, True, 409,
+                        "idempotency key conflict for " + key)
+                    self.send_json(409, {
+                        "success": False,
+                        "message": "idempotency key conflict: request body differs",
+                        "idempotency_key": key,
+                    })
+                    return True, None
+                self.server.idempotency_cond.wait()
             record = self.server.idempotency_store.get(record_key)
-        if not record:
-            return False
-        response_payload = dict(record.get("payload", {}))
-        response_payload["idempotency_key"] = key
-        response_payload["idempotent_replay"] = True
-        status = int(record.get("status", 200))
-        self.write_audit(
-            operator_id, role, "POST", path, True, status,
-            "idempotent replay for " + key)
-        self.send_json(status, response_payload)
-        return True
+            if record is not None:
+                stored_hash = record.get("request_hash")
+                if stored_hash and stored_hash != req_hash:
+                    self.write_audit(
+                        operator_id, role, "POST", path, True, 409,
+                        "idempotency key conflict for " + key)
+                    self.send_json(409, {
+                        "success": False,
+                        "message": "idempotency key conflict: request body differs",
+                        "idempotency_key": key,
+                    })
+                    return True, None
+                response_payload = dict(record.get("payload", {}))
+                response_payload["idempotency_key"] = key
+                response_payload["idempotent_replay"] = True
+                status = int(record.get("status", 200))
+                self.write_audit(
+                    operator_id, role, "POST", path, True, status,
+                    "idempotent replay for " + key)
+                self.send_json(status, response_payload)
+                return True, None
+            self.server.idempotency_inflight[record_key] = req_hash
+            return False, (record_key, key, req_hash)
 
-    def remember_idempotent_response(self, path, payload, status, response_payload):
-        key = self.idempotency_key_from(payload)
-        if not key:
+    def finish_idempotent_request(self, slot, path, payload, status=None, response_payload=None):
+        if slot is None:
             return
-        record_key = self.idempotency_record_key(path, key)
-        record = {
-            "path": path,
-            "idempotency_key": key,
-            "status": status,
-            "payload": response_payload,
-            "stored_at": datetime.now(timezone.utc).isoformat(),
-            "external_correlation_id": payload.get("external_correlation_id", ""),
-        }
-        with self.server.idempotency_lock:
-            self.server.idempotency_store[record_key] = record
-            write_json_file(self.server.idempotency_store_path, self.server.idempotency_store)
+        record_key, key, req_hash = slot
+        with self.server.idempotency_cond:
+            try:
+                if status is not None and status < 500 and response_payload is not None:
+                    record = {
+                        "path": path,
+                        "idempotency_key": key,
+                        "request_hash": req_hash,
+                        "status": status,
+                        "payload": response_payload,
+                        "stored_at": datetime.now(timezone.utc).isoformat(),
+                        "external_correlation_id": payload.get("external_correlation_id", ""),
+                    }
+                    self.server.idempotency_store[record_key] = record
+                    write_json_file(self.server.idempotency_store_path, self.server.idempotency_store)
+            finally:
+                self.server.idempotency_inflight.pop(record_key, None)
+                self.server.idempotency_cond.notify_all()
 
     def operator_id_from(self, payload=None, query=None):
         if "X-Operator-Id" in self.headers:
@@ -260,8 +348,10 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
             "status": status,
             "message": message,
         }
-        with open(self.server.audit_log, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, sort_keys=True) + "\n")
+        with self.server.audit_lock:
+            Path(self.server.audit_log).parent.mkdir(parents=True, exist_ok=True)
+            with open(self.server.audit_log, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
 
     def reject_if_unauthorized(self, operator_id, method, path):
         allowed, message, role = self.authorize(operator_id, method, path)
@@ -299,7 +389,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
             )
             result = service_call(
                 "/v2/list_mission_events", "robot_interfaces_mission/srv/ListMissionEvents", request)
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "GET", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -337,7 +427,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
                     "current_station_id": stations[index] if index < len(stations) else "",
                     "capabilities": capabilities[index] if index < len(capabilities) else "",
                 })
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "GET", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -375,7 +465,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
                     "available": bool(available[index]) if index < len(available) else False,
                     "status": status[index] if index < len(status) else "",
                 })
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "GET", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -390,7 +480,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
             request = "{order_id: " + yaml_scalar(query.get("order_id", [""])[0]) + "}"
             result = service_call(
                 "/v2/get_workflow_status", "robot_interfaces_business/srv/GetWorkflowStatus", request)
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "GET", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -415,7 +505,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
                 "/v2/get_operator_snapshot",
                 "robot_interfaces_business/srv/GetOperatorSnapshot",
                 "{event_limit: " + str(event_limit) + "}")
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "GET", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -470,7 +560,10 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             payload = self.read_json()
-        except json.JSONDecodeError as exc:
+        except PayloadTooLargeError as exc:
+            self.send_json(413, {"success": False, "message": str(exc)})
+            return
+        except (InvalidContentLengthError, json.JSONDecodeError, UnicodeDecodeError) as exc:
             self.send_json(400, {"success": False, "message": str(exc)})
             return
         operator_id = self.operator_id_from(payload=payload)
@@ -478,83 +571,95 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
         if rejected:
             return
         if parsed.path == "/api/business_orders":
-            if self.replay_idempotent_response(parsed.path, payload, operator_id, role):
+            handled, slot = self.begin_idempotent_request(parsed.path, payload, operator_id, role)
+            if handled:
                 return
-            business_order_id = payload.get("business_order_id", "")
-            business_type = payload.get("business_type", "")
-            request = submit_order_request(
-                business_order_id,
-                "business",
-                payload.get("priority", 0),
-                {
+            status = None
+            response_payload = None
+            try:
+                business_order_id = payload.get("business_order_id", "")
+                business_type = payload.get("business_type", "")
+                request = submit_order_request(
+                    business_order_id,
+                    "business",
+                    payload.get("priority", 0),
+                    {
+                        "business_order_id": business_order_id,
+                        "business_type": business_type,
+                        "start_if_idle": bool(payload.get("start_if_idle", True)),
+                        "preempt_current": bool(payload.get("preempt_current", False)),
+                    },
+                    tags=["rest_gateway", "business_order"],
+                )
+                result = service_call(
+                    "/v2/submit_order", "robot_interfaces_business/srv/SubmitOrder", request)
+                status = http_status_for_ros2(result)
+                routed_scenario_id, routed_workflow_id = (
+                    business_route_metadata(business_type) if result["ok"] else ("", "")
+                )
+                self.write_audit(
+                    operator_id, role, "POST", parsed.path, True, status,
+                    response_string(result["stdout"], "message", result["stderr"]))
+                response_payload = {
+                    "success": result["ok"] and response_bool(result["stdout"], "accepted"),
+                    "message": response_string(result["stdout"], "message", result["stderr"]),
                     "business_order_id": business_order_id,
                     "business_type": business_type,
-                    "start_if_idle": bool(payload.get("start_if_idle", True)),
-                    "preempt_current": bool(payload.get("preempt_current", False)),
-                },
-                tags=["rest_gateway", "business_order"],
-            )
-            result = service_call(
-                "/v2/submit_order", "robot_interfaces_business/srv/SubmitOrder", request)
-            status = 200 if result["ok"] else 502
-            routed_scenario_id, routed_workflow_id = business_route_metadata(business_type)
-            self.write_audit(
-                operator_id, role, "POST", parsed.path, True, status,
-                response_string(result["stdout"], "message", result["stderr"]))
-            response_payload = {
-                "success": result["ok"] and response_bool(result["stdout"], "accepted"),
-                "message": response_string(result["stdout"], "message", result["stderr"]),
-                "business_order_id": business_order_id,
-                "business_type": business_type,
-                "routed_scenario_id": routed_scenario_id,
-                "routed_workflow_id": routed_workflow_id,
-                "mission_ids": response_list(result["stdout"], "mission_ids"),
-                "queue_size": response_int(result["stdout"], "queue_size"),
-                "external_correlation_id": payload.get("external_correlation_id", ""),
-                "raw_response": result["stdout"],
-            }
-            self.remember_idempotent_response(parsed.path, payload, status, response_payload)
+                    "routed_scenario_id": routed_scenario_id,
+                    "routed_workflow_id": routed_workflow_id,
+                    "mission_ids": response_list(result["stdout"], "mission_ids"),
+                    "queue_size": response_int(result["stdout"], "queue_size"),
+                    "external_correlation_id": payload.get("external_correlation_id", ""),
+                    "raw_response": result["stdout"],
+                }
+            finally:
+                self.finish_idempotent_request(slot, parsed.path, payload, status, response_payload)
             self.send_json(status, response_payload)
             return
         if parsed.path == "/api/station_order_batches":
-            if self.replay_idempotent_response(parsed.path, payload, operator_id, role):
+            handled, slot = self.begin_idempotent_request(parsed.path, payload, operator_id, role)
+            if handled:
                 return
-            request = submit_order_request(
-                payload.get("batch_id", ""),
-                "station_order_batch",
-                payload.get("priority", 0),
-                {
-                    "batch_id": payload.get("batch_id", ""),
-                    "order_ids": payload.get("order_ids", []),
-                    "pickup_station_ids": payload.get("pickup_station_ids", []),
-                    "dropoff_station_ids": payload.get("dropoff_station_ids", []),
-                    "start_if_idle": bool(payload.get("start_if_idle", True)),
-                    "preempt_current": bool(payload.get("preempt_current", False)),
-                    "continue_on_error": bool(payload.get("continue_on_error", False)),
-                },
-                tags=["rest_gateway", "station_order_batch"],
-            )
-            result = service_call(
-                "/v2/submit_order",
-                "robot_interfaces_business/srv/SubmitOrder",
-                request)
-            status = 200 if result["ok"] else 502
-            mission_ids = response_list(result["stdout"], "mission_ids")
-            accepted = result["ok"] and response_bool(result["stdout"], "accepted")
-            self.write_audit(
-                operator_id, role, "POST", parsed.path, True, status,
-                response_string(result["stdout"], "message", result["stderr"]))
-            response_payload = {
-                "success": accepted,
-                "message": response_string(result["stdout"], "message", result["stderr"]),
-                "mission_ids": mission_ids,
-                "accepted_count": len(mission_ids),
-                "rejected_count": 0 if accepted else 1,
-                "queue_size": response_int(result["stdout"], "queue_size"),
-                "external_correlation_id": payload.get("external_correlation_id", ""),
-                "raw_response": result["stdout"],
-            }
-            self.remember_idempotent_response(parsed.path, payload, status, response_payload)
+            status = None
+            response_payload = None
+            try:
+                request = submit_order_request(
+                    payload.get("batch_id", ""),
+                    "station_order_batch",
+                    payload.get("priority", 0),
+                    {
+                        "batch_id": payload.get("batch_id", ""),
+                        "order_ids": payload.get("order_ids", []),
+                        "pickup_station_ids": payload.get("pickup_station_ids", []),
+                        "dropoff_station_ids": payload.get("dropoff_station_ids", []),
+                        "start_if_idle": bool(payload.get("start_if_idle", True)),
+                        "preempt_current": bool(payload.get("preempt_current", False)),
+                        "continue_on_error": bool(payload.get("continue_on_error", False)),
+                    },
+                    tags=["rest_gateway", "station_order_batch"],
+                )
+                result = service_call(
+                    "/v2/submit_order",
+                    "robot_interfaces_business/srv/SubmitOrder",
+                    request)
+                status = http_status_for_ros2(result)
+                mission_ids = response_list(result["stdout"], "mission_ids")
+                accepted = result["ok"] and response_bool(result["stdout"], "accepted")
+                self.write_audit(
+                    operator_id, role, "POST", parsed.path, True, status,
+                    response_string(result["stdout"], "message", result["stderr"]))
+                response_payload = {
+                    "success": accepted,
+                    "message": response_string(result["stdout"], "message", result["stderr"]),
+                    "mission_ids": mission_ids,
+                    "accepted_count": len(mission_ids),
+                    "rejected_count": 0 if accepted else 1,
+                    "queue_size": response_int(result["stdout"], "queue_size"),
+                    "external_correlation_id": payload.get("external_correlation_id", ""),
+                    "raw_response": result["stdout"],
+                }
+            finally:
+                self.finish_idempotent_request(slot, parsed.path, payload, status, response_payload)
             self.send_json(status, response_payload)
             return
         if parsed.path == "/api/workflows/cancel":
@@ -566,7 +671,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
             )
             result = service_call(
                 "/v2/cancel_workflow", "robot_interfaces_business/srv/CancelWorkflow", request)
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "POST", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -587,7 +692,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
             )
             result = service_call(
                 "/v2/pause_workflow", "robot_interfaces_business/srv/PauseWorkflow", request)
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "POST", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -610,7 +715,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
             )
             result = service_call(
                 "/v2/resume_workflow", "robot_interfaces_business/srv/ResumeWorkflow", request)
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "POST", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -635,7 +740,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
                 "/v2/reprioritize_queued_mission",
                 "robot_interfaces_mission/srv/ReprioritizeQueuedMission",
                 request)
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "POST", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -657,7 +762,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
                 "/v2/reprioritize_batch",
                 "robot_interfaces_mission/srv/ReprioritizeBatch",
                 request)
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "POST", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -681,7 +786,7 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
                 "/v2/update_remote_task_state",
                 "robot_interfaces_fleet/srv/UpdateRemoteTaskState",
                 request)
-            status = 200 if result["ok"] else 502
+            status = http_status_for_ros2(result)
             self.write_audit(
                 operator_id, role, "POST", parsed.path, True, status,
                 response_string(result["stdout"], "message", result["stderr"]))
@@ -698,6 +803,23 @@ class RestGatewayHandler(BaseHTTPRequestHandler):
         self.send_json(404, {"success": False, "message": "not found"})
 
 
+def create_server(host="127.0.0.1", port=18080, role_policy="", enforce_roles=False,
+                  default_operator_id="system", audit_log="", idempotency_store="", verbose=False):
+    server = ThreadingHTTPServer((host, port), RestGatewayHandler)
+    server.verbose = verbose
+    server.role_policy = load_policy(role_policy)
+    server.enforce_roles = enforce_roles
+    server.default_operator_id = default_operator_id
+    server.audit_log = audit_log
+    server.audit_lock = threading.Lock()
+    server.idempotency_store_path = idempotency_store
+    server.idempotency_store = load_json_file(idempotency_store, {})
+    server.idempotency_cond = threading.Condition()
+    server.idempotency_lock = server.idempotency_cond
+    server.idempotency_inflight = {}
+    return server
+
+
 def main():
     parser = argparse.ArgumentParser(description="Thin HTTP gateway for existing robot ROS services")
     parser.add_argument("--host", default="127.0.0.1")
@@ -709,15 +831,16 @@ def main():
     parser.add_argument("--idempotency-store", default="")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
-    server = ThreadingHTTPServer((args.host, args.port), RestGatewayHandler)
-    server.verbose = args.verbose
-    server.role_policy = load_policy(args.role_policy)
-    server.enforce_roles = args.enforce_roles
-    server.default_operator_id = args.default_operator_id
-    server.audit_log = args.audit_log
-    server.idempotency_store_path = args.idempotency_store
-    server.idempotency_store = load_json_file(args.idempotency_store, {})
-    server.idempotency_lock = threading.Lock()
+    server = create_server(
+        host=args.host,
+        port=args.port,
+        role_policy=args.role_policy,
+        enforce_roles=args.enforce_roles,
+        default_operator_id=args.default_operator_id,
+        audit_log=args.audit_log,
+        idempotency_store=args.idempotency_store,
+        verbose=args.verbose,
+    )
     print(f"rest api gateway listening on http://{args.host}:{args.port}", flush=True)
     try:
         server.serve_forever()

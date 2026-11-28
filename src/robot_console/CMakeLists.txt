@@ -43,6 +43,8 @@ install(PROGRAMS scripts/install_desktop_entry DESTINATION lib/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(Qt6 REQUIRED COMPONENTS Test)
+  # console_ops_acceptance 是依赖活 ROS/仿真栈的 QtTest 整栈验收二进制，不注册进 ament_add_gtest / CTest；
+  # 由阶段 7 scripts/run_console_ops.sh 与 scripts/run_console_alarm.sh 编排驱动。
   add_executable(console_ops_acceptance test/console_ops_acceptance.cpp)
   target_link_libraries(console_ops_acceptance PRIVATE robot_console_bridge Qt6::Test)
   install(TARGETS console_ops_acceptance RUNTIME DESTINATION lib/${PROJECT_NAME})

@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
+ROS2_CALL_TIMEOUT = float(os.environ.get("ROS2_CALL_TIMEOUT", "30"))
+
 
 def run_ros2(args):
-    return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        return subprocess.run(
+            args, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=ROS2_CALL_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return subprocess.CompletedProcess(args, 124, stdout=stdout, stderr="timeout")
 
 
 def response_bool(text, name):
@@ -30,8 +39,7 @@ def factsheet(action):
 
 
 def workflow_request(order_id, flag_name):
-    flag_value = "true"
-    return f"{{order_id: {order_id}, {flag_name}: {flag_value}}}"
+    return json.dumps({"order_id": str(order_id), flag_name: True})
 
 
 def handle_action(action):

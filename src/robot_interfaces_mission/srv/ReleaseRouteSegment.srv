@@ -2,6 +2,8 @@
 # 释放后等在这些资源上的车按优先级、到达顺序依次授予，并在 /traffic/grants 上通知。
 string robot_id
 string[] resource_ids
+uint64 expected_service_epoch
+uint64[] expected_revisions
 ---
 bool success
 string[] released_resource_ids

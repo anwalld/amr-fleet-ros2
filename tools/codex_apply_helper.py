@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Preflight and collect helpers for dagu/codex-apply.yaml."""
+"""Preflight and collect helpers for dagu/codex-apply.yaml.
+
+定位：受信任代理的范围防呆与 diff 审计门禁（非 OS 安全沙箱）。
+"""
 
 import argparse
 import hashlib
@@ -93,7 +96,46 @@ def git_status_map(worktree):
     return status
 
 
-def extract_allowlist(brief_text):
+def validate_rel_path(raw_path):
+    """Validate and normalize a worktree-relative allowlist/diff path."""
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise ValueError(f"Empty path is not allowed: {raw_path!r}")
+    path = raw_path.strip()
+    if path.startswith(("/", "\\")) or Path(path).is_absolute():
+        raise ValueError(f"Absolute path is not allowed: {raw_path}")
+    if len(path) >= 2 and path[1] == ":" and path[0].isalpha():
+        raise ValueError(f"Drive-prefixed path is not allowed: {raw_path}")
+    while path.startswith("./"):
+        path = path[2:]
+    path = path.rstrip("/")
+    if not path or path == ".":
+        raise ValueError(f"Invalid relative path: {raw_path}")
+    parts = [p for p in re.split(r"[/\\]", path) if p]
+    if ".." in parts:
+        raise ValueError(f"Parent traversal ('..') is not allowed: {raw_path}")
+    if ".git" in parts:
+        raise ValueError(f".git path is not allowed: {raw_path}")
+    return "/".join(parts)
+
+
+def validate_worktree_path(worktree, raw_path):
+    """Validate relative path syntax and ensure symlinks do not escape worktree root."""
+    rel = validate_rel_path(raw_path)
+    wt = Path(worktree).resolve()
+    candidate = wt / rel
+    try:
+        resolved = candidate.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"Failed to resolve path {rel}: {exc}") from exc
+    if not resolved.is_relative_to(wt):
+        raise ValueError(f"Path escapes worktree root via symlink: {rel} -> {resolved}")
+    resolved_rel = resolved.relative_to(wt)
+    if ".git" in resolved_rel.parts:
+        raise ValueError(f"Path resolves into .git directory: {rel} -> {resolved}")
+    return rel
+
+
+def extract_allowlist(brief_text, worktree=None):
     lines = brief_text.splitlines()
     in_section = False
     allowlist = set()
@@ -106,8 +148,43 @@ def extract_allowlist(brief_text):
         if in_section:
             for match in re.findall(r"`([^`\s]+)`", line):
                 if "/" in match or "." in match:
-                    allowlist.add(match.lstrip("./"))
+                    if worktree is not None:
+                        allowlist.add(validate_worktree_path(worktree, match))
+                    else:
+                        allowlist.add(validate_rel_path(match))
     return sorted(allowlist)
+
+
+def extract_session_id(events_path):
+    """Extract session_id / thread_id from Codex JSONL event stream if present."""
+    path = Path(events_path)
+    if not path.is_file():
+        return None
+    fallback_thread_id = None
+    with path.open("r", encoding="utf-8", errors="replace") as stream:
+        for line in stream:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            containers = [event]
+            for key in ("payload", "session", "thread", "data"):
+                nested = event.get(key)
+                if isinstance(nested, dict):
+                    containers.append(nested)
+            for obj in containers:
+                sid = obj.get("session_id")
+                if isinstance(sid, str) and sid.strip():
+                    return sid.strip()
+                tid = obj.get("thread_id")
+                if fallback_thread_id is None and isinstance(tid, str) and tid.strip():
+                    fallback_thread_id = tid.strip()
+    return fallback_thread_id
 
 
 def git_value(worktree, *args):
@@ -150,7 +227,7 @@ def preflight(args):
         values = re.findall(rf"^\s*(?:- +)?`?{key}`?[:：]\s*`([^`\n]+)`\s*$", environment, flags=re.M)
         if len(values) != 1 or values[0] != actual:
             raise ValueError(f"Apply brief {key} must match {actual}")
-    allowlist = extract_allowlist(brief_text)
+    allowlist = extract_allowlist(brief_text, worktree=wt)
     if not allowlist:
         raise ValueError("Apply brief allowlist section yielded no file paths")
 
@@ -191,7 +268,7 @@ def collect(args):
     wt = Path(args.worktree).resolve()
     run_dir = Path(args.run_dir)
     pre = json.loads((run_dir / "pre-status.json").read_text())
-    allowlist = set(pre["allowlist"])
+    allowlist = {validate_worktree_path(wt, p) for p in pre["allowlist"]}
     pre_status = pre["status"]
     post_status = git_status_map(wt)
 
@@ -200,10 +277,13 @@ def collect(args):
         raise ValueError(f"HEAD changed during apply: {pre['head']} -> {head}")
     newly_touched = [path for path in pre_status.keys() | post_status.keys()
                      if pre_status.get(path) != post_status.get(path)]
+    for path in sorted(newly_touched):
+        validate_worktree_path(wt, path)
 
     violations = [p for p in sorted(newly_touched) if p not in allowlist]
     receipt_path = run_dir / "apply-receipt.json"
     receipt = json.loads(receipt_path.read_text()) if receipt_path.is_file() else {"status": "failed"}
+    session_id = extract_session_id(run_dir / "sol-events.jsonl")
 
     bundle = {
         "worktree": str(wt),
@@ -211,6 +291,7 @@ def collect(args):
         "newly_touched": sorted(newly_touched),
         "allowlist_violations": violations,
         "receipt_status": receipt.get("status"),
+        "session_id": session_id,
         "passed": len(violations) == 0 and receipt.get("status") == "completed",
     }
     (run_dir / "return-bundle.json").write_text(json.dumps(bundle, ensure_ascii=False, indent=2) + "\n")

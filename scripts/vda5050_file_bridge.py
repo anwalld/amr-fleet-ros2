@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+ROS2_CALL_TIMEOUT = float(os.environ.get("ROS2_CALL_TIMEOUT", "30"))
+
 
 def run_ros2(args):
-    return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        return subprocess.run(
+            args, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=ROS2_CALL_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        return subprocess.CompletedProcess(args, 124, stdout=stdout, stderr="timeout")
 
 
 def response_value(text, name, default=""):
@@ -25,19 +34,34 @@ def wait_finished(mission_id, timeout_sec):
     deadline = time.time() + timeout_sec
     last_output = ""
     while time.time() < deadline:
+        request = json.dumps({
+            "limit": 80,
+            "state_filter": "FINISHED",
+            "mission_id_filter": str(mission_id),
+        })
         result = run_ros2([
             "ros2",
             "service",
             "call",
             "/v2/list_mission_events",
             "robot_interfaces_mission/srv/ListMissionEvents",
-            f"{{limit: 80, state_filter: FINISHED, mission_id_filter: {mission_id}}}",
+            request,
         ])
         last_output = result.stdout
         if "success=True" in last_output and "states=['FINISHED']" in last_output:
             return True, last_output
         time.sleep(1.0)
     return False, last_output
+
+
+def build_submit_request(order_id, priority, payload_json):
+    return json.dumps({
+        "order_id": str(order_id),
+        "order_type": "vda5050",
+        "priority": int(priority),
+        "payload_json": payload_json,
+        "tags": ["vda5050_file_bridge"],
+    })
 
 
 def main():
@@ -64,15 +88,7 @@ def main():
         "preempt_current": preempt_current,
     }, sort_keys=True)
 
-    request = (
-        "{"
-        f"order_id: {order_id}, "
-        "order_type: vda5050, "
-        f"priority: {priority}, "
-        f"payload_json: {json.dumps(payload_json)}, "
-        "tags: [vda5050_file_bridge]"
-        "}"
-    )
+    request = build_submit_request(order_id, priority, payload_json)
     submit = run_ros2([
         "ros2",
         "service",

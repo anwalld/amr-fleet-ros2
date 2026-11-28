@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -24,11 +25,31 @@ class RetryingRequest {
 
   bool pending() const { return static_cast<bool>(request_); }
 
+  void Cancel() {
+    ++generation_;
+    if (request_ && client_) {
+      client_->remove_pending_request(request_id_);
+    }
+    request_.reset();
+    on_done_ = nullptr;
+  }
+
   void Send(std::shared_ptr<ClientT> client, Request request, Callback on_done, const double now_s) {
     client_ = std::move(client);
     request_ = std::move(request);
     on_done_ = std::move(on_done);
     Dispatch(now_s);
+  }
+
+  // Periodic read-only polling. Keep one request outstanding even when callbacks are delayed.
+  void Poll(std::shared_ptr<ClientT> client, Request request, Callback on_done) {
+    const auto elapsed = std::chrono::steady_clock::now().time_since_epoch();
+    const double now_s = std::chrono::duration<double>(elapsed).count();
+    if (pending()) {
+      ResendIfOverdue(now_s);
+    } else if (client->service_is_ready()) {
+      Send(std::move(client), std::move(request), std::move(on_done), now_s);
+    }
   }
 
   // 返回是否重发了。被放弃的那次请求即使应答迟到也不会再回调。
@@ -44,15 +65,22 @@ class RetryingRequest {
  private:
   void Dispatch(const double now_s) {
     sent_s_ = now_s;
+    const std::uint64_t generation = ++generation_;
     request_id_ = client_
                       ->async_send_request(
                           request_,
-                          [this](typename ClientT::SharedFuture future) {
+                          [this, generation](typename ClientT::SharedFuture future) {
+                            if (generation != generation_ || !request_) {
+                              return;
+                            }
+                            ++generation_;
                             // 先清状态再回调：回调里可能紧接着发下一个请求。
                             const Callback on_done = std::move(on_done_);
                             on_done_ = nullptr;
                             request_.reset();
-                            on_done(future.get());
+                            if (on_done) {
+                              on_done(future.get());
+                            }
                           })
                       .request_id;
   }
@@ -62,6 +90,7 @@ class RetryingRequest {
   Callback on_done_;
   double sent_s_ = 0.0;
   std::int64_t request_id_ = 0;
+  std::uint64_t generation_ = 0;
 };
 
 }  // namespace robot_simulation

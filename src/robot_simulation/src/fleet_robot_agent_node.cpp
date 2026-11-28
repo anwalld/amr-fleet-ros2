@@ -11,7 +11,11 @@
 //     查站点、路网、任务和申请路权 5 秒没有应答就按原样重发（见 agent_request.hpp）。
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
+#include <filesystem>
 #include <cmath>
+#include <cstdint>
+#include <deque>
 #include <functional>
 #include <limits>
 #include <map>
@@ -20,6 +24,7 @@
 #include <random>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,9 +32,14 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "robot_interfaces_fleet/srv/control_remote_fleet_task.hpp"
 #include "robot_interfaces_fleet/srv/list_fleet_robots.hpp"
 #include "robot_interfaces_fleet/srv/list_remote_tasks.hpp"
+#include "robot_simulation/task_stop_observation.hpp"
+#include "robot_simulation/parked_task_checkpoint.hpp"
+#include "robot_simulation/fleet_sim_stop.hpp"
 #include "robot_simulation/agent_idle.hpp"
+#include "robot_simulation/agent_lease.hpp"
 #include "robot_simulation/agent_request.hpp"
 #include "robot_simulation/agent_route.hpp"
 #include "robot_simulation/agent_yield.hpp"
@@ -40,12 +50,8 @@
 #include "robot_interfaces_mission/srv/list_station_routes.hpp"
 #include "robot_interfaces_mission/srv/release_route_segment.hpp"
 #include "robot_interfaces_mission/srv/request_route_segment.hpp"
-#include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/bool.hpp"
-
-#include <stdexcept>
-
-#include "robot_simulation/fleet_sim_stop.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "robot_interfaces_mission/srv/list_stations.hpp"
 #include "robot_interfaces_fleet/srv/update_fleet_robot_state.hpp"
 
@@ -172,16 +178,12 @@ class FleetStationFollower final : public rclcpp::Node {
   }
 
   void PollStations() {
-    if (stations_request_pending_ || !ShouldPoll(last_station_poll_, 2s) ||
-        !stations_client_->service_is_ready()) {
+    if (!ShouldPoll(last_station_poll_, 2s)) {
       return;
     }
-    stations_request_pending_ = true;
     auto request = std::make_shared<robot_interfaces_mission::srv::ListStations::Request>();
-    stations_client_->async_send_request(
-        request, [this](rclcpp::Client<robot_interfaces_mission::srv::ListStations>::SharedFuture future) {
-          stations_request_pending_ = false;
-          const auto response = future.get();
+    stations_read_.Poll(
+        stations_client_, request, [this](const auto& response) {
           if (!response->success) {
             return;
           }
@@ -199,18 +201,13 @@ class FleetStationFollower final : public rclcpp::Node {
   }
 
   void PollFleet() {
-    if (fleet_request_pending_ || !ShouldPoll(last_fleet_poll_, 750ms) ||
-        !fleet_client_->service_is_ready()) {
+    if (!ShouldPoll(last_fleet_poll_, 750ms)) {
       return;
     }
-    fleet_request_pending_ = true;
     auto request = std::make_shared<robot_interfaces_fleet::srv::ListFleetRobots::Request>();
     request->include_disabled = true;
-    fleet_client_->async_send_request(
-        request,
-        [this](rclcpp::Client<robot_interfaces_fleet::srv::ListFleetRobots>::SharedFuture future) {
-          fleet_request_pending_ = false;
-          const auto response = future.get();
+    fleet_read_.Poll(
+        fleet_client_, request, [this](const auto& response) {
           if (!response->success) {
             return;
           }
@@ -232,6 +229,7 @@ class FleetStationFollower final : public rclcpp::Node {
     }
     target_station_id_ = station_id;
     arrival_reported_ = false;
+    arrival_report_call_.Cancel();
   }
 
   bool ShouldPoll(
@@ -274,21 +272,21 @@ class FleetStationFollower final : public rclcpp::Node {
   }
 
   void ReportArrival() {
-    if (arrival_reported_ || arrival_report_pending_ || !update_fleet_client_->service_is_ready()) {
+    if (arrival_reported_ || target_station_id_.empty()) {
       return;
     }
-    arrival_report_pending_ = true;
+    const std::string target_station = target_station_id_;
     auto request = std::make_shared<robot_interfaces_fleet::srv::UpdateFleetRobotState::Request>();
     request->robot_id = robot_id_;
     request->state = "available";
-    request->current_station_id = target_station_id_;
+    request->current_station_id = target_station;
     request->update_state = true;
     request->update_current_station_id = true;
-    update_fleet_client_->async_send_request(
-        request,
-        [this](rclcpp::Client<robot_interfaces_fleet::srv::UpdateFleetRobotState>::SharedFuture future) {
-          arrival_report_pending_ = false;
-          arrival_reported_ = future.get()->success;
+    arrival_report_call_.Poll(
+        update_fleet_client_, request, [this, target_station](const auto& response) {
+          if (target_station == target_station_id_ && response->success) {
+            arrival_reported_ = true;
+          }
         });
   }
 
@@ -318,9 +316,10 @@ class FleetStationFollower final : public rclcpp::Node {
   bool have_pose_ = false;
   bool have_main_pose_ = false;
   bool have_world_offset_ = false;
-  bool stations_request_pending_ = false;
-  bool fleet_request_pending_ = false;
-  bool arrival_report_pending_ = false;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_mission::srv::ListStations>> stations_read_;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_fleet::srv::ListFleetRobots>> fleet_read_;
+  robot_simulation::RetryingRequest<rclcpp::Client<robot_interfaces_fleet::srv::UpdateFleetRobotState>>
+      arrival_report_call_;
   bool arrival_reported_ = false;
   std::string target_station_id_;
   Pose2D pose_;
@@ -392,10 +391,11 @@ class FleetTaskAgent final : public rclcpp::Node {
     home_station_id_ = declare_parameter<std::string>("home_station_id", initial_station_id_);
     kinematic_sim_ = declare_parameter<bool>("kinematic_sim", true);
     const bool stop_enabled = declare_parameter<bool>("fleet_sim_stop_enabled", false);
+    remote_control_enabled_ = declare_parameter<bool>("remote_task_control_enabled", false);
     if (stop_enabled && !kinematic_sim_) {
       throw std::invalid_argument("fleet_sim_stop_enabled requires kinematic_sim");
     }
-    if (stop_enabled) {
+    if (stop_enabled || remote_control_enabled_) {
       fleet_stop_sub_ = create_subscription<std_msgs::msg::Bool>(
           "/fleet/sim_stop/state", rclcpp::QoS(1).reliable().transient_local(),
           [this](std_msgs::msg::Bool::ConstSharedPtr msg) {
@@ -412,6 +412,36 @@ class FleetTaskAgent final : public rclcpp::Node {
     rolling_rerequest_s_ = declare_parameter<double>("rolling_rerequest_s", 2.0);
     return_home_when_idle_ = declare_parameter<bool>("return_home_when_idle", true);
     control_period_s_ = declare_parameter<double>("control_period_s", 0.05);
+
+    if (remote_control_enabled_ && !kinematic_sim_) {
+      throw std::invalid_argument("remote task control requires kinematic simulation");
+    }
+    if (remote_control_enabled_) {
+      const auto checkpoint_path = declare_parameter<std::string>("restart_checkpoint_path", "");
+      checkpoint_enabled_ = !checkpoint_path.empty();
+      if (checkpoint_enabled_) {
+        using Start = robot_simulation::ParkedTaskCheckpointStore::Start;
+        const auto status = parked_store_.Open(checkpoint_path);
+        restart_recovery_required_ = status != Start::kFresh;
+        if (status == Start::kExisting) {
+          parked_checkpoint_ = parked_store_.Read();
+          if (parked_checkpoint_ && (parked_checkpoint_->robot_id != robot_id_ ||
+                                    parked_checkpoint_->mode != traffic_mode_)) {
+            parked_checkpoint_.reset();
+          }
+        }
+        if (restart_recovery_required_) {
+          RCLCPP_WARN(get_logger(), "agent motion inhibited pending restart reconciliation: %s",
+                      checkpoint_path.c_str());
+        }
+      }
+      control_service_ = create_service<RemoteControl>(
+          "/v2/remote_task_control/" + robot_id_,
+          [this](const std::shared_ptr<RemoteControl::Request> request,
+                 std::shared_ptr<RemoteControl::Response> response) {
+            HandleRemoteControl(*request, *response);
+          });
+    }
 
     stations_client_ = create_client<robot_interfaces_mission::srv::ListStations>("/v2/list_stations");
     routes_client_ =
@@ -444,31 +474,59 @@ class FleetTaskAgent final : public rclcpp::Node {
           if (msg->robot_id != robot_id_) {
             return;
           }
-          if (msg->event == "replan") {
+          if (msg->event == "replan" && lease_tracker_.IsCurrentEpoch(msg->service_epoch)) {
             replan_requested_ = true;
+            grant_hint_ = true;
+          } else if (msg->event == "granted") {
+            if (phase_ == Phase::kWaitGrant) {
+              grant_hint_ = grant_hint_ || lease_tracker_.CanHintGrant(msg->service_epoch);
+            } else if (msg->resource_ids.size() == msg->resource_revisions.size()) {
+              std::vector<std::string> unused;
+              for (std::size_t i = 0; i < msg->resource_ids.size(); ++i) {
+                const auto& id = msg->resource_ids[i];
+                if (lease_tracker_.AcceptUnneededGrant(
+                        msg->service_epoch, id, msg->resource_revisions[i]) &&
+                    ParseNodeResource(id) != std::optional<std::string>(current_station_)) {
+                  unused.push_back(id);
+                }
+              }
+              Release(unused);
+            }
           }
-          grant_hint_ = true;  // 立刻重申请一次（已授予的会直接返回 granted）
         });
     traffic_state_sub_ = create_subscription<robot_interfaces_mission::msg::TrafficState>(
-        "/traffic/state", 10, [this](robot_interfaces_mission::msg::TrafficState::SharedPtr msg) {
+        "/traffic/state", 10, [this](robot_interfaces_mission::msg::TrafficState::ConstSharedPtr msg,
+                               const rclcpp::MessageInfo& info) {
           std::set<EdgeKey> blocked;
-          bool own_any = false;
+          std::set<std::string> owned;
           for (std::size_t i = 0; i < msg->resource_ids.size() && i < msg->owner_ids.size(); ++i) {
             if (msg->owner_ids[i].rfind("traffic_block:", 0) == 0) {
               if (const auto edge = ParseEdgeResource(msg->resource_ids[i])) {
                 blocked.insert(*edge);
               }
             }
-            own_any = own_any || msg->owner_ids[i] == robot_id_;
+            if (msg->owner_ids[i] == robot_id_) {
+              owned.insert(msg->resource_ids[i]);
+            }
           }
           blocked_edges_ = std::move(blocked);
-          if (paused_ && !own_any) {
+          if (paused_ && owned.empty() && !MotionHeldForTaskControl()) {
             // 兜底暂停后运维清除了本车的路权：恢复，先重新占住所在路口。
             paused_ = false;
-            held_.clear();
+            lease_tracker_.ClearHeld();
             phase_ = Phase::kReclaim;
             RCLCPP_WARN(get_logger(), "%s: resumed after deadlock pause", robot_id_.c_str());
           }
+          observed_owned_ = std::move(owned);
+          observed_traffic_mode_ = msg->mode;
+          const auto& gid = info.get_rmw_message_info().publisher_gid;
+          constexpr char hex[] = "0123456789abcdef";
+          observed_traffic_authority_.clear();
+          for (const auto byte : gid.data) {
+            observed_traffic_authority_.push_back(hex[byte >> 4]);
+            observed_traffic_authority_.push_back(hex[byte & 0xf]);
+          }
+          traffic_seen_s_ = Now();
         });
     yield_sub_ = create_subscription<robot_interfaces_mission::msg::TrafficYield>(
         "/traffic/yield", rclcpp::QoS(50).reliable(),
@@ -501,7 +559,7 @@ class FleetTaskAgent final : public rclcpp::Node {
   enum class Phase {
     kLoadMap, kClaimStart, kIdle, kRoute, kWaitGrant, kDrive, kDwell, kYieldHold, kReclaim
   };
-  enum class Goal { kNone, kPickup, kDropoff, kHome };
+  enum class Goal { kNone, kPickup, kDropoff, kHome, kRelocate };
 
   struct StationPose {
     double x = 0.0;
@@ -513,16 +571,418 @@ class FleetTaskAgent final : public rclcpp::Node {
       std::chrono::steady_clock::now().time_since_epoch()).count(); }
   bool WholeRoute() const { return traffic_mode_ == "whole_route"; }
 
+  using RemoteControl = robot_interfaces_fleet::srv::ControlRemoteFleetTask;
+
+  struct TaskControlReceipt {
+    std::string task_id;
+    std::uint8_t operation;
+    std::string destination_station;
+    std::string result;
+    std::string message;
+  };
+
+  bool FleetStopped(const double t) const {
+    return fleet_stop_sub_ &&
+        robot_simulation::FleetSimMotionStopped(fleet_stopped_, fleet_stop_seen_s_, t);
+  }
+
+  bool MotionHeldForTaskControl() const { return active_stop_revision_ || canceled_hold_; }
+
+  bool OwnsMotionResources(const double t) const {
+    const auto& held = lease_tracker_.held();
+    return traffic_seen_s_ && t - *traffic_seen_s_ <= 2.5 && !held.empty() &&
+        std::includes(observed_owned_.begin(), observed_owned_.end(), held.begin(), held.end());
+  }
+
+  void HandleRemoteControl(
+      const RemoteControl::Request& request, RemoteControl::Response& response) {
+    const bool identifies_current = request.task_id == task_id_ ||
+        (canceled_hold_ && request.task_id == canceled_task_id_);
+    const auto execution = request.execution_id == 0 && identifies_current
+                               ? task_execution_id_ : request.execution_id;
+    response.task_id = request.task_id;
+    response.execution_id = execution;
+    response.revision = request.revision;
+    if (restart_recovery_required_) {
+      response.result = "RECOVERY_REQUIRED";
+      response.message = "vehicle state and occupied route need restart reconciliation";
+      return;
+    }
+    const bool active = !task_id_.empty() && request.task_id == task_id_ &&
+                        execution == task_execution_id_;
+    const bool parked = canceled_hold_ && request.task_id == canceled_task_id_ &&
+                        execution == task_execution_id_;
+    if (active || parked) {
+      response.latest_revision = last_control_revision_;
+    }
+    const auto key = std::make_pair(execution, request.revision);
+    auto prior = control_receipts_.find(key);
+    if (prior != control_receipts_.end()) {
+      if (prior->second.task_id != request.task_id ||
+          (request.operation != RemoteControl::Request::QUERY &&
+           (prior->second.operation != request.operation ||
+            prior->second.destination_station != request.destination_station))) {
+        response.result = "REJECTED";
+        response.message = "control revision already belongs to another request";
+        return;
+      }
+      response.result = prior->second.result;
+      response.message = prior->second.message;
+      response.success = response.result != "REJECTED" && response.result != "SUPERSEDED";
+      return;
+    }
+    if (request.operation == RemoteControl::Request::QUERY) {
+      response.success = (active || parked) && request.revision == 0;
+      response.result = !response.success ? "UNKNOWN" :
+          (parked ? "AWAITING_MOVE" : (MotionHeldForTaskControl() ? "HELD" : "RUNNING"));
+      response.message = response.success ? "current execution" : "control receipt unknown";
+      return;
+    }
+    if ((!active && !(parked && request.operation == RemoteControl::Request::MOVE)) ||
+        request.execution_id == 0 || request.revision <= last_control_revision_) {
+      response.result = "REJECTED";
+      response.message = "task execution or revision changed";
+      return;
+    }
+
+    last_control_revision_ = request.revision;
+    response.latest_revision = last_control_revision_;
+    auto& receipt = control_receipts_.emplace(
+        key, TaskControlReceipt{request.task_id, request.operation, request.destination_station,
+                                "REJECTED", "operation unavailable"})
+                        .first->second;
+    if (parked_checkpoint_ && checkpoint_enabled_) {
+      // Persist the revision even when the request will be rejected. A delayed
+      // retry after restart must not turn a spent move request into motion.
+      auto updated = *parked_checkpoint_;
+      updated.latest_revision = last_control_revision_;
+      if (!parked_store_.Save(updated)) {
+        receipt.message = "cannot persist parked control revision";
+        response.result = receipt.result;
+        response.message = receipt.message;
+        return;
+      }
+      parked_checkpoint_ = std::move(updated);
+    }
+    if (request.operation == RemoteControl::Request::MOVE && parked) {
+      RequestRelocation(request.destination_station, receipt);
+    } else if (request.operation == RemoteControl::Request::RESUME) {
+      if (FleetStopped(Now())) {
+        receipt.message = "fleet stop active or unavailable";
+      } else if (!active_stop_revision_ || !stop_confirmed_) {
+        receipt.message = "task has no confirmed pause";
+      } else if (paused_ || !OwnsMotionResources(Now())) {
+        receipt.message = "task must retain its motion resources before resuming";
+      } else if (parked_checkpoint_ && !ParkedResourcesMatch(*parked_checkpoint_)) {
+        receipt.message = "saved stop no longer matches live traffic authority";
+      } else if (!InvalidateStopCheckpoint()) {
+        receipt.message = "cannot invalidate stop checkpoint before resuming";
+      } else {
+        if (phase_ == Phase::kDwell && dwell_frozen_at_) {
+          dwell_until_ += Now() - *dwell_frozen_at_;
+        }
+        active_stop_revision_.reset();
+        dwell_frozen_at_.reset();
+        stop_confirmed_ = false;
+        receipt.result = "RESUMED";
+        receipt.message = "task allowed to resume";
+        UpdateTaskState("RUNNING", receipt.message);
+      }
+    } else if (request.operation == RemoteControl::Request::PAUSE ||
+               request.operation == RemoteControl::Request::CANCEL) {
+      if (active_stop_revision_ &&
+          control_receipts_.at({task_execution_id_, *active_stop_revision_}).operation ==
+              RemoteControl::Request::CANCEL) {
+        receipt.message = "task cancellation already in progress";
+      } else if (!InvalidateStopCheckpoint()) {
+        receipt.message = "cannot invalidate previous stop checkpoint";
+      } else {
+        if (active_stop_revision_ && !stop_confirmed_) {
+          auto& previous = control_receipts_.at({task_execution_id_, *active_stop_revision_});
+          previous.result = "SUPERSEDED";
+          previous.message = "replaced by a newer stop request";
+        }
+        if (!active_stop_revision_) {
+          dwell_frozen_at_ = Now();
+        }
+        active_stop_revision_ = request.revision;
+        stop_confirmed_ = false;
+        stop_observation_.Reset();
+        const bool cancel = request.operation == RemoteControl::Request::CANCEL;
+        receipt.result = cancel ? "CANCELING" : "PAUSING";
+        receipt.message = "waiting for stationary odometry";
+      }
+    }
+    response.result = receipt.result;
+    response.message = receipt.message;
+    response.success = receipt.result != "REJECTED";
+  }
+
+  void RequestRelocation(const std::string& destination, TaskControlReceipt& receipt) {
+    const bool mid_segment = phase_ == Phase::kDrive;
+    const auto& exit_station = mid_segment ? target_station_ : current_station_;
+    if (FleetStopped(Now()) || paused_ || !OwnsMotionResources(Now()) || route_call_.pending()) {
+      receipt.message = "relocation waiting for fresh stop and route state";
+      return;
+    }
+    if (destination.empty() || (destination == exit_station && !mid_segment) ||
+        stations_.count(destination) == 0U ||
+        (destination != exit_station && ShortestPath(exit_station, destination).size() < 2U)) {
+      receipt.message = "destination must be reachable from the next safe exit";
+      return;
+    }
+    if (parked_checkpoint_ && !ParkedResourcesMatch(*parked_checkpoint_)) {
+      receipt.message = "saved stop no longer matches live traffic authority";
+      return;
+    }
+    if (!InvalidateStopCheckpoint()) {
+      receipt.message = "cannot invalidate parked checkpoint before relocation";
+      return;
+    }
+    ClearYieldState();
+    goal_ = Goal::kRelocate;
+    relocation_destination_ = destination;
+    if (mid_segment) {
+      // Finish the occupied edge under the existing grant before planning from
+      // its exit; retain the edge lease until CheckArrival releases it.
+      goal_station_ = exit_station;
+      path_ = {current_station_, exit_station};
+      path_index_ = 1;
+    } else {
+      goal_station_ = destination;
+      phase_ = Phase::kRoute;
+    }
+    canceled_hold_ = false;
+    receipt.result = "MOVE_ACCEPTED";
+    receipt.message = "independent relocation accepted";
+  }
+
+  bool InvalidateStopCheckpoint() {
+    if (parked_checkpoint_ && !parked_store_.Invalidate()) {
+      return false;
+    }
+    parked_checkpoint_.reset();
+    return true;
+  }
+
+  std::optional<robot_simulation::PausedTaskProgress> CapturePausedProgress() const {
+    if ((goal_ != Goal::kPickup && goal_ != Goal::kDropoff) ||
+        (phase_ != Phase::kDrive && phase_ != Phase::kDwell) || paused_ ||
+        pending_yield_ || replan_requested_ || !backoff_station_.empty() ||
+        !avoid_nodes_.empty() || !avoid_edges_.empty()) {
+      return std::nullopt;
+    }
+    robot_simulation::PausedTaskProgress progress;
+    progress.pickup_leg = goal_ == Goal::kPickup;
+    progress.pickup = pickup_;
+    progress.dropoff = dropoff_;
+    progress.priority = priority_;
+    if (phase_ == Phase::kDrive) {
+      progress.path = path_;
+      progress.path_index = path_index_;
+    } else {
+      progress.dwell_remaining = std::max(0.0, dwell_until_ - dwell_frozen_at_.value_or(Now()));
+    }
+    return progress;
+  }
+
+  void ObserveTaskStopped(const double t) {
+    if (!active_stop_revision_ || stop_confirmed_ ||
+        !stop_observation_.Observe(t, pose_.x, pose_.y)) {
+      return;
+    }
+    auto& receipt = control_receipts_.at({task_execution_id_, *active_stop_revision_});
+    const bool cancel = receipt.operation == RemoteControl::Request::CANCEL;
+    const auto progress = !cancel && checkpoint_enabled_ ? CapturePausedProgress() : std::nullopt;
+    if (checkpoint_enabled_ && (cancel || progress.has_value())) {
+      const auto exit_station = phase_ == Phase::kDrive ? target_station_ : std::string{};
+      robot_simulation::ParkedTaskCheckpoint checkpoint{
+          robot_id_, traffic_mode_, task_id_, current_station_, exit_station, task_execution_id_,
+          *active_stop_revision_, last_control_revision_, pose_.x, pose_.y, pose_.yaw,
+          lease_tracker_.held(),
+          completed_any_task_, observed_traffic_authority_, progress};
+      if (!parked_store_.Save(checkpoint)) {
+        RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "cannot persist task stop");
+        return;
+      }
+      parked_checkpoint_ = std::move(checkpoint);
+    }
+    stop_confirmed_ = true;
+    receipt.result = cancel ? "CANCELED" : "PAUSED";
+    receipt.message = "stationary odometry confirmed";
+    UpdateTaskState(receipt.result, receipt.message);
+    if (cancel) {
+      canceled_hold_ = true;
+      canceled_task_id_ = task_id_;
+      task_id_.clear();
+      active_stop_revision_.reset();
+    }
+  }
+
+  bool CheckParkedLocation(const robot_simulation::ParkedTaskCheckpoint& saved) const {
+    const auto from = stations_.find(saved.station);
+    if (from == stations_.end()) {
+      return false;
+    }
+    const auto& start = from->second;
+    if (saved.exit_station.empty()) {
+      return std::hypot(saved.x - start.x, saved.y - start.y) <= goal_tolerance_m_ &&
+          std::any_of(saved.resources.begin(), saved.resources.end(), [&](const auto& id) {
+            return ParseNodeResource(id) == saved.station;
+          });
+    }
+    const auto exit = stations_.find(saved.exit_station);
+    const auto edges = graph_.find(saved.station);
+    if (exit == stations_.end() || edges == graph_.end() ||
+        std::none_of(edges->second.begin(), edges->second.end(), [&](const auto& edge) {
+          return edge.to == saved.exit_station;
+        })) {
+      return false;
+    }
+    const auto physical_edge = std::minmax(saved.station, saved.exit_station);
+    if (std::none_of(saved.resources.begin(), saved.resources.end(), [&](const auto& id) {
+          const auto edge = ParseEdgeResource(id);
+          return edge && edge->first == physical_edge.first && edge->second == physical_edge.second;
+        })) {
+      return false;
+    }
+    const double dx = exit->second.x - start.x;
+    const double dy = exit->second.y - start.y;
+    const double length_squared = dx * dx + dy * dy;
+    if (length_squared <= 0.0) {
+      return false;
+    }
+    const double t = std::clamp(((saved.x - start.x) * dx + (saved.y - start.y) * dy) /
+                                    length_squared, 0.0, 1.0);
+    return std::hypot(saved.x - start.x - t * dx, saved.y - start.y - t * dy) <=
+        goal_tolerance_m_;
+  }
+
+  bool ParkedResourcesMatch(const robot_simulation::ParkedTaskCheckpoint& saved) const {
+    return traffic_seen_s_ && Now() - *traffic_seen_s_ <= 2.5 &&
+        observed_traffic_mode_ == saved.mode && observed_owned_ == saved.resources &&
+        observed_traffic_authority_ == saved.traffic_authority;
+  }
+
+  bool CheckPausedPath(const robot_simulation::ParkedTaskCheckpoint& saved) const {
+    if (!saved.paused) {
+      return true;
+    }
+    const auto& progress = *saved.paused;
+    const auto& destination = progress.pickup_leg ? progress.pickup : progress.dropoff;
+    if (saved.exit_station.empty()) {
+      return progress.path.empty() && saved.station == destination;
+    }
+    if (progress.path.empty() || progress.path_index == 0 ||
+        progress.path_index >= progress.path.size() || progress.path.back() != destination ||
+        progress.path[progress.path_index - 1] != saved.station ||
+        progress.path[progress.path_index] != saved.exit_station) {
+      return false;
+    }
+    for (std::size_t i = progress.path_index; i < progress.path.size(); ++i) {
+      const auto edge = graph_.find(progress.path[i - 1]);
+      if (edge == graph_.end() ||
+          std::none_of(edge->second.begin(), edge->second.end(), [&](const auto& candidate) {
+            return candidate.to == progress.path[i];
+          })) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void ReconcileParkedTask() {
+    if (!parked_checkpoint_) {
+      return;
+    }
+    LoadMap();
+    ResendOverdueRequests(Now());
+    const auto& saved = *parked_checkpoint_;
+    if (stations_.empty() || graph_.empty() || !CheckParkedLocation(saved) ||
+        !CheckPausedPath(saved) || !ParkedResourcesMatch(saved) || !tasks_client_->service_is_ready() ||
+        tasks_call_.pending() || !t_ok(last_task_poll_, 0.5)) {
+      return;
+    }
+    auto request = std::make_shared<robot_interfaces_fleet::srv::ListRemoteTasks::Request>();
+    request->robot_id = robot_id_;
+    request->state = saved.paused ? "PAUSED" : "CANCELED";
+    tasks_call_.Send(tasks_client_, request, [this](const auto& reply) {
+      if (!reply->success || !restart_recovery_required_ || !parked_checkpoint_) {
+        return;
+      }
+      const auto& saved = *parked_checkpoint_;
+      const auto task = std::find(reply->task_ids.begin(), reply->task_ids.end(), saved.task_id);
+      if (task == reply->task_ids.end() || !ParkedResourcesMatch(saved)) {
+        return;
+      }
+      const auto index = static_cast<std::size_t>(task - reply->task_ids.begin());
+      if (index >= reply->assigned_robot_ids.size() || index >= reply->states.size() ||
+          reply->assigned_robot_ids[index] != robot_id_ ||
+          reply->states[index] != (saved.paused ? "PAUSED" : "CANCELED")) {
+        return;
+      }
+      pose_ = {saved.x, saved.y, saved.yaw};
+      have_pose_ = true;
+      current_station_ = saved.station;
+      target_station_ = saved.exit_station;
+      phase_ = target_station_.empty() ? Phase::kIdle : Phase::kDrive;
+      completed_any_task_ = saved.completed_task;
+      task_execution_id_ = saved.execution;
+      last_control_revision_ = saved.latest_revision;
+      if (saved.paused) {
+        const auto& progress = *saved.paused;
+        if (index >= reply->pickup_stations.size() || index >= reply->dropoff_stations.size() ||
+            reply->pickup_stations[index] != progress.pickup ||
+            reply->dropoff_stations[index] != progress.dropoff) {
+          return;
+        }
+        task_id_ = saved.task_id;
+        pickup_ = progress.pickup;
+        dropoff_ = progress.dropoff;
+        priority_ = progress.priority;
+        goal_ = progress.pickup_leg ? Goal::kPickup : Goal::kDropoff;
+        goal_station_ = progress.pickup_leg ? pickup_ : dropoff_;
+        path_ = progress.path;
+        path_index_ = progress.path_index;
+        task_started_t_ = Now();
+        if (target_station_.empty()) {
+          phase_ = Phase::kDwell;
+          dwell_frozen_at_ = Now();
+          dwell_until_ = *dwell_frozen_at_ + progress.dwell_remaining;
+        }
+        active_stop_revision_ = saved.stop_revision;
+        stop_confirmed_ = true;
+        control_receipts_.emplace(std::make_pair(saved.execution, saved.stop_revision),
+            TaskControlReceipt{saved.task_id, RemoteControl::Request::PAUSE, "", "PAUSED",
+                               "stationary odometry confirmed"});
+      } else {
+        canceled_task_id_ = saved.task_id;
+        canceled_hold_ = true;
+        control_receipts_.emplace(std::make_pair(saved.execution, saved.stop_revision),
+            TaskControlReceipt{saved.task_id, RemoteControl::Request::CANCEL, "", "CANCELED",
+                               "stationary odometry confirmed"});
+      }
+      lease_tracker_.RestoreReconciledResources(saved.resources);
+      restart_recovery_required_ = false;
+      RCLCPP_INFO(get_logger(), "reconciled task stop for %s at %s",
+                  saved.task_id.c_str(), current_station_.c_str());
+    }, Now());
+  }
+
   // ---------------------------------------------------------------- main loop
   void Tick() {
     const double t = Now();
     const double dt = last_tick_ > 0.0 ? std::min(t - last_tick_, 0.2) : 0.0;
     last_tick_ = t;
 
-    const bool stopped = fleet_stop_sub_ &&
-        robot_simulation::FleetSimMotionStopped(fleet_stopped_, fleet_stop_seen_s_, t);
+    if (restart_recovery_required_) {
+      ReconcileParkedTask();
+      return;
+    }
+    const bool fleet_stopped = FleetStopped(t);
+    const bool task_held = MotionHeldForTaskControl();
     geometry_msgs::msg::Twist cmd;
-    if (!stopped && phase_ == Phase::kDrive) {
+    if (!fleet_stopped && !task_held && phase_ == Phase::kDrive) {
       cmd = DriveCommand();
     }
     if (kinematic_sim_ && have_pose_) {
@@ -532,10 +992,23 @@ class FleetTaskAgent final : public rclcpp::Node {
     }
     if (have_pose_ && t - last_odom_pub_ >= 0.1) {
       PublishOdom();
+      ObserveTaskStopped(t);
       last_odom_pub_ = t;
     }
-    if (stopped) return;
+    if (!fleet_stopped || task_held) {
+      ResendOverdueRequest(release_call_, "/v2/release_route_segment", t);
+      ResendOverdueRequest(fleet_state_call_, "/v2/update_fleet_robot_state", t);
+      ResendOverdueRequest(task_state_call_, "/v2/update_remote_task_state", t);
+      FlushPendingWrites(t);
+      FlushPendingReleases(t);
+    }
+    if (fleet_stopped) {
+      return;
+    }
     ResendOverdueRequests(t);
+    if (task_held) {
+      return;
+    }
 
     switch (phase_) {
       case Phase::kLoadMap: LoadMap(); break;
@@ -551,17 +1024,19 @@ class FleetTaskAgent final : public rclcpp::Node {
   }
 
   // 与阶段无关：换了阶段，在途请求也还要等到应答（否则 pending 永远不清）。
+  template <typename RequestT>
+  void ResendOverdueRequest(RequestT& call, const char* service, const double t) {
+    if (call.ResendIfOverdue(t)) {
+      RCLCPP_WARN(get_logger(), "%s: no response from %s for %.0fs, resending",
+                  robot_id_.c_str(), service, robot_simulation::kServiceResponseTimeoutS);
+    }
+  }
+
   void ResendOverdueRequests(const double t) {
-    const auto resend = [&](auto& call, const char* service) {
-      if (call.ResendIfOverdue(t)) {
-        RCLCPP_WARN(get_logger(), "%s: no response from %s for %.0fs, resending",
-                    robot_id_.c_str(), service, robot_simulation::kServiceResponseTimeoutS);
-      }
-    };
-    resend(stations_call_, "/v2/list_stations");
-    resend(routes_call_, "/v2/list_station_routes");
-    resend(tasks_call_, "/v2/list_remote_tasks");
-    resend(route_call_, "/v2/request_route_segment");
+    ResendOverdueRequest(stations_call_, "/v2/list_stations", t);
+    ResendOverdueRequest(routes_call_, "/v2/list_station_routes", t);
+    ResendOverdueRequest(tasks_call_, "/v2/list_remote_tasks", t);
+    ResendOverdueRequest(route_call_, "/v2/request_route_segment", t);
   }
 
   // ---------------------------------------------------------------- map
@@ -600,7 +1075,7 @@ class FleetTaskAgent final : public rclcpp::Node {
           },
           Now());
     }
-    if (!stations_.empty() && !graph_.empty()) {
+    if (!restart_recovery_required_ && !stations_.empty() && !graph_.empty()) {
       const auto it = stations_.find(initial_station_id_);
       if (it == stations_.end()) {
         RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "unknown initial station %s",
@@ -627,6 +1102,10 @@ class FleetTaskAgent final : public rclcpp::Node {
 
   // 起点：占住所在站点的路口，再在车队里登记为 available。
   void ClaimStart() {
+    if (!lease_tracker_.pending_releases().empty()) {
+      FlushPendingReleases(Now());
+      return;
+    }
     if (route_call_.pending() || !request_client_->service_is_ready() ||
         !fleet_state_client_->service_is_ready() || !t_ok(last_claim_, 1.0)) {
       return;
@@ -635,7 +1114,6 @@ class FleetTaskAgent final : public rclcpp::Node {
       if (!r->granted) {
         return;  // 下一秒重试（rolling 下已在队列里）
       }
-      held_.insert(r->resource_ids.begin(), r->resource_ids.end());
       UpdateFleetState("available", current_station_);
       phase_ = Phase::kIdle;
       RCLCPP_INFO(get_logger(), "%s ready at %s", robot_id_.c_str(), current_station_.c_str());
@@ -655,7 +1133,7 @@ class FleetTaskAgent final : public rclcpp::Node {
     tasks_call_.Send(
         tasks_client_, req,
         [this](const auto& r) {
-          if (!r->success) {
+          if (!r->success || MotionHeldForTaskControl() || FleetStopped(Now())) {
             return;
           }
           const bool heading_home =
@@ -681,6 +1159,10 @@ class FleetTaskAgent final : public rclcpp::Node {
 
   // 兜底暂停解除后：重新占住所在路口，再继续本程。
   void Reclaim() {
+    if (!lease_tracker_.pending_releases().empty()) {
+      FlushPendingReleases(Now());
+      return;
+    }
     if (route_call_.pending() || !t_ok(last_claim_, 1.0)) {
       return;
     }
@@ -688,7 +1170,6 @@ class FleetTaskAgent final : public rclcpp::Node {
       if (!r->granted || phase_ != Phase::kReclaim) {
         return;
       }
-      held_.insert(r->resource_ids.begin(), r->resource_ids.end());
       phase_ = goal_ == Goal::kNone ? Phase::kIdle : Phase::kRoute;
     });
   }
@@ -696,6 +1177,13 @@ class FleetTaskAgent final : public rclcpp::Node {
   void StartTask(const std::string& task_id, const std::string& pickup,
                  const std::string& dropoff, const int priority) {
     ClearYieldState();
+    // A process restart gets a different execution ID even if the dispatcher
+    // still lists the same business task.
+    task_execution_id_ = execution_rng_();
+    if (task_execution_id_ == 0) {
+      task_execution_id_ = 1;
+    }
+    last_control_revision_ = 0;
     task_id_ = task_id;
     pickup_ = pickup;
     dropoff_ = dropoff;
@@ -717,6 +1205,23 @@ class FleetTaskAgent final : public rclcpp::Node {
   }
 
   void Route() {
+    if (!lease_tracker_.pending_releases().empty()) {
+      FlushPendingReleases(Now());
+      return;
+    }
+    using robot_simulation::RouteEntryAction;
+    switch (robot_simulation::DecideRouteEntryAction(
+        paused_, pending_yield_.has_value(), route_call_.pending())) {
+      case RouteEntryAction::kWaitPaused:
+      case RouteEntryAction::kWaitInFlight:
+        return;
+      case RouteEntryAction::kApplyYield:
+        ApplyYield(*pending_yield_);
+        pending_yield_.reset();
+        return;
+      case RouteEntryAction::kContinue:
+        break;
+    }
     if (task_id_.empty() && goal_ == Goal::kHome) {
       PollTasks();  // 回停车位途中有新任务就改去取货
       if (!task_id_.empty()) {
@@ -750,6 +1255,10 @@ class FleetTaskAgent final : public rclcpp::Node {
     if (task_id_.empty() && goal_ == Goal::kHome) {
       PollTasks();  // 在站点等路权时也可以改去接新任务
     }
+    if (!lease_tracker_.pending_releases().empty()) {
+      FlushPendingReleases(Now());
+      return;
+    }
     if (route_call_.pending() || phase_ != Phase::kWaitGrant || paused_) {
       return;
     }
@@ -778,7 +1287,6 @@ class FleetTaskAgent final : public rclcpp::Node {
       if (phase_ != Phase::kWaitGrant) {
         // 等待期间改了目标（接到新任务）：这份授予用不上，还回去，只留当前路口。
         if (r->granted) {
-          held_.insert(r->resource_ids.begin(), r->resource_ids.end());
           std::vector<std::string> unused;
           for (const auto& id : r->resource_ids) {
             if (ParseNodeResource(id) != std::optional<std::string>(current_station_)) {
@@ -790,7 +1298,6 @@ class FleetTaskAgent final : public rclcpp::Node {
         return;
       }
       if (r->granted) {
-        held_.insert(r->resource_ids.begin(), r->resource_ids.end());
         task_wait_s_ += Now() - wait_started_t_;
         if (!task_id_.empty()) {
           total_wait_s_ += Now() - wait_started_t_;
@@ -827,20 +1334,61 @@ class FleetTaskAgent final : public rclcpp::Node {
     req->priority = priority_;
     req->station_path = path;
     req->goal_station = goal_station_;
-    route_call_.Send(request_client_, req, std::move(on_done), Now());
+    route_call_.Send(
+        request_client_, req,
+        [this, on_done = std::move(on_done)](const auto& r) {
+          if (lease_tracker_.AcceptRequestResponse(
+                  r->service_epoch, r->granted, r->resource_ids, r->resource_revisions)) {
+            on_done(r);
+          }
+        },
+        Now());
   }
 
   void Release(const std::vector<std::string>& ids) {
     if (ids.empty()) {
       return;
     }
-    for (const auto& id : ids) {
-      held_.erase(id);
+    lease_tracker_.QueueRelease(ids);
+    FlushPendingReleases(Now());
+  }
+
+  void FlushPendingReleases(const double now_s) {
+    const auto& pending = lease_tracker_.pending_releases();
+    if (pending.empty() || release_call_.pending() || !release_client_->service_is_ready()) {
+      return;
+    }
+    const std::uint64_t batch_epoch = pending.begin()->second.service_epoch;
+    std::vector<std::pair<std::string, robot_simulation::LeaseToken>> sent_batch;
+    std::vector<std::string> ids;
+    std::vector<std::uint64_t> expected_revisions;
+    for (const auto& [id, token] : pending) {
+      if (token.service_epoch != batch_epoch) {
+        continue;
+      }
+      sent_batch.emplace_back(id, token);
+      ids.push_back(id);
+      expected_revisions.push_back(token.revision);
     }
     auto req = std::make_shared<robot_interfaces_mission::srv::ReleaseRouteSegment::Request>();
     req->robot_id = robot_id_;
-    req->resource_ids = ids;
-    release_client_->async_send_request(req);
+    req->resource_ids = std::move(ids);
+    if (batch_epoch != 0U) {
+      req->expected_service_epoch = batch_epoch;
+      req->expected_revisions = std::move(expected_revisions);
+    }
+    release_call_.Send(
+        release_client_, req,
+        [this, sent_batch = std::move(sent_batch)](const auto& response) {
+          if (!response->success) {
+            return;
+          }
+          lease_tracker_.AcknowledgeReleaseBatch(sent_batch);
+          if (!lease_tracker_.pending_releases().empty()) {
+            FlushPendingReleases(Now());
+          }
+        },
+        now_s);
   }
 
   // ---------------------------------------------------------------- driving
@@ -922,7 +1470,7 @@ class FleetTaskAgent final : public rclcpp::Node {
   // 释放本车持有（授予应答给过）的资源中除当前路口外的全部。
   void ReleaseAllExceptCurrent() {
     std::vector<std::string> ids;
-    for (const auto& id : held_) {
+    for (const auto& id : lease_tracker_.held()) {
       if (ParseNodeResource(id) != std::optional<std::string>(current_station_)) {
         ids.push_back(id);
       }
@@ -1023,6 +1571,14 @@ class FleetTaskAgent final : public rclcpp::Node {
         dwell_until_ = Now() + dwell_s_;
         phase_ = Phase::kDwell;
         return;
+      case Goal::kRelocate:
+        if (current_station_ != relocation_destination_) {
+          goal_station_ = relocation_destination_;
+          phase_ = Phase::kRoute;
+          return;
+        }
+        relocation_destination_.clear();
+        [[fallthrough]];
       case Goal::kHome:
       case Goal::kNone:
         goal_ = Goal::kNone;
@@ -1069,29 +1625,71 @@ class FleetTaskAgent final : public rclcpp::Node {
   }
 
   // ---------------------------------------------------------------- reporting
+  struct TaskStateUpdate {
+    std::string task_id;
+    std::string state;
+    std::string message;
+  };
+
   void UpdateTaskState(const std::string& state, const std::string& message) {
     if (task_id_.empty()) {
       return;
     }
-    auto req = std::make_shared<robot_interfaces_fleet::srv::UpdateRemoteTaskState::Request>();
-    req->task_id = task_id_;
-    req->state = state;
-    req->message = message;
-    task_state_client_->async_send_request(req);
+    pending_task_updates_.push_back(TaskStateUpdate{task_id_, state, message});
+    FlushPendingWrites(Now());
   }
 
   void UpdateFleetState(const std::string& state, const std::string& station) {
-    auto req = std::make_shared<robot_interfaces_fleet::srv::UpdateFleetRobotState::Request>();
-    req->robot_id = robot_id_;
-    req->enabled = true;
-    req->state = state;
-    req->battery_voltage = 24.0;
-    req->current_station_id = station;
-    req->update_enabled = true;
-    req->update_state = true;
-    req->update_battery_voltage = true;
-    req->update_current_station_id = true;
-    fleet_state_client_->async_send_request(req);
+    pending_fleet_state_ = state;
+    pending_fleet_station_ = station;
+    fleet_state_dirty_ = true;
+    ++fleet_state_seq_;
+    FlushPendingWrites(Now());
+  }
+
+  void FlushPendingWrites(const double now_s) {
+    if (fleet_state_dirty_ && !fleet_state_call_.pending() && fleet_state_client_->service_is_ready()) {
+      const std::uint64_t sent_seq = fleet_state_seq_;
+      auto req = std::make_shared<robot_interfaces_fleet::srv::UpdateFleetRobotState::Request>();
+      req->robot_id = robot_id_;
+      req->enabled = true;
+      req->state = pending_fleet_state_;
+      req->battery_voltage = 24.0;
+      req->current_station_id = pending_fleet_station_;
+      req->update_enabled = true;
+      req->update_state = true;
+      req->update_battery_voltage = true;
+      req->update_current_station_id = true;
+      fleet_state_call_.Send(
+          fleet_state_client_, req,
+          [this, sent_seq](const auto& response) {
+            if (response->success && fleet_state_seq_ == sent_seq) {
+              fleet_state_dirty_ = false;
+            } else if (fleet_state_dirty_) {
+              FlushPendingWrites(Now());
+            }
+          },
+          now_s);
+    }
+    if (!pending_task_updates_.empty() && !task_state_call_.pending() &&
+        task_state_client_->service_is_ready()) {
+      const auto head = pending_task_updates_.front();
+      auto req = std::make_shared<robot_interfaces_fleet::srv::UpdateRemoteTaskState::Request>();
+      req->task_id = head.task_id;
+      req->state = head.state;
+      req->message = head.message;
+      task_state_call_.Send(
+          task_state_client_, req,
+          [this](const auto& response) {
+            if (response->success && !pending_task_updates_.empty()) {
+              pending_task_updates_.pop_front();
+              if (!pending_task_updates_.empty()) {
+                FlushPendingWrites(Now());
+              }
+            }
+          },
+          now_s);
+    }
   }
 
   // ---------------------------------------------------------------- members
@@ -1120,8 +1718,13 @@ class FleetTaskAgent final : public rclcpp::Node {
   std::map<std::string, StationPose> stations_;
   std::map<std::string, std::vector<DirectedEdge>> graph_;
   std::set<EdgeKey> blocked_edges_;
-  // M3：本车持有的资源（来自授予应答）；改道时临时绕开的路段与路口；退避目标。
-  std::set<std::string> held_;
+  // M3：本车持有的资源与 v4 活跃纪元二元租约状态机；改道时临时绕开的路段与路口；退避目标。
+  robot_simulation::AgentLeaseTracker lease_tracker_;
+  std::deque<TaskStateUpdate> pending_task_updates_;
+  std::string pending_fleet_state_;
+  std::string pending_fleet_station_;
+  bool fleet_state_dirty_ = false;
+  std::uint64_t fleet_state_seq_ = 0;
   std::set<EdgeKey> avoid_edges_;
   std::set<std::string> avoid_nodes_;
   std::string backoff_station_;
@@ -1134,6 +1737,27 @@ class FleetTaskAgent final : public rclcpp::Node {
   std::string target_station_;
   std::vector<std::string> path_;
   std::size_t path_index_ = 1;
+  bool remote_control_enabled_ = false;
+  bool restart_recovery_required_ = false;
+  bool checkpoint_enabled_ = false;
+  robot_simulation::ParkedTaskCheckpointStore parked_store_;
+  std::optional<robot_simulation::ParkedTaskCheckpoint> parked_checkpoint_;
+  std::string observed_traffic_mode_;
+  std::string observed_traffic_authority_;
+  std::optional<double> traffic_seen_s_;
+  std::set<std::string> observed_owned_;
+  bool canceled_hold_ = false;
+  std::string canceled_task_id_;
+  std::string relocation_destination_;
+  bool stop_confirmed_ = false;
+  std::mt19937_64 execution_rng_{std::random_device{}()};
+  std::uint64_t task_execution_id_ = 0;
+  std::uint64_t last_control_revision_ = 0;
+  std::optional<std::uint64_t> active_stop_revision_;
+  std::optional<double> dwell_frozen_at_;
+  robot_simulation::TaskStopObservation stop_observation_;
+  std::map<std::pair<std::uint64_t, std::uint64_t>, TaskControlReceipt> control_receipts_;
+  rclcpp::Service<RemoteControl>::SharedPtr control_service_;
   std::string task_id_;
   std::string pickup_;
   std::string dropoff_;
@@ -1160,6 +1784,15 @@ class FleetTaskAgent final : public rclcpp::Node {
   robot_simulation::RetryingRequest<
       rclcpp::Client<robot_interfaces_mission::srv::RequestRouteSegment>>
       route_call_;
+  robot_simulation::RetryingRequest<
+      rclcpp::Client<robot_interfaces_mission::srv::ReleaseRouteSegment>>
+      release_call_;
+  robot_simulation::RetryingRequest<
+      rclcpp::Client<robot_interfaces_fleet::srv::UpdateFleetRobotState>>
+      fleet_state_call_;
+  robot_simulation::RetryingRequest<
+      rclcpp::Client<robot_interfaces_fleet::srv::UpdateRemoteTaskState>>
+      task_state_call_;
   double last_map_request_ = 0.0;
   double last_route_request_ = 0.0;
   double last_claim_ = 0.0;

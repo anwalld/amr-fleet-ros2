@@ -18,7 +18,10 @@ struct RouteLockReservation {
 };
 
 using RouteLockMap = std::unordered_map<std::string, std::string>;
+using RouteLockRevisionMap = std::unordered_map<std::string, std::uint64_t>;
 using RouteLockReservationMap = std::unordered_map<std::string, RouteLockReservation>;
+
+std::uint64_t GenerateTrafficServiceEpoch();
 
 struct TrafficBlockRequest {
   std::string from_station;
@@ -109,6 +112,7 @@ struct RouteSegmentDecision {
   // 被封路挡住：不授予也不排队，申请方应重新规划。
   bool replan_required = false;
   std::vector<std::string> resource_ids;
+  std::vector<std::uint64_t> resource_revisions;
   std::vector<std::string> blocking_resource_ids;
   std::vector<std::string> blocking_owner_ids;
   std::string message;
@@ -119,9 +123,12 @@ struct RouteGrant {
   std::string from_station;
   std::string to_station;
   std::vector<std::string> resource_ids;
+  std::uint64_t service_epoch = 0;
+  std::vector<std::uint64_t> resource_revisions;
 };
 
 struct RouteSegmentReleaseDecision {
+  bool invalid_expected = false;
   std::vector<std::string> released_resource_ids;
   std::vector<RouteGrant> granted;
   std::string message;
@@ -158,7 +165,8 @@ TrafficClearImpact PlanTrafficClearImpact(
     const std::unordered_map<std::string, std::string>& paused_group_of);
 void ApplyTrafficClearImpact(
     const TrafficClearImpact& impact, RouteLockMap& route_locks,
-    RouteLockReservationMap& route_locks_by_mission);
+    RouteLockReservationMap& route_locks_by_mission,
+    RouteLockRevisionMap* route_lock_revisions = nullptr);
 
 // 死锁检测（M3 起为等待图找环）见 traffic_deadlock.hpp。
 std::vector<std::string> BuildRouteLockIds(
@@ -172,12 +180,13 @@ bool ReserveRouteLocksForMission(
 bool ReserveRouteLocksForMission(
     RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
     const std::string& mission_id, const std::string& owner_id,
-    const std::vector<std::string>& route_lock_ids, std::string* message);
+    const std::vector<std::string>& route_lock_ids, std::string* message,
+    RouteLockRevisionMap* route_lock_revisions = nullptr, std::uint64_t* next_revision = nullptr);
 // 释放一张工单锁的资源：只放掉仍归它的占用者所有、且不被同一占用者其他工单引用的资源。
 // 占用者就是任务号（旧调用）时，另外清掉该任务号占着的全部残留资源。
 bool ReleaseRouteLocksForMission(
     RouteLockMap& route_locks, RouteLockReservationMap& route_locks_by_mission,
-    const std::string& mission_id);
+    const std::string& mission_id, RouteLockRevisionMap* route_lock_revisions = nullptr);
 
 // 一段路（from → to）要申请的资源：路段锁 + 下一个路口锁（可关）。
 // from 为空表示“直接去 to”（起点未知），只申请路口 to。
@@ -198,19 +207,9 @@ std::vector<std::string> BuildRoutePathResourceIds(
 RouteSegmentDecision PlanRouteSegmentRequest(
     const RouteSegmentRequest& request, RouteLockMap& route_locks,
     RouteWaitQueueMap& wait_queues, std::uint64_t* next_sequence,
-    const RouteHoldMap* holds = nullptr);
-
-// 释放该车持有的资源（resource_ids 为空 = 全部）。等在这些资源上的车按优先级、
-// 到达顺序依次尝试授予，整组资源拿不齐的跳过（可能授予多辆车）。
-RouteSegmentReleaseDecision PlanRouteSegmentRelease(
-    const std::string& robot_id, const std::vector<std::string>& resource_ids,
-    RouteLockMap& route_locks, RouteWaitQueueMap& wait_queues);
-
-// 给等在 candidate_resource_ids 上的车（为空 = 全部等待者）按优先级、到达顺序依次
-// 尝试授予，整组拿不齐的跳过。释放、解封、清除预约后以及定时兜底时调用。
-std::vector<RouteGrant> PlanRouteWaitGrants(
-    const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
-    RouteWaitQueueMap& wait_queues);
+    const RouteHoldMap* holds = nullptr,
+    RouteLockRevisionMap* route_lock_revisions = nullptr,
+    std::uint64_t* next_revision = nullptr);
 
 // M3 补授予选项：防饿死与兜底暂停。
 struct RouteWaitGrantOptions {
@@ -221,13 +220,36 @@ struct RouteWaitGrantOptions {
   const std::unordered_set<std::string>* frozen_robot_ids = nullptr;
 };
 
+// 释放该车持有的资源（resource_ids 为空 = 全部）。等在这些资源上的车按优先级、
+// 到达顺序依次尝试授予，整组资源拿不齐的跳过（可能授予多辆车）。
+RouteSegmentReleaseDecision PlanRouteSegmentRelease(
+    const std::string& robot_id, const std::vector<std::string>& resource_ids,
+    RouteLockMap& route_locks, RouteWaitQueueMap& wait_queues,
+    const RouteWaitGrantOptions& grant_options = {}, RouteHoldMap* holds = nullptr);
+
+RouteSegmentReleaseDecision PlanRouteSegmentRelease(
+    const std::string& robot_id, const std::vector<std::string>& resource_ids,
+    std::uint64_t expected_service_epoch, const std::vector<std::uint64_t>& expected_revisions,
+    std::uint64_t current_service_epoch, RouteLockMap& route_locks,
+    RouteWaitQueueMap& wait_queues, RouteLockRevisionMap* route_lock_revisions = nullptr,
+    std::uint64_t* next_revision = nullptr,
+    const RouteWaitGrantOptions& grant_options = {}, RouteHoldMap* holds = nullptr);
+
+// 给等在 candidate_resource_ids 上的车（为空 = 全部等待者）按优先级、到达顺序依次
+// 尝试授予，整组拿不齐的跳过。释放、解封、清除预约后以及定时兜底时调用。
+std::vector<RouteGrant> PlanRouteWaitGrants(
+    const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
+    RouteWaitQueueMap& wait_queues);
+
 // 同上，另按 options 处理暂扣与暂停。所有等待者按优先级、到达顺序依次过一遍：
 // 候选等待者（等在 candidate_resource_ids 上的，为空 = 全部）整组拿得齐、且不撞上
 // 别人的暂扣就授予；拿不齐而又等待过久的，把它所需的空闲资源暂扣给它。
 // 本次算出的暂扣表写入 *holds（替换原内容）。
 std::vector<RouteGrant> PlanRouteWaitGrants(
     const std::vector<std::string>& candidate_resource_ids, RouteLockMap& route_locks,
-    RouteWaitQueueMap& wait_queues, const RouteWaitGrantOptions& options, RouteHoldMap* holds);
+    RouteWaitQueueMap& wait_queues, const RouteWaitGrantOptions& options, RouteHoldMap* holds,
+    RouteLockRevisionMap* route_lock_revisions = nullptr,
+    std::uint64_t* next_revision = nullptr, std::uint64_t service_epoch = 0);
 
 // 撤掉一辆车的全部等待（取消任务时用）。返回撤掉的等待者（若有）。
 std::optional<RouteWaiter> WithdrawRouteWaits(
